@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+// Hardcoded API URL
+const API_BASE_URL = 'https://deploy-canon-backend.vercel.app/api';
 
 export const api = {
   // Thread operations
