@@ -10,13 +10,9 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true
   },
-  server: {
-    proxy: {
-      '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:3001',
-        changeOrigin: true,
-        secure: false
-      }
-    }
+  define: {
+    'import.meta.env.VITE_API_URL': JSON.stringify('https://deploy-canon-api.vercel.app/api'),
+    'import.meta.env.VITE_IPFS_GATEWAY_URL': JSON.stringify('https://cloudflare-ipfs.com/ipfs'),
+    'import.meta.env.VITE_IPFS_API_URL': JSON.stringify('https://ipfs.infura.io:5001')
   }
 })
