@@ -11,7 +11,7 @@ export default defineConfig({
     sourcemap: true
   },
   define: {
-    'import.meta.env.VITE_API_URL': JSON.stringify('https://deploy-canon-api.vercel.app/api'),
+    'import.meta.env.VITE_API_URL': JSON.stringify('https://deploy-canon.vercel.app/api'),
     'import.meta.env.VITE_IPFS_GATEWAY_URL': JSON.stringify('https://cloudflare-ipfs.com/ipfs'),
     'import.meta.env.VITE_IPFS_API_URL': JSON.stringify('https://ipfs.infura.io:5001')
   }
