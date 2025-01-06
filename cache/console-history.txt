@@ -1,0 +1,6 @@
+const CanonThread = await ethers.getContractFactory("CanonThread");
+await canonToken.waitForDeployment();
+const canonToken = await CanonToken.deploy(initialSupply);
+const initialSupply = ethers.parseEther("1000000");
+const CanonToken = await ethers.getContractFactory("CanonToken");
+const [owner, addr1, addr2] = await ethers.getSigners();
