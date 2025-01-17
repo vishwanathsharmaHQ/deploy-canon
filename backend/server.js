@@ -21,11 +21,20 @@ const pool = new Pool({
   }
 });
 
+// CORS configuration
+const corsOptions = {
+  origin: 'https://www.canonthread.com',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.use(express.json());
+
 // Serve static files from the frontend build directory
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
-
-app.use(cors());
-app.use(express.json());
 
 // Health check endpoint
 app.get('/health', (req, res) => {
