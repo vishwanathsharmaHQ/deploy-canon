@@ -295,12 +295,17 @@ app.post('/api/threads/generate', async (req, res) => {
     return res.status(400).json({ error: 'Topic is required' });
   }
 
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Request timeout')), 50000)
+  );
+
   try {
-    const threadResponse = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [{
-        role: "system",
-        content: `You are a knowledgeable assistant that creates comprehensive knowledge threads. For the given topic, generate:
+    const threadResponse = await Promise.race([
+      openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [{
+          role: "system",
+          content: `You are a knowledgeable assistant that creates comprehensive knowledge threads. For the given topic, generate:
 1. A detailed summary (2-3 paragraphs)
 2. Multiple pieces of evidence (at least 3, each with source)
 3. Context information that helps understand the topic better
@@ -326,12 +331,14 @@ Format your response as a JSON object with these fields:
   ],
   "synthesis": "comprehensive synthesis"
 }`
-      }, {
-        role: "user",
-        content: `Create a comprehensive knowledge thread about: ${topic}`
-      }],
-      temperature: 0.7,
-    });
+        }, {
+          role: "user",
+          content: `Create a comprehensive knowledge thread about: ${topic}`
+        }],
+        temperature: 0.7,
+      }),
+      timeoutPromise
+    ]);
 
     const gptContent = JSON.parse(threadResponse.choices[0].message.content);
 
@@ -407,6 +414,10 @@ Format your response as a JSON object with these fields:
 app.post('/api/nodes/suggest', async (req, res) => {
   const { nodeId, nodeType, content, title } = req.body;
 
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Request timeout')), 50000)
+  );
+
   try {
     let nodeContent = content;
     if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
@@ -432,11 +443,12 @@ app.post('/api/nodes/suggest', async (req, res) => {
       contentForGPT = nodeContent;
     }
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [{
-        role: "system",
-        content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
+    const response = await Promise.race([
+      openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [{
+          role: "system",
+          content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
 For the given content, suggest 3-4 relevant nodes that would enrich the discussion.
 Each node should have:
 1. A type (one of: EVIDENCE, REFERENCE, CONTEXT, EXAMPLE, COUNTERPOINT, SYNTHESIS)
@@ -455,12 +467,14 @@ Format your response as a JSON array of node suggestions:
     "content": "Node Content (formatted based on type)"
   }
 ]`
-      }, {
-        role: "user",
-        content: `Generate relevant nodes for this content:\nTitle: ${title}\nContent: ${contentForGPT}`
-      }],
-      temperature: 0.7,
-    });
+        }, {
+          role: "user",
+          content: `Generate relevant nodes for this content:\nTitle: ${title}\nContent: ${contentForGPT}`
+        }],
+        temperature: 0.7,
+      }),
+      timeoutPromise
+    ]);
 
     const suggestions = JSON.parse(response.choices[0].message.content);
 
