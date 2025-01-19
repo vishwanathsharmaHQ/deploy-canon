@@ -10,8 +10,17 @@ const port = process.env.PORT || 3001;
 
 // OpenAI configuration
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 50000, // 50 second timeout
 });
+
+// Timeout middleware for AI operations
+const aiTimeout = (req, res, next) => {
+  res.setTimeout(50000, () => {
+    res.status(504).send('Request timeout');
+  });
+  next();
+};
 
 // Database connection
 const pool = new Pool({
@@ -23,6 +32,9 @@ const pool = new Pool({
 
 app.use(cors());
 app.use(express.json());
+
+// Apply timeout middleware to AI routes
+app.use(['/api/nodes/suggest', '/api/threads/generate'], aiTimeout);
 
 // Serve static files from the ./dist directory
 const staticDir = path.join(__dirname, 'dist');
@@ -458,20 +470,10 @@ Format your response as a JSON array of node suggestions:
   }
 });
 
-
-
-
 // Catch-all route to handle SPA routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(staticDir, 'index.html'));
 });
-
-
-
-
-
-
-
 
 // Start the server
 app.listen(port, () => {

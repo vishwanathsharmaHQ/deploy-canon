@@ -15,5 +15,13 @@
       "src": "/(.*)",
       "dest": "server.js"
     }
-  ]
+  ],
+  "functions": {
+    "api/nodes/suggest": {
+      "maxDuration": 60
+    },
+    "api/threads/generate": {
+      "maxDuration": 60
+    }
+  }
 } 
