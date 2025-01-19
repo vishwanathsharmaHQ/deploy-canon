@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { ethers } from 'ethers'
 import CanonThread from './contracts/CanonThread.json'
 import CanonToken from './contracts/CanonToken.json'
@@ -32,7 +32,8 @@ function App() {
   const [isOnChain, setIsOnChain] = useState(false);
   const [offChainThreads, setOffChainThreads] = useState([]);
   const [isIPFSConnected, setIsIPFSConnected] = useState(false);
-  const [hasInteracted, setHasInteracted] = useState(false);
+  const dropdownRef = useRef(null);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
 
   const NODE_TYPES = [
     'EVIDENCE',
@@ -187,6 +188,14 @@ function App() {
       setLoading(true);
       setError(null);
 
+      if (!title.trim() || !content.trim()) {
+        setError('Title and content are required');
+        setLoading(false);
+        return;
+      }
+
+      console.log('Creating thread with content:', { title, description, content });
+      
       if (isOnChain && contract) {
         // Existing on-chain creation logic
         const metadata = {
@@ -207,6 +216,19 @@ function App() {
 
         const tx = await contract.createThread(metadataHash, contentHash);
         await tx.wait();
+        
+        // Get the new thread ID
+        const threadId = await contract.threadCounter();
+        
+        // Clear form and close modal
+        setTitle('');
+        setDescription('');
+        setContent('');
+        setShowCreateThreadModal(false);
+
+        // Reload threads and set the new thread as selected
+        await loadThreads();
+        setSelectedThreadId(Number(threadId));
       } else {
         // Off-chain creation
         const newThread = await api.createThread({
@@ -215,24 +237,24 @@ function App() {
           content,
           metadata: {
             createdAt: new Date().toISOString(),
-            version: 1
+            version: 1,
+            title,
+            description,
+            content
           }
         });
-        setOffChainThreads(prev => [newThread, ...prev]);
-        setSelectedThreadId(newThread.id);
-      }
+        
+        console.log('Created thread:', newThread);
+        
+        // Clear form and close modal
+        setTitle('');
+        setDescription('');
+        setContent('');
+        setShowCreateThreadModal(false);
 
-      // Clear form
-      setTitle('');
-      setDescription('');
-      setContent('');
-      setShowCreateThreadModal(false);
-
-      // Reload appropriate threads
-      if (isOnChain) {
-        await loadThreads();
-      } else {
+        // Update off-chain threads and set the new thread as selected
         await loadOffChainThreads();
+        setSelectedThreadId(newThread.id);
       }
     } catch (error) {
       console.error("Error creating thread:", error);
@@ -282,108 +304,186 @@ function App() {
       console.log("Loading on-chain threads...");
       const threadCount = await contract.threadCounter();
       console.log("Thread count:", threadCount);
-      const nodeCount = await contract.nodeCounter();
-      const proposalCount = await contract.proposalCounter();
-      const currentTimestamp = Math.floor(Date.now() / 1000);
 
-      // Create a temporary array to store all threads
-      let loadedThreads = [];
-
-      // Load threads one by one
-      for (let i = 1; i <= threadCount; i++) {
-        const threadData = await contract.threads(i);
+      // Load the latest thread first
+      if (threadCount > 0) {
+        const latestThreadId = Number(threadCount);
+        const threadData = await contract.threads(latestThreadId);
+        
         if (threadData && threadData.creator !== '0x0000000000000000000000000000000000000000') {
-          // Fetch metadata and content from IPFS
+          // Set basic thread info immediately
           const metadata = await fetchFromIPFS(threadData.metadataHash);
           const content = await fetchFromIPFS(threadData.contentHash);
-
-          // Check if user has voted
-          const hasVotedOnThread = await contract.hasVoted(i, account);
-
-          // Find the latest proposal for this thread
-          let votesFor = ethers.parseEther("0");
-          let votesAgainst = ethers.parseEther("0");
-          let proposalDeadline = 0;
-          let hasActiveProposal = false;
-
-          for (let j = 1; j <= proposalCount; j++) {
-            const proposal = await contract.proposals(j);
-            if (proposal.threadId.toString() === i.toString() && !proposal.executed) {
-              votesFor = proposal.votesFor;
-              votesAgainst = proposal.votesAgainst;
-              proposalDeadline = Number(proposal.deadline);
-              hasActiveProposal = currentTimestamp < proposalDeadline + 60;
-              break;
-            }
-          }
-
-          // Load nodes for this thread
-          const nodes = [];
-          for (let j = 1; j <= nodeCount; j++) {
-            const nodeData = await contract.nodes(j);
-            if (nodeData && 
-                nodeData.threadId.toString() === i.toString() && 
-                nodeData.contentHash !== '') {
-              const nodeMetadata = await fetchFromIPFS(nodeData.metadataHash);
-              const nodeContent = await fetchFromIPFS(nodeData.contentHash);
-              const hasVotedOnNode = await contract.hasVoted(j, account);
-              
-              // Find the latest proposal for this node
-              let nodeVotesFor = ethers.parseEther("0");
-              let nodeVotesAgainst = ethers.parseEther("0");
-              let nodeProposalDeadline = 0;
-              let nodeHasActiveProposal = false;
-
-              for (let k = 1; k <= proposalCount; k++) {
-                const proposal = await contract.proposals(k);
-                if (proposal.threadId.toString() === j.toString() && !proposal.executed) {
-                  nodeVotesFor = proposal.votesFor;
-                  nodeVotesAgainst = proposal.votesAgainst;
-                  nodeProposalDeadline = Number(proposal.deadline);
-                  nodeHasActiveProposal = currentTimestamp < nodeProposalDeadline + 60;
-                  break;
-                }
-              }
-              
-              nodes.push({
-                ...nodeData,
-                metadata: nodeMetadata,
-                content: nodeContent,
-                id: j,
-                type: Number(nodeData.nodeType),
-                hasVoted: hasVotedOnNode,
-                votesFor: nodeVotesFor,
-                votesAgainst: nodeVotesAgainst,
-                proposalDeadline: nodeProposalDeadline,
-                hasActiveProposal: nodeHasActiveProposal
-              });
-            }
-          }
-
-          // Create the thread object
-          const threadObj = {
+          
+          // Set initial thread data without nodes
+          const initialThread = {
             ...threadData,
             metadata,
             content,
-            nodes,
-            id: i,
-            hasVoted: hasVotedOnThread,
-            votesFor,
-            votesAgainst,
-            proposalDeadline,
-            hasActiveProposal
+            nodes: [], // Start with empty nodes
+            id: latestThreadId,
+            hasVoted: false, // Will be updated
+            votesFor: ethers.parseEther("0"),
+            votesAgainst: ethers.parseEther("0"),
+            proposalDeadline: 0,
+            hasActiveProposal: false
+          };
+          
+          setThreads([initialThread]);
+          setSelectedThreadId(latestThreadId);
+
+          // Load additional thread data in the background
+          const loadThreadDetails = async () => {
+            const nodeCount = await contract.nodeCounter();
+            const proposalCount = await contract.proposalCounter();
+            const currentTimestamp = Math.floor(Date.now() / 1000);
+            
+            const hasVotedOnThread = await contract.hasVoted(latestThreadId, account);
+            
+            // Load nodes
+            const nodes = [];
+            for (let j = 1; j <= nodeCount; j++) {
+              const nodeData = await contract.nodes(j);
+              if (nodeData && 
+                  nodeData.threadId.toString() === latestThreadId.toString() && 
+                  nodeData.contentHash !== '') {
+                const nodeMetadata = await fetchFromIPFS(nodeData.metadataHash);
+                const nodeContent = await fetchFromIPFS(nodeData.contentHash);
+                const hasVotedOnNode = await contract.hasVoted(j, account);
+                
+                nodes.push({
+                  ...nodeData,
+                  metadata: nodeMetadata,
+                  content: nodeContent,
+                  id: j,
+                  type: Number(nodeData.nodeType),
+                  hasVoted: hasVotedOnNode
+                });
+              }
+            }
+
+            // Find the latest proposal
+            let votesFor = ethers.parseEther("0");
+            let votesAgainst = ethers.parseEther("0");
+            let proposalDeadline = 0;
+            let hasActiveProposal = false;
+
+            for (let j = 1; j <= proposalCount; j++) {
+              const proposal = await contract.proposals(j);
+              if (proposal.threadId.toString() === latestThreadId.toString() && !proposal.executed) {
+                votesFor = proposal.votesFor;
+                votesAgainst = proposal.votesAgainst;
+                proposalDeadline = Number(proposal.deadline);
+                hasActiveProposal = currentTimestamp < proposalDeadline + 60;
+                break;
+              }
+            }
+
+            // Update thread with complete data
+            setThreads(prevThreads => [{
+              ...prevThreads[0],
+              nodes,
+              hasVoted: hasVotedOnThread,
+              votesFor,
+              votesAgainst,
+              proposalDeadline,
+              hasActiveProposal
+            }]);
           };
 
-          loadedThreads.push(threadObj);
+          // Start loading details in the background
+          loadThreadDetails();
         }
       }
 
-      setThreads(loadedThreads);
-      
-      // If no thread is selected, select the first one
-      if (!selectedThreadId && loadedThreads.length > 0) {
-        setSelectedThreadId(loadedThreads[0].id);
-      }
+      // Load remaining threads in the background
+      const loadRemainingThreads = async () => {
+        const nodeCount = await contract.nodeCounter();
+        const proposalCount = await contract.proposalCounter();
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        
+        // Load threads in reverse order (newest to oldest, excluding the latest one)
+        for (let i = threadCount - 1; i >= 1; i--) {
+          const threadData = await contract.threads(i);
+          if (threadData && threadData.creator !== '0x0000000000000000000000000000000000000000') {
+            // Set basic thread info first
+            const metadata = await fetchFromIPFS(threadData.metadataHash);
+            const content = await fetchFromIPFS(threadData.contentHash);
+            
+            // Add thread with basic info
+            setThreads(prevThreads => [...prevThreads, {
+              ...threadData,
+              metadata,
+              content,
+              nodes: [],
+              id: i,
+              hasVoted: false,
+              votesFor: ethers.parseEther("0"),
+              votesAgainst: ethers.parseEther("0"),
+              proposalDeadline: 0,
+              hasActiveProposal: false
+            }]);
+
+            // Load complete thread data
+            const hasVotedOnThread = await contract.hasVoted(i, account);
+            const nodes = [];
+            
+            // Load nodes
+            for (let j = 1; j <= nodeCount; j++) {
+              const nodeData = await contract.nodes(j);
+              if (nodeData && 
+                  nodeData.threadId.toString() === i.toString() && 
+                  nodeData.contentHash !== '') {
+                const nodeMetadata = await fetchFromIPFS(nodeData.metadataHash);
+                const nodeContent = await fetchFromIPFS(nodeData.contentHash);
+                const hasVotedOnNode = await contract.hasVoted(j, account);
+                
+                nodes.push({
+                  ...nodeData,
+                  metadata: nodeMetadata,
+                  content: nodeContent,
+                  id: j,
+                  type: Number(nodeData.nodeType),
+                  hasVoted: hasVotedOnNode
+                });
+              }
+            }
+
+            // Find the latest proposal
+            let votesFor = ethers.parseEther("0");
+            let votesAgainst = ethers.parseEther("0");
+            let proposalDeadline = 0;
+            let hasActiveProposal = false;
+
+            for (let j = 1; j <= proposalCount; j++) {
+              const proposal = await contract.proposals(j);
+              if (proposal.threadId.toString() === i.toString() && !proposal.executed) {
+                votesFor = proposal.votesFor;
+                votesAgainst = proposal.votesAgainst;
+                proposalDeadline = Number(proposal.deadline);
+                hasActiveProposal = currentTimestamp < proposalDeadline + 60;
+                break;
+              }
+            }
+
+            // Update thread with complete data
+            setThreads(prevThreads => prevThreads.map(t => 
+              t.id === i ? {
+                ...t,
+                nodes,
+                hasVoted: hasVotedOnThread,
+                votesFor,
+                votesAgainst,
+                proposalDeadline,
+                hasActiveProposal
+              } : t
+            ));
+          }
+        }
+      };
+
+      // Start loading remaining threads in the background
+      loadRemainingThreads();
     } catch (error) {
       console.error("Error loading threads:", error);
       setError("Failed to load on-chain threads: " + error.message);
@@ -482,6 +582,8 @@ function App() {
     }
     
     const { newNode } = threadData;
+    console.log('Creating node with data:', newNode);
+    
     if (!newNode?.title || !newNode?.content) {
       console.log("Missing node data");
       return;
@@ -518,7 +620,7 @@ function App() {
           newNode.type || NODE_TYPES[0];
 
         const createdNode = await api.createNode({
-          threadId: threadData.id,
+          threadId: newNode.threadId,
           title: newNode.title,
           content: newNode.content,
           nodeType,
@@ -530,12 +632,14 @@ function App() {
 
         // Update the local state with the new node
         const updatedThreads = offChainThreads.map(thread => {
-          if (thread.id === threadData.id) {
+          if (thread.id === newNode.threadId) {
             return {
               ...thread,
               nodes: [...(thread.nodes || []), {
                 ...createdNode,
-                type: NODE_TYPES.indexOf(createdNode.node_type)
+                type: NODE_TYPES.indexOf(createdNode.node_type),
+                content: createdNode.content,
+                parent_id: createdNode.parent_id
               }]
             };
           }
@@ -544,18 +648,20 @@ function App() {
         setOffChainThreads(updatedThreads);
 
         // Refresh the thread data to get the latest nodes and edges
-        const { nodes, edges } = await api.getThreadNodes(threadData.id);
+        const { nodes, edges } = await api.getThreadNodes(newNode.threadId);
         const updatedThread = {
           ...threadData,
           nodes: nodes.map(node => ({
             ...node,
-            type: NODE_TYPES.indexOf(node.node_type)
+            type: NODE_TYPES.indexOf(node.node_type),
+            content: node.content,
+            parent_id: node.parent_id
           })),
           edges
         };
         
         setOffChainThreads(prev => 
-          prev.map(t => t.id === threadData.id ? updatedThread : t)
+          prev.map(t => t.id === newNode.threadId ? updatedThread : t)
         );
       }
 
@@ -572,19 +678,27 @@ function App() {
   const loadOffChainThreads = async () => {
     try {
       const threads = await api.getThreads();
+      console.log('Loaded threads:', threads);
       
       // Load nodes for each thread
       const threadsWithNodes = await Promise.all(
         threads.map(async thread => {
           const { nodes, edges } = await api.getThreadNodes(thread.id);
+          console.log(`Loaded nodes for thread ${thread.id}:`, nodes);
           return {
             ...thread,
-            nodes,
+            content: thread.content || thread.metadata?.content,
+            nodes: nodes.map(node => ({
+              ...node,
+              content: node.content || node.metadata?.content,
+              type: NODE_TYPES.indexOf(node.node_type)
+            })),
             edges
           };
         })
       );
       
+      console.log('Threads with nodes:', threadsWithNodes);
       setOffChainThreads(threadsWithNodes);
       
       // If no thread is selected, select the first one
@@ -651,90 +765,17 @@ function App() {
     thread.metadata?.title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Cross-browser fullscreen functions
-  const requestFullscreen = async (element) => {
-    if (element.requestFullscreen) {
-      await element.requestFullscreen();
-    } else if (element.webkitRequestFullscreen) { // Safari
-      await element.webkitRequestFullscreen();
-    } else if (element.msRequestFullscreen) { // IE11
-      await element.msRequestFullscreen();
-    }
-  };
-
-  const exitFullscreen = async () => {
-    if (document.exitFullscreen) {
-      await document.exitFullscreen();
-    } else if (document.webkitExitFullscreen) { // Safari
-      await document.webkitExitFullscreen();
-    } else if (document.msExitFullscreen) { // IE11
-      await document.msExitFullscreen();
-    }
-  };
-
-  // Listen for fullscreen changes
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullScreen(
-        !!(document.fullscreenElement || 
-           document.webkitFullscreenElement || 
-           document.msFullscreenElement)
-      );
-    };
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('msfullscreenchange', handleFullscreenChange);
-
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('msfullscreenchange', handleFullscreenChange);
-    };
-  }, []);
-
-  // Handle first interaction
-  useEffect(() => {
-    const handleFirstInteraction = async () => {
-      if (!hasInteracted) {
-        setHasInteracted(true);
-        try {
-          if (!document.fullscreenElement && 
-              !document.webkitFullscreenElement && 
-              !document.msFullscreenElement) {
-            await requestFullscreen(document.documentElement);
-            setIsFullScreen(true);
-          }
-        } catch (err) {
-          console.error('Error attempting to enable full-screen mode:', err.message);
-        }
+  const toggleFullScreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch((err) => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+      setIsFullScreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+        setIsFullScreen(false);
       }
-    };
-
-    // Listen for any user interaction
-    window.addEventListener('click', handleFirstInteraction);
-    window.addEventListener('keydown', handleFirstInteraction);
-    window.addEventListener('touchstart', handleFirstInteraction);
-
-    return () => {
-      window.removeEventListener('click', handleFirstInteraction);
-      window.removeEventListener('keydown', handleFirstInteraction);
-      window.removeEventListener('touchstart', handleFirstInteraction);
-    };
-  }, [hasInteracted]);
-
-  // Update the toggleFullScreen function
-  const toggleFullScreen = useCallback(async () => {
-    try {
-      if (!document.fullscreenElement && 
-          !document.webkitFullscreenElement && 
-          !document.msFullscreenElement) {
-        await requestFullscreen(document.documentElement);
-      } else {
-        await exitFullscreen();
-      }
-    } catch (err) {
-      console.error(`Error attempting to toggle full-screen mode: ${err.message}`);
     }
   }, []);
 
@@ -791,8 +832,67 @@ function App() {
     await checkIPFSConnection(); // Check IPFS when connecting to mainline
   };
 
+  // Add click outside handler
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowThreadDropdown(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const handleThreadSelect = async (threadId) => {
+    setSelectedThreadId(threadId);
+    setShowSearchResults(false);
+  };
+
+  // Modify the search functionality
+  const handleSearchInputChange = async (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+    if (query) {
+      setShowSearchResults(true);
+    } else {
+      setShowSearchResults(false);
+    }
+  };
+
+  const handleSearchSubmit = async (e) => {
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      e.preventDefault();
+      try {
+        setIsSearchLoading(true);
+        const results = await api.searchThreads(searchQuery);
+        if (results.length === 0) {
+          // No results found, generate new thread
+          setShowSearchResults(true); // Keep showing the search results with loading state
+          const newThread = await api.generateThread(searchQuery);
+          setSelectedThreadId(newThread.id);
+          await loadOffChainThreads(); // Reload threads to get the new one
+          setSearchQuery('');
+          setShowSearchResults(false);
+        } else {
+          // Show search results
+          setShowSearchResults(true);
+        }
+      } catch (err) {
+        console.error('Search/Generate error:', err);
+        setError('Failed to search or generate thread');
+      } finally {
+        setIsSearchLoading(false);
+      }
+    }
+  };
+
   return (
     <div className="app">
+      {error && <div className="error">{error}</div>}
+      
       <div className="header">
         <div className="header-center">
           <h1>canonthread</h1>
@@ -800,12 +900,13 @@ function App() {
 
         <div className="header-right">
           {!isOnChain ? (
-            <div className="connection-statuses">
-              <div className="connection-status">
-                <div className="status-dot"></div>
-                <span>Database Connected</span>
-              </div>
-            </div>
+            <button 
+              className="mainline-connect-btn"
+              onClick={handleMainlineConnect}
+            >
+              <span className="mainline-text">Connect to Mainline</span>
+              <div className="mainline-animation"></div>
+            </button>
           ) : (
             <div className="connection-statuses">
               {account && (
@@ -838,7 +939,7 @@ function App() {
       <div className="main-content">
         <div className="visualization-container">
           <div className="thread-controls">
-            <div className="custom-select">
+            <div className="custom-select" ref={dropdownRef}>
               <button 
                 className="thread-selector"
                 onClick={() => setShowThreadDropdown(!showThreadDropdown)}
@@ -880,15 +981,18 @@ function App() {
                 className="search-input"
                 placeholder="Search threads..."
                 value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setShowSearchResults(true);
-                }}
+                onChange={handleSearchInputChange}
+                onKeyDown={handleSearchSubmit}
                 onFocus={() => setShowSearchResults(true)}
               />
               {showSearchResults && searchQuery && (
                 <div className="search-results">
-                  {filteredThreads.length > 0 ? (
+                  {isSearchLoading ? (
+                    <div className="loading-results">
+                      <div className="loading-spinner"></div>
+                      <p>Generating thread for "{searchQuery}"...</p>
+                    </div>
+                  ) : filteredThreads.length > 0 ? (
                     filteredThreads.map(thread => (
                       <div
                         key={thread.id}
@@ -903,7 +1007,7 @@ function App() {
                       </div>
                     ))
                   ) : (
-                    <div className="no-results">No threads found</div>
+                    <div className="no-results">Press Enter to generate a new thread about "{searchQuery}"</div>
                   )}
                 </div>
               )}
@@ -972,7 +1076,7 @@ function App() {
                           setShowCreateThreadModal(false);
                         }
                       }} 
-                      disabled={loading || !contract}
+                      disabled={loading || (isOnChain && !contract)}
                     >
                       {loading ? 'Creating...' : 'Create Thread'}
                     </button>
