@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "/Users/ei-lap-8906/Vishwanath/canon/contracts/CanonThread.sol": {
-      "lastModificationDate": 1736100443432,
-      "contentHash": "f4b741d45c68ed23c939049d83e0d943",
+      "lastModificationDate": 1736283453990,
+      "contentHash": "70f98925fc790a2492f1545582d0b0d0",
       "sourceName": "contracts/CanonThread.sol",
       "solcConfig": {
         "version": "0.8.24",
