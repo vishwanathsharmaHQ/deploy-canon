@@ -3,6 +3,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const OpenAI = require('openai');
+const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -20,8 +21,15 @@ const pool = new Pool({
   }
 });
 
+// Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from the frontend build
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
+if (process.env.VERCEL) {
+  app.use(express.static(path.join(__dirname, 'frontend/dist')));
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -547,6 +555,11 @@ Format your response as a JSON array of node suggestions:
     console.error('Error generating suggestions:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Catch all route to serve index.html
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
 
 // Start server
