@@ -302,7 +302,7 @@ app.post('/api/threads/generate', async (req, res) => {
       await client.query('BEGIN');
 
       const threadResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-4",
         messages: [{
           role: "system",
           content: `Create a brief knowledge thread about the given topic with:
@@ -424,7 +424,7 @@ app.post('/api/nodes/suggest', async (req, res) => {
     }
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4",
       messages: [{
         role: "system",
         content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
@@ -451,7 +451,6 @@ Format your response as a JSON array of node suggestions:
         content: `Generate relevant nodes for this content:\nTitle: ${title}\nContent: ${contentForGPT}`
       }],
       temperature: 0.7,
-      max_tokens: 1000
     });
 
     const suggestions = JSON.parse(response.choices[0].message.content);
