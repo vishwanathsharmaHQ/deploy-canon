@@ -13,11 +13,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// OpenAI configuration
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
 // Database connection
 const pool = new Pool({
   connectionString: process.env.NEON_DATABASE_URL,
@@ -26,27 +21,12 @@ const pool = new Pool({
   }
 });
 
-// CORS configuration
-const corsOptions = {
-  origin: 'https://www.canonthread.com',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
-app.use(express.json());
-
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Serve static files from the frontend build
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
-if (process.env.VERCEL) {
-  app.use(express.static(path.join(__dirname, 'frontend/dist')));
-}
+// Serve static files from the ./dist directory
+const staticDir = path.join(__dirname, 'dist');
+app.use(express.static(staticDir));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -59,8 +39,7 @@ app.get('/api/threads', async (req, res) => {
     const result = await pool.query(
       'SELECT id, title, description, content, metadata, created_at, updated_at FROM threads ORDER BY created_at DESC'
     );
-    
-    // Format each thread with proper metadata structure
+
     const threads = result.rows.map(thread => ({
       ...thread,
       metadata: {
@@ -70,7 +49,7 @@ app.get('/api/threads', async (req, res) => {
       },
       nodes: []
     }));
-    
+
     res.json(threads);
   } catch (err) {
     console.error('Error fetching threads:', err);
@@ -92,8 +71,7 @@ app.post('/api/threads', async (req, res) => {
         ...metadata
       }]
     );
-    
-    // Format the response to match the expected structure
+
     const thread = {
       ...result.rows[0],
       metadata: {
@@ -103,7 +81,7 @@ app.post('/api/threads', async (req, res) => {
       },
       nodes: []
     };
-    
+
     res.json(thread);
   } catch (err) {
     console.error('Error creating thread:', err);
@@ -122,7 +100,7 @@ app.get('/api/threads/:threadId/nodes', async (req, res) => {
        ORDER BY created_at`,
       [threadId]
     );
-    
+
     const edgesResult = await pool.query(
       `SELECT e.* FROM edges e
        INNER JOIN nodes n1 ON e.source_id = n1.id
@@ -130,7 +108,6 @@ app.get('/api/threads/:threadId/nodes', async (req, res) => {
       [threadId]
     );
 
-    // Format nodes to match the expected structure
     const nodes = nodesResult.rows.map(node => ({
       ...node,
       metadata: {
@@ -140,7 +117,7 @@ app.get('/api/threads/:threadId/nodes', async (req, res) => {
       },
       type: ['EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'].indexOf(node.node_type)
     }));
-    
+
     res.json({
       nodes,
       edges: edgesResult.rows
@@ -154,29 +131,14 @@ app.get('/api/threads/:threadId/nodes', async (req, res) => {
 app.post('/api/threads/:threadId/nodes', async (req, res) => {
   const { threadId } = req.params;
   const { title, content, nodeType, parentId, metadata } = req.body;
-  
-  console.log('Received node creation request:', {
-    threadId,
-    title,
-    content,
-    nodeType,
-    parentId,
-    metadata
-  });
-  
+
   try {
     await pool.query('BEGIN');
-    
-    // Ensure nodeType is a string
+
     const normalizedNodeType = typeof nodeType === 'number' ? 
       ['EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'][nodeType] : 
       nodeType;
 
-    console.log('Creating node with normalized type:', normalizedNodeType);
-    console.log('Content to be stored:', content);
-    console.log('Content type:', typeof content);
-
-    // Create the node with proper metadata
     const nodeResult = await pool.query(
       `INSERT INTO nodes (thread_id, title, content, node_type, parent_id, metadata) 
        VALUES ($1, $2, $3, $4, $5, $6) 
@@ -187,11 +149,7 @@ app.post('/api/threads/:threadId/nodes', async (req, res) => {
         ...metadata
       }]
     );
-    
-    console.log('Node created in database:', nodeResult.rows[0]);
-    console.log('Stored content:', nodeResult.rows[0].content);
-    
-    // Format the node to match expected structure
+
     const node = {
       ...nodeResult.rows[0],
       metadata: {
@@ -201,18 +159,14 @@ app.post('/api/threads/:threadId/nodes', async (req, res) => {
       },
       type: ['EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'].indexOf(nodeResult.rows[0].node_type)
     };
-    
-    console.log('Formatted node response:', node);
-    console.log('Final content in response:', node.content);
-    
-    // If there's a parent node, create an edge
+
     if (parentId) {
       await pool.query(
         'INSERT INTO edges (source_id, target_id, relationship_type) VALUES ($1, $2, $3)',
         [parentId, node.id, 'parent-child']
       );
     }
-    
+
     await pool.query('COMMIT');
     res.json(node);
   } catch (err) {
@@ -240,10 +194,6 @@ app.post('/api/edges', async (req, res) => {
 app.put('/api/threads/:threadId/layout', async (req, res) => {
   const { threadId } = req.params;
   const { layout } = req.body;
-  
-  console.log('Saving layout for thread:', threadId);
-  console.log('Layout data:', layout);
-  
   try {
     const result = await pool.query(
       `UPDATE threads 
@@ -256,41 +206,29 @@ app.put('/api/threads/:threadId/layout', async (req, res) => {
        RETURNING metadata`,
       [JSON.stringify(layout), threadId]
     );
-    
-    console.log('Layout saved in database:', result.rows[0]);
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('Error saving thread layout:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.get('/api/threads/:threadId/layout', async (req, res) => {
   const { threadId } = req.params;
-  
-  console.log('Loading layout for thread:', threadId);
-  
   try {
     const result = await pool.query(
-      'SELECT metadata->>\'layout\' as layout FROM threads WHERE id = $1',
+      'SELECT metadata->\'layout\' as layout FROM threads WHERE id = $1',
       [threadId]
     );
-    
+
     const layout = result.rows[0]?.layout ? JSON.parse(result.rows[0].layout) : null;
-    console.log('Loaded layout from database:', layout);
-    
     res.json(layout);
   } catch (err) {
-    console.error('Error fetching thread layout:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.delete('/api/threads/:threadId/layout', async (req, res) => {
   const { threadId } = req.params;
-  
-  console.log('Deleting layout for thread:', threadId);
-  
   try {
     const result = await pool.query(
       `UPDATE threads 
@@ -299,11 +237,8 @@ app.delete('/api/threads/:threadId/layout', async (req, res) => {
        RETURNING metadata`,
       [threadId]
     );
-    
-    console.log('Layout deleted from database:', result.rows[0]);
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('Error deleting thread layout:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -324,7 +259,7 @@ app.get('/api/threads/search', async (req, res) => {
        ORDER BY created_at DESC`,
       [`%${query}%`]
     );
-    
+
     const threads = result.rows.map(thread => ({
       ...thread,
       metadata: {
@@ -334,10 +269,9 @@ app.get('/api/threads/search', async (req, res) => {
       },
       nodes: []
     }));
-    
+
     res.json(threads);
   } catch (err) {
-    console.error('Error searching threads:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -350,8 +284,6 @@ app.post('/api/threads/generate', async (req, res) => {
   }
 
   try {
-    console.log('Generating content for topic:', topic);
-    // Generate thread content using GPT
     const threadResponse = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [{
@@ -389,11 +321,8 @@ Format your response as a JSON object with these fields:
       temperature: 0.7,
     });
 
-    console.log('Received GPT response');
     const gptContent = JSON.parse(threadResponse.choices[0].message.content);
-    console.log('Parsed GPT content:', JSON.stringify(gptContent, null, 2));
 
-    // Create the main thread
     const threadResult = await pool.query(
       `INSERT INTO threads (title, description, content, metadata, is_on_chain) 
        VALUES ($1, $2, $3, $4, false) 
@@ -405,72 +334,49 @@ Format your response as a JSON object with these fields:
     );
 
     const thread = threadResult.rows[0];
-    console.log('Created thread:', thread);
 
-    // Create the main summary node
     const summaryNode = await pool.query(
       `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
        VALUES ($1, $2, $3, $4, $5) 
        RETURNING id`,
       [thread.id, 'Summary', gptContent.summary, 'SYNTHESIS', { title: 'Summary' }]
     );
-    console.log('Created summary node:', summaryNode.rows[0]);
 
-    // Create evidence nodes
-    console.log('Creating evidence nodes:', gptContent.evidence);
     for (const evidence of gptContent.evidence) {
-      const evidenceNode = await pool.query(
+      await pool.query(
         `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-         VALUES ($1, $2, $3, $4, $5) 
-         RETURNING id, content`,
+         VALUES ($1, $2, $3, $4, $5)`,
         [thread.id, evidence.source, JSON.stringify(evidence), 'EVIDENCE', { title: evidence.source }]
       );
-      console.log('Created evidence node:', evidenceNode.rows[0]);
     }
 
-    // Create context node
-    console.log('Creating context node with content:', gptContent.context);
     const contextNode = await pool.query(
       `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-       VALUES ($1, $2, $3, $4, $5) 
-       RETURNING id, content`,
+       VALUES ($1, $2, $3, $4, $5)`,
       [thread.id, 'Context', gptContent.context, 'CONTEXT', { title: 'Context' }]
     );
-    console.log('Created context node:', contextNode.rows[0]);
 
-    // Create example nodes
-    console.log('Creating example nodes:', gptContent.examples);
     for (const example of gptContent.examples) {
-      const exampleNode = await pool.query(
+      await pool.query(
         `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-         VALUES ($1, $2, $3, $4, $5) 
-         RETURNING id, content`,
+         VALUES ($1, $2, $3, $4, $5)`,
         [thread.id, example.title, JSON.stringify(example), 'EXAMPLE', { title: example.title }]
       );
-      console.log('Created example node:', exampleNode.rows[0]);
     }
 
-    // Create counterpoint nodes
-    console.log('Creating counterpoint nodes:', gptContent.counterpoints);
     for (const counterpoint of gptContent.counterpoints) {
-      const counterpointNode = await pool.query(
+      await pool.query(
         `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-         VALUES ($1, $2, $3, $4, $5) 
-         RETURNING id, content`,
+         VALUES ($1, $2, $3, $4, $5)`,
         [thread.id, counterpoint.argument, JSON.stringify(counterpoint), 'COUNTERPOINT', { title: counterpoint.argument }]
       );
-      console.log('Created counterpoint node:', counterpointNode.rows[0]);
     }
 
-    // Create synthesis node
-    console.log('Creating synthesis node with content:', gptContent.synthesis);
     const synthesisNode = await pool.query(
       `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-       VALUES ($1, $2, $3, $4, $5) 
-       RETURNING id, content`,
+       VALUES ($1, $2, $3, $4, $5)`,
       [thread.id, 'Synthesis', gptContent.synthesis, 'SYNTHESIS', { title: 'Synthesis' }]
     );
-    console.log('Created synthesis node:', synthesisNode.rows[0]);
 
     res.json({
       ...thread,
@@ -481,7 +387,6 @@ Format your response as a JSON object with these fields:
       }
     });
   } catch (err) {
-    console.error('Error generating thread:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -489,11 +394,8 @@ Format your response as a JSON object with these fields:
 // Node suggestion endpoint
 app.post('/api/nodes/suggest', async (req, res) => {
   const { nodeId, nodeType, content, title } = req.body;
-  
-  try {
-    console.log('Generating suggestions for:', { nodeId, nodeType, content, title });
 
-    // Parse content if it's a JSON string
+  try {
     let nodeContent = content;
     if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
       try {
@@ -503,7 +405,6 @@ app.post('/api/nodes/suggest', async (req, res) => {
       }
     }
 
-    // Extract the actual content based on node type
     let contentForGPT = '';
     if (typeof nodeContent === 'object') {
       if (nodeContent.content) {
@@ -519,7 +420,6 @@ app.post('/api/nodes/suggest', async (req, res) => {
       contentForGPT = nodeContent;
     }
 
-    // Generate suggestions using GPT
     const response = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [{
@@ -551,35 +451,29 @@ Format your response as a JSON array of node suggestions:
     });
 
     const suggestions = JSON.parse(response.choices[0].message.content);
-    
-    // Format each suggestion based on its type
-    const formattedSuggestions = suggestions.map(suggestion => {
-      if (['EVIDENCE', 'EXAMPLE', 'COUNTERPOINT'].includes(suggestion.type)) {
-        // These types need structured content
-        return {
-          ...suggestion,
-          content: typeof suggestion.content === 'string' ? 
-            suggestion.content : 
-            JSON.stringify(suggestion.content)
-        };
-      }
-      return suggestion;
-    });
 
-    console.log('Generated suggestions:', formattedSuggestions);
-    res.json({ suggestions: formattedSuggestions });
+    res.json({ suggestions });
   } catch (err) {
-    console.error('Error generating suggestions:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Catch all route to serve index.html
+
+
+
+// Catch-all route to handle SPA routing
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+  res.sendFile(path.join(staticDir, 'index.html'));
 });
 
-// Start server
+
+
+
+
+
+
+
+// Start the server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
-}); 
+});
