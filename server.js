@@ -295,54 +295,38 @@ app.post('/api/threads/generate', async (req, res) => {
     return res.status(400).json({ error: 'Topic is required' });
   }
 
-  // Longer timeout for thread generation (90 seconds)
-  const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Request timeout')), 90000)
-  );
-
   try {
     // Start transaction
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
-      const threadResponse = await Promise.race([
-        openai.chat.completions.create({
-          model: "gpt-4",
-          messages: [{
-            role: "system",
-            content: `You are a knowledgeable assistant that creates comprehensive knowledge threads. For the given topic, generate a concise but informative thread with:
-1. A brief summary (1-2 paragraphs)
-2. 2-3 key pieces of evidence with sources
-3. Brief context information
-4. 1-2 concrete examples
-5. 1-2 important counterpoints
-6. A short synthesis
+      const threadResponse = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{
+          role: "system",
+          content: `Create a brief knowledge thread about the given topic with:
+1. A short summary (2-3 sentences)
+2. One key piece of evidence with source
+3. One example
+4. One counterpoint
+5. A brief synthesis (1-2 sentences)
 
-Format your response as a JSON object with these fields:
+Format as JSON:
 {
-  "summary": "summary here",
-  "evidence": [
-    {"point": "evidence point", "source": "source"}
-  ],
-  "context": "context info",
-  "examples": [
-    {"title": "example title", "description": "description"}
-  ],
-  "counterpoints": [
-    {"argument": "counterpoint", "explanation": "explanation"}
-  ],
-  "synthesis": "synthesis"
+  "summary": "brief summary",
+  "evidence": {"point": "evidence", "source": "source"},
+  "example": {"title": "title", "description": "brief description"},
+  "counterpoint": {"argument": "point", "explanation": "brief explanation"},
+  "synthesis": "brief synthesis"
 }`
-          }, {
-            role: "user",
-            content: `Create a knowledge thread about: ${topic}`
-          }],
-          temperature: 0.7,
-          max_tokens: 2000
-        }),
-        timeoutPromise
-      ]);
+        }, {
+          role: "user",
+          content: `Create a knowledge thread about: ${topic}`
+        }],
+        temperature: 0.7,
+        max_tokens: 1000
+      });
 
       const gptContent = JSON.parse(threadResponse.choices[0].message.content);
 
@@ -368,33 +352,22 @@ Format your response as a JSON object with these fields:
         client.query(
           `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
            VALUES ($1, $2, $3, $4, $5)`,
-          [thread.id, 'Context', gptContent.context, 'CONTEXT', { title: 'Context' }]
+          [thread.id, gptContent.evidence.source, JSON.stringify(gptContent.evidence), 'EVIDENCE', { title: gptContent.evidence.source }]
+        ),
+        client.query(
+          `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [thread.id, gptContent.example.title, JSON.stringify(gptContent.example), 'EXAMPLE', { title: gptContent.example.title }]
+        ),
+        client.query(
+          `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [thread.id, gptContent.counterpoint.argument, JSON.stringify(gptContent.counterpoint), 'COUNTERPOINT', { title: gptContent.counterpoint.argument }]
         ),
         client.query(
           `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
            VALUES ($1, $2, $3, $4, $5)`,
           [thread.id, 'Synthesis', gptContent.synthesis, 'SYNTHESIS', { title: 'Synthesis' }]
-        ),
-        ...gptContent.evidence.map(evidence => 
-          client.query(
-            `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-             VALUES ($1, $2, $3, $4, $5)`,
-            [thread.id, evidence.source, JSON.stringify(evidence), 'EVIDENCE', { title: evidence.source }]
-          )
-        ),
-        ...gptContent.examples.map(example =>
-          client.query(
-            `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-             VALUES ($1, $2, $3, $4, $5)`,
-            [thread.id, example.title, JSON.stringify(example), 'EXAMPLE', { title: example.title }]
-          )
-        ),
-        ...gptContent.counterpoints.map(counterpoint =>
-          client.query(
-            `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-             VALUES ($1, $2, $3, $4, $5)`,
-            [thread.id, counterpoint.argument, JSON.stringify(counterpoint), 'COUNTERPOINT', { title: counterpoint.argument }]
-          )
         )
       ];
 
@@ -456,7 +429,7 @@ app.post('/api/nodes/suggest', async (req, res) => {
 
     const response = await Promise.race([
       openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-4o",
         messages: [{
           role: "system",
           content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
@@ -504,3 +477,4 @@ app.get('*', (req, res) => {
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
+
