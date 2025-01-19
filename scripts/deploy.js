@@ -29,7 +29,13 @@ async function main() {
         JSON.stringify(addresses, null, 2)
     );
 
-    console.log("Addresses saved to deployments.json");
+    // Also copy to frontend
+    fs.writeFileSync(
+        'frontend/src/contracts/deployments.json',
+        JSON.stringify(addresses, null, 2)
+    );
+
+    console.log("Addresses saved to deployments.json and frontend/src/contracts/deployments.json");
     return addresses;
 }
 

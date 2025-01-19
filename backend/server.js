@@ -13,6 +13,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+// OpenAI configuration
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
 // Database connection
 const pool = new Pool({
   connectionString: process.env.NEON_DATABASE_URL,
@@ -33,8 +38,15 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Serve static files from the frontend build directory
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Serve static files from the frontend build
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
+if (process.env.VERCEL) {
+  app.use(express.static(path.join(__dirname, 'frontend/dist')));
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -562,7 +574,7 @@ Format your response as a JSON array of node suggestions:
   }
 });
 
-// Serve frontend for any other routes
+// Catch all route to serve index.html
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });

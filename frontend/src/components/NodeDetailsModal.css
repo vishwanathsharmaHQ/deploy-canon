@@ -544,4 +544,69 @@ select.node-input {
 .fullscreen-body .content-text {
   max-height: none;
   margin-bottom: 20px;
+}
+
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.modal-title h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-type-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.node-content {
+  background: #242424;
+  border-radius: 4px;
+  padding: 20px;
+  margin-top: 16px;
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.json-content {
+  background: #2a2a2a;
+  padding: 16px;
+  border-radius: 4px;
+  margin: 10px 0;
+  border: 1px solid #333;
+}
+
+.json-content h4 {
+  margin: 0 0 12px 0;
+  color: #00ff9d;
+  font-size: 1.1rem;
+}
+
+.json-content p {
+  margin: 8px 0;
+  line-height: 1.6;
+  color: #fff;
+}
+
+.json-content strong {
+  color: #00ff9d;
+  font-weight: 500;
+  margin-right: 8px;
 } 
