@@ -398,10 +398,6 @@ Format as JSON:
 app.post('/api/nodes/suggest', async (req, res) => {
   const { nodeId, nodeType, content, title } = req.body;
 
-  const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Request timeout')), 50000)
-  );
-
   try {
     let nodeContent = content;
     if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
@@ -427,12 +423,11 @@ app.post('/api/nodes/suggest', async (req, res) => {
       contentForGPT = nodeContent;
     }
 
-    const response = await Promise.race([
-      openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [{
-          role: "system",
-          content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{
+        role: "system",
+        content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
 For the given content, suggest 3-4 relevant nodes that would enrich the discussion.
 Each node should have:
 1. A type (one of: EVIDENCE, REFERENCE, CONTEXT, EXAMPLE, COUNTERPOINT, SYNTHESIS)
@@ -451,19 +446,18 @@ Format your response as a JSON array of node suggestions:
     "content": "Node Content (formatted based on type)"
   }
 ]`
-        }, {
-          role: "user",
-          content: `Generate relevant nodes for this content:\nTitle: ${title}\nContent: ${contentForGPT}`
-        }],
-        temperature: 0.7,
-      }),
-      timeoutPromise
-    ]);
+      }, {
+        role: "user",
+        content: `Generate relevant nodes for this content:\nTitle: ${title}\nContent: ${contentForGPT}`
+      }],
+      temperature: 0.7,
+      max_tokens: 1000
+    });
 
     const suggestions = JSON.parse(response.choices[0].message.content);
-
     res.json({ suggestions });
   } catch (err) {
+    console.error('Error generating suggestions:', err);
     res.status(500).json({ error: err.message });
   }
 });

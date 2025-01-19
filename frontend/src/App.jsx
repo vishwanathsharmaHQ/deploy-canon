@@ -152,7 +152,7 @@ function App() {
 
       } catch (error) {
         console.error("Error connecting to wallet:", error);
-        setError("Failed to connect wallet. Make sure you're on the Hardhat Local network.");
+        // setError("Failed to connect wallet. Make sure you're on the Hardhat Local network.");
       }
     }
   }
