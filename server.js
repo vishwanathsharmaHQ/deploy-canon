@@ -295,117 +295,128 @@ app.post('/api/threads/generate', async (req, res) => {
     return res.status(400).json({ error: 'Topic is required' });
   }
 
+  // Longer timeout for thread generation (90 seconds)
   const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Request timeout')), 50000)
+    setTimeout(() => reject(new Error('Request timeout')), 90000)
   );
 
   try {
-    const threadResponse = await Promise.race([
-      openai.chat.completions.create({
-        model: "gpt-4",
-        messages: [{
-          role: "system",
-          content: `You are a knowledgeable assistant that creates comprehensive knowledge threads. For the given topic, generate:
-1. A detailed summary (2-3 paragraphs)
-2. Multiple pieces of evidence (at least 3, each with source)
-3. Context information that helps understand the topic better
-4. Concrete examples that illustrate the topic
-5. Important counterpoints or alternative viewpoints
-6. A synthesis that ties everything together
+    // Start transaction
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const threadResponse = await Promise.race([
+        openai.chat.completions.create({
+          model: "gpt-4",
+          messages: [{
+            role: "system",
+            content: `You are a knowledgeable assistant that creates comprehensive knowledge threads. For the given topic, generate a concise but informative thread with:
+1. A brief summary (1-2 paragraphs)
+2. 2-3 key pieces of evidence with sources
+3. Brief context information
+4. 1-2 concrete examples
+5. 1-2 important counterpoints
+6. A short synthesis
 
 Format your response as a JSON object with these fields:
 {
-  "summary": "detailed summary here",
+  "summary": "summary here",
   "evidence": [
-    {"point": "evidence point", "source": "academic source"},
-    ...
+    {"point": "evidence point", "source": "source"}
   ],
-  "context": "detailed contextual information",
+  "context": "context info",
   "examples": [
-    {"title": "example title", "description": "detailed example description"},
-    ...
+    {"title": "example title", "description": "description"}
   ],
   "counterpoints": [
-    {"argument": "counterpoint", "explanation": "detailed explanation"},
-    ...
+    {"argument": "counterpoint", "explanation": "explanation"}
   ],
-  "synthesis": "comprehensive synthesis"
+  "synthesis": "synthesis"
 }`
-        }, {
-          role: "user",
-          content: `Create a comprehensive knowledge thread about: ${topic}`
-        }],
-        temperature: 0.7,
-      }),
-      timeoutPromise
-    ]);
+          }, {
+            role: "user",
+            content: `Create a knowledge thread about: ${topic}`
+          }],
+          temperature: 0.7,
+          max_tokens: 2000
+        }),
+        timeoutPromise
+      ]);
 
-    const gptContent = JSON.parse(threadResponse.choices[0].message.content);
+      const gptContent = JSON.parse(threadResponse.choices[0].message.content);
 
-    const threadResult = await pool.query(
-      `INSERT INTO threads (title, description, content, metadata, is_on_chain) 
-       VALUES ($1, $2, $3, $4, false) 
-       RETURNING id, title, description, content, metadata, created_at, updated_at`,
-      [topic, gptContent.summary.substring(0, 255), gptContent.summary, {
-        title: topic,
-        description: gptContent.summary.substring(0, 255)
-      }]
-    );
-
-    const thread = threadResult.rows[0];
-
-    const summaryNode = await pool.query(
-      `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-       VALUES ($1, $2, $3, $4, $5) 
-       RETURNING id`,
-      [thread.id, 'Summary', gptContent.summary, 'SYNTHESIS', { title: 'Summary' }]
-    );
-
-    for (const evidence of gptContent.evidence) {
-      await pool.query(
-        `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [thread.id, evidence.source, JSON.stringify(evidence), 'EVIDENCE', { title: evidence.source }]
+      const threadResult = await client.query(
+        `INSERT INTO threads (title, description, content, metadata, is_on_chain) 
+         VALUES ($1, $2, $3, $4, false) 
+         RETURNING id, title, description, content, metadata, created_at, updated_at`,
+        [topic, gptContent.summary.substring(0, 255), gptContent.summary, {
+          title: topic,
+          description: gptContent.summary.substring(0, 255)
+        }]
       );
+
+      const thread = threadResult.rows[0];
+
+      // Batch insert all nodes
+      const nodeInserts = [
+        client.query(
+          `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [thread.id, 'Summary', gptContent.summary, 'SYNTHESIS', { title: 'Summary' }]
+        ),
+        client.query(
+          `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [thread.id, 'Context', gptContent.context, 'CONTEXT', { title: 'Context' }]
+        ),
+        client.query(
+          `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [thread.id, 'Synthesis', gptContent.synthesis, 'SYNTHESIS', { title: 'Synthesis' }]
+        ),
+        ...gptContent.evidence.map(evidence => 
+          client.query(
+            `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
+             VALUES ($1, $2, $3, $4, $5)`,
+            [thread.id, evidence.source, JSON.stringify(evidence), 'EVIDENCE', { title: evidence.source }]
+          )
+        ),
+        ...gptContent.examples.map(example =>
+          client.query(
+            `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
+             VALUES ($1, $2, $3, $4, $5)`,
+            [thread.id, example.title, JSON.stringify(example), 'EXAMPLE', { title: example.title }]
+          )
+        ),
+        ...gptContent.counterpoints.map(counterpoint =>
+          client.query(
+            `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
+             VALUES ($1, $2, $3, $4, $5)`,
+            [thread.id, counterpoint.argument, JSON.stringify(counterpoint), 'COUNTERPOINT', { title: counterpoint.argument }]
+          )
+        )
+      ];
+
+      await Promise.all(nodeInserts);
+      await client.query('COMMIT');
+
+      res.json({
+        ...thread,
+        metadata: {
+          title: thread.title,
+          description: thread.description,
+          ...thread.metadata
+        }
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-
-    const contextNode = await pool.query(
-      `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-       VALUES ($1, $2, $3, $4, $5)`,
-      [thread.id, 'Context', gptContent.context, 'CONTEXT', { title: 'Context' }]
-    );
-
-    for (const example of gptContent.examples) {
-      await pool.query(
-        `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [thread.id, example.title, JSON.stringify(example), 'EXAMPLE', { title: example.title }]
-      );
-    }
-
-    for (const counterpoint of gptContent.counterpoints) {
-      await pool.query(
-        `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [thread.id, counterpoint.argument, JSON.stringify(counterpoint), 'COUNTERPOINT', { title: counterpoint.argument }]
-      );
-    }
-
-    const synthesisNode = await pool.query(
-      `INSERT INTO nodes (thread_id, title, content, node_type, metadata) 
-       VALUES ($1, $2, $3, $4, $5)`,
-      [thread.id, 'Synthesis', gptContent.synthesis, 'SYNTHESIS', { title: 'Synthesis' }]
-    );
-
-    res.json({
-      ...thread,
-      metadata: {
-        title: thread.title,
-        description: thread.description,
-        ...thread.metadata
-      }
-    });
   } catch (err) {
+    console.error('Error generating thread:', err);
     res.status(500).json({ error: err.message });
   }
 });
