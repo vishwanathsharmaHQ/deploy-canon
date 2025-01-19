@@ -105,18 +105,6 @@ function App() {
           signer
         );
         
-        // Verify contract connection
-        try {
-          const code = await provider.getCode(deployments.canonThread);
-          if (code === '0x') {
-            console.error("No contract deployed at the specified address");
-            return;
-          }
-        } catch (error) {
-          console.error("Error verifying contract deployment:", error);
-          return;
-        }
-        
         setContract(canonThreadContract);
         console.log("Contract setup complete");
 
@@ -152,7 +140,6 @@ function App() {
 
       } catch (error) {
         console.error("Error connecting to wallet:", error);
-        setError("Failed to connect wallet. Make sure you're on the Hardhat Local network.");
       }
     }
   }
