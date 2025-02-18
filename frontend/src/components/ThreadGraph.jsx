@@ -4,15 +4,17 @@ import './ThreadGraph.css';
 import { api } from '../services/api';
 
 const NODE_TYPES = [
-  { value: 0, label: 'EVIDENCE' },
-  { value: 1, label: 'REFERENCE' },
-  { value: 2, label: 'CONTEXT' },
-  { value: 3, label: 'EXAMPLE' },
-  { value: 4, label: 'COUNTERPOINT' },
-  { value: 5, label: 'SYNTHESIS' }
+  { value: 0, label: 'ROOT' },
+  { value: 1, label: 'EVIDENCE' },
+  { value: 2, label: 'REFERENCE' },
+  { value: 3, label: 'CONTEXT' },
+  { value: 4, label: 'EXAMPLE' },
+  { value: 5, label: 'COUNTERPOINT' },
+  { value: 6, label: 'SYNTHESIS' }
 ];
 
 const NODE_COLORS = {
+  ROOT: '#ffd700',      // Gold color for root nodes
   EVIDENCE: '#ff6b6b',
   REFERENCE: '#4ecdc4',
   CONTEXT: '#45b7d1',
@@ -42,7 +44,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
     title: '',
     description: '',
     content: '',
-    type: '0'
+    type: '0',
+    keywords: ''
   });
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(true);
   const [isMatteMode, setIsMatteMode] = useState(false);
@@ -131,6 +134,15 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
       let shortDescription;
       
       switch (NODE_TYPES[Number(newNodeData.type)].label) {
+        case 'ROOT':
+          structuredContent = JSON.stringify({
+            title: newNodeData.title,
+            description: newNodeData.content,
+            keywords: newNodeData.keywords?.split(',').map(k => k.trim()) || []
+          });
+          shortDescription = newNodeData.title;
+          break;
+        
         case 'EVIDENCE':
           structuredContent = JSON.stringify({
             point: newNodeData.content,
@@ -188,7 +200,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
         title: '',
         description: '',
         content: '',
-        type: '0'
+        type: '0',
+        keywords: ''
       });
     }
   };
@@ -1177,8 +1190,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
         }
       }
 
-      // For evidence, example, and counterpoint nodes, handle JSON content
-      if (['EVIDENCE', 'EXAMPLE', 'COUNTERPOINT'].includes(nodeType)) {
+      // For root, evidence, example, and counterpoint nodes, handle JSON content
+      if (['ROOT', 'EVIDENCE', 'EXAMPLE', 'COUNTERPOINT'].includes(nodeType)) {
         // If content is already an object (parsed JSON)
         const jsonContent = typeof actualContent === 'object' ? actualContent : 
                           typeof actualContent === 'string' && actualContent.startsWith('{') ? 
@@ -1186,6 +1199,19 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
 
         if (jsonContent) {
           switch (nodeType) {
+            case 'ROOT':
+              return (
+                <div className="root-content">
+                  <h4 className="root-title">{jsonContent.title}</h4>
+                  <p className="root-description">{jsonContent.description}</p>
+                  {jsonContent.keywords && (
+                    <div className="root-keywords">
+                      <strong>Keywords: </strong>
+                      {jsonContent.keywords.join(', ')}
+                    </div>
+                  )}
+                </div>
+              );
             case 'EVIDENCE':
               return (
                 <div className="evidence-content">
@@ -1561,6 +1587,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
                   <input
                     type="text"
                     placeholder={
+                      NODE_TYPES[Number(newNodeData.type)].label === 'ROOT' ? 'Root Title' :
                       NODE_TYPES[Number(newNodeData.type)].label === 'EVIDENCE' ? 'Source' :
                       NODE_TYPES[Number(newNodeData.type)].label === 'EXAMPLE' ? 'Example Title' :
                       NODE_TYPES[Number(newNodeData.type)].label === 'COUNTERPOINT' ? 'Argument' :
@@ -1572,6 +1599,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
                   />
                   <textarea
                     placeholder={
+                      NODE_TYPES[Number(newNodeData.type)].label === 'ROOT' ? 'Root Description' :
                       NODE_TYPES[Number(newNodeData.type)].label === 'EVIDENCE' ? 'Evidence Point' :
                       NODE_TYPES[Number(newNodeData.type)].label === 'EXAMPLE' ? 'Example Description' :
                       NODE_TYPES[Number(newNodeData.type)].label === 'COUNTERPOINT' ? 'Explanation' :
@@ -1582,6 +1610,15 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
                     className="node-input"
                     rows={6}
                   />
+                  {NODE_TYPES[Number(newNodeData.type)].label === 'ROOT' && (
+                    <input
+                      type="text"
+                      placeholder="Keywords (comma-separated)"
+                      value={newNodeData.keywords}
+                      onChange={(e) => setNewNodeData({ ...newNodeData, keywords: e.target.value })}
+                      className="node-input keywords-input show"
+                    />
+                  )}
                   <button 
                     className="submit-button"
                     onClick={handleAddNode}
