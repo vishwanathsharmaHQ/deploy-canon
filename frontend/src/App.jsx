@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { ethers } from 'ethers'
 import CanonThread from './contracts/CanonThread.json'
 import CanonToken from './contracts/CanonToken.json'
@@ -581,7 +581,7 @@ function App() {
       return;
     }
     
-    const { newNode } = threadData;
+    const { id, newNode } = threadData;
     console.log('Creating node with data:', newNode);
     
     if (!newNode?.title || !newNode?.content) {
@@ -609,7 +609,7 @@ function App() {
         const metadataHash = await uploadToIPFS(metadata);
         const contentHash = await uploadToIPFS(content);
 
-        const tx = await contract.createNode(threadData.id, metadataHash, contentHash, newNode.type);
+        const tx = await contract.createNode(id, metadataHash, contentHash, newNode.type);
         await tx.wait();
         await loadThreads();
       } else {
@@ -626,33 +626,21 @@ function App() {
           nodeType,
           parentId: newNode.parentId,
           metadata: {
+            title: newNode.title,
+            description: newNode.content.substring(0, 100) + (newNode.content.length > 100 ? '...' : ''),
             createdAt: new Date().toISOString()
           }
         });
 
-        // Update the local state with the new node
-        const updatedThreads = offChainThreads.map(thread => {
-          if (thread.id === newNode.threadId) {
-            return {
-              ...thread,
-              nodes: [...(thread.nodes || []), {
-                ...createdNode,
-                type: NODE_TYPES.indexOf(createdNode.node_type),
-                content: createdNode.content,
-                parent_id: createdNode.parent_id
-              }]
-            };
-          }
-          return thread;
-        });
-        setOffChainThreads(updatedThreads);
-
         // Refresh the thread data to get the latest nodes and edges
         const { nodes, edges } = await api.getThreadNodes(newNode.threadId);
+        
+        // Update offChainThreads with the latest data
         const updatedThread = {
           ...threadData,
           nodes: nodes.map(node => ({
             ...node,
+            id: node.id,
             type: NODE_TYPES.indexOf(node.node_type),
             content: node.content,
             parent_id: node.parent_id
@@ -660,9 +648,16 @@ function App() {
           edges
         };
         
+        // Update offChainThreads to trigger graph refresh
         setOffChainThreads(prev => 
           prev.map(t => t.id === newNode.threadId ? updatedThread : t)
         );
+
+        // Force a re-render of the graph by updating the selected thread
+        if (selectedThreadId === newNode.threadId) {
+          setSelectedThreadId(null);
+          setTimeout(() => setSelectedThreadId(newNode.threadId), 0);
+        }
       }
 
       setSelectedNode(null);
@@ -761,9 +756,12 @@ function App() {
   };
 
   // Add this function to filter threads based on search query
-  const filteredThreads = displayThreads.filter(thread => 
-    thread.metadata?.title?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredThreads = useMemo(() => {
+    if (!searchQuery) return [];
+    return displayThreads.filter(thread => 
+      thread.metadata?.title?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [displayThreads, searchQuery]);
 
   const toggleFullScreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -868,9 +866,9 @@ function App() {
       try {
         setIsSearchLoading(true);
         const results = await api.searchThreads(searchQuery);
+        
+        // If no exact matches found, generate new thread
         if (results.length === 0) {
-          // No results found, generate new thread
-          setShowSearchResults(true); // Keep showing the search results with loading state
           const newThread = await api.generateThread(searchQuery);
           setSelectedThreadId(newThread.id);
           await loadOffChainThreads(); // Reload threads to get the new one
@@ -878,6 +876,7 @@ function App() {
           setShowSearchResults(false);
         } else {
           // Show search results
+          setDisplayThreads(results);
           setShowSearchResults(true);
         }
       } catch (err) {
@@ -899,7 +898,7 @@ function App() {
         </div>
 
         <div className="header-right">
-          {!isOnChain ? (
+          {/* {!isOnChain ? (
             <button 
               className="mainline-connect-btn"
               onClick={handleMainlineConnect}
@@ -926,7 +925,7 @@ function App() {
                 <span>Database Connected</span>
               </div>
             </div>
-          )}
+          )} */}
           <button 
             className="fullscreen-toggle" 
             onClick={toggleFullScreen}

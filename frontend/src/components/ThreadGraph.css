@@ -10,10 +10,9 @@
 .graph-container {
   flex: 1;
   height: 100%;
-  background: radial-gradient(circle at center, #2a2a2a 0%, #1a1a1a 100%);
+  background: #1d1d1d;
   border-radius: 0;
   overflow: hidden;
-  box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.5);
   transition: all 0.3s ease;
   position: relative;
   width: 100%;
@@ -37,11 +36,13 @@
 }
 
 .graph-container.dotted-background {
+  background-color: #1d1d1d;
   background-image: 
-    radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-    radial-gradient(circle at center, #2a2a2a 0%, #1a1a1a 100%);
-  background-size: 20px 20px;
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 80px 80px;
   background-position: 0 0;
+  background-attachment: fixed;
 }
 
 .content-sidebar {
@@ -709,13 +710,13 @@ select.node-input {
 
 /* Fixed node styling */
 .node.fixed circle {
-  stroke: #00ff9d;
-  stroke-width: 3px;
+  stroke: none;
+  stroke-width: 0;
 }
 
 .node.fixed:hover circle {
-  stroke: #00ff9d;
-  stroke-width: 4px;
+  stroke: #fff;
+  stroke-width: 2px;
 }
 
 /* Enhance toolbar button active state */
@@ -856,14 +857,15 @@ select.node-input {
   transform: translateY(-1px);
 }
 
+.control-button:active {
+  transform: translateY(1px);
+}
+
 .control-button.active {
   background: rgba(0, 255, 157, 0.2);
   border-color: #00ff9d;
   color: #00ff9d;
-  box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
 }
-
-
 
 .traversal-controls.active {
   opacity: 1;

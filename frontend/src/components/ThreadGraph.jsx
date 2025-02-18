@@ -51,12 +51,6 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
   const [fixedNodes, setFixedNodes] = useState(new Set());
   const [layoutLoading, setLayoutLoading] = useState(false);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
-  const [traversalPath, setTraversalPath] = useState([]);
-  const [highlightedNodeId, setHighlightedNodeId] = useState(null);
-  const [isTraversing, setIsTraversing] = useState(false);
-  const [showTraversalControls, setShowTraversalControls] = useState(true);
-  const [availablePaths, setAvailablePaths] = useState([]);
-  const [isTraversalCollapsed, setIsTraversalCollapsed] = useState(true);
   const [currentTransform, setCurrentTransform] = useState(null);
 
   const presets = {
@@ -182,9 +176,10 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
           parentId: selectedNode.id,
           threadId: threads[0].id,
           metadata: {
-            title: newNodeData.title,
+            title: newNodeData.title || 'New Node',
             description: shortDescription,
-            content: structuredContent
+            content: structuredContent,
+            type: NODE_TYPES[Number(newNodeData.type)].label
           }
         }
       });
@@ -236,19 +231,28 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
 
     threads.forEach(thread => {
       // Add thread as a node
+      const threadTitle = thread.metadata?.title || thread.title || `Thread ${thread.id}`;
       nodes.push({
         id: `thread-${thread.id}`,
         type: 'thread',
-        title: thread.metadata?.title || 'Untitled',
-        description: thread.metadata?.description,
-        content: thread.content?.content,
+        title: threadTitle,
+        description: thread.metadata?.description || thread.description || '',
+        content: thread.content?.content || thread.content || '',
         radius: 25,
-        hasVoted: thread.hasVoted,
-        votesFor: thread.votesFor,
-        votesAgainst: thread.votesAgainst,
-        proposalDeadline: thread.proposalDeadline,
-        hasActiveProposal: thread.hasActiveProposal,
-        originalData: { ...thread, type: 'thread' }
+        hasVoted: thread.hasVoted || false,
+        votesFor: thread.votesFor || 0,
+        votesAgainst: thread.votesAgainst || 0,
+        proposalDeadline: thread.proposalDeadline || 0,
+        hasActiveProposal: thread.hasActiveProposal || false,
+        originalData: { 
+          ...thread, 
+          type: 'thread',
+          title: threadTitle,
+          metadata: {
+            ...thread.metadata,
+            title: threadTitle
+          }
+        }
       });
 
       // Add nodes from the thread
@@ -361,10 +365,6 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
         if (!prevPositions.has(node.id)) {
           node.fx = width / 2;
           node.fy = (height * 3) / 4;
-        } else {
-          // Keep thread node fixed at its previous position
-          node.fx = node.x;
-          node.fy = node.y;
         }
       }
     });
@@ -479,8 +479,9 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
       .attr('class', 'node-label')
       .text(d => {
         if (d.type === 'thread') {
-          const words = d.title.split(/\s+/);
-          return words.length > 2 ? words.slice(0, 2).join(' ') + '...' : d.title;
+          const threadTitle = d.originalData?.metadata?.title || d.originalData?.title || d.title || 'Untitled';
+          const words = (threadTitle || '').split(/\s+/);
+          return words.length > 2 ? words.slice(0, 2).join(' ') + '...' : threadTitle;
         }
         return NODE_TYPES[d.type]?.label || '';
       })
@@ -1062,26 +1063,6 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
               .attr('stroke-width', 2)
               .style('filter', 'url(#glow-effect)');
 
-            // Create glowing effect filter
-            const defs = svg.append('defs');
-            const glowFilter = defs.append('filter')
-              .attr('id', 'glow-effect')
-              .attr('height', '300%')
-              .attr('width', '300%')
-              .attr('x', '-100%')
-              .attr('y', '-100%');
-
-            glowFilter.append('feGaussianBlur')
-              .attr('class', 'blur')
-              .attr('stdDeviation', '3')
-              .attr('result', 'coloredBlur');
-
-            const glowMerge = glowFilter.append('feMerge');
-            glowMerge.append('feMergeNode')
-              .attr('in', 'coloredBlur');
-            glowMerge.append('feMergeNode')
-              .attr('in', 'SourceGraphic');
-
             // Add labels to nodes with enhanced styling
             node.append('text')
               .attr('dy', d => d.type === 'thread' ? d.radius + 25 : d.radius + 20)
@@ -1089,8 +1070,9 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
               .attr('class', 'node-label')
               .text(d => {
                 if (d.type === 'thread') {
-                  const words = d.title.split(/\s+/);
-                  return words.length > 2 ? words.slice(0, 2).join(' ') + '...' : d.title;
+                  const threadTitle = d.originalData?.metadata?.title || d.originalData?.title || d.title || 'Untitled';
+                  const words = (threadTitle || '').split(/\s+/);
+                  return words.length > 2 ? words.slice(0, 2).join(' ') + '...' : threadTitle;
                 }
                 return NODE_TYPES[d.type]?.label || '';
               })
@@ -1179,313 +1161,6 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
     }
   };
 
-  // Update startHierarchicalTraversal function
-  const startHierarchicalTraversal = () => {
-    if (!threads || threads.length === 0) return;
-    
-    const thread = threads[0];
-    
-    // Start with the thread node
-    const threadNode = {
-      id: `thread-${thread.id}`,
-      title: thread.metadata?.title || 'Untitled Thread',
-      type: 'thread'
-    };
-    
-    setTraversalPath([threadNode]);
-    setHighlightedNodeId(threadNode.id);
-
-    // Find all direct child nodes of the thread
-    const childNodes = thread.nodes?.filter(node => !node.parent_id) || [];
-    setAvailablePaths(childNodes.map(node => ({
-      id: `node-${node.id}`,
-      title: node.metadata?.title || `Node ${node.id}`,
-      type: node.type,
-      nodeType: NODE_TYPES[node.type]?.label,
-      isParent: false
-    })));
-
-    setIsTraversing(true);
-  };
-
-  // Update highlightAvailablePaths function
-  const highlightAvailablePaths = (nodeIds, currentNodeId) => {
-    if (!isTraversing) return; // Only highlight if in traversal mode
-
-    // Reset all nodes and links
-    d3.select(svgRef.current)
-      .selectAll('.node')
-      .style('opacity', 0.3)
-      .classed('current-node', false)
-      .select('circle')
-      .style('filter', 'none');
-
-    d3.select(svgRef.current)
-      .selectAll('line')
-      .style('opacity', 0.1)
-      .attr('stroke-width', 1)
-      .classed('path-line', false)
-      .classed('highlighted', false);
-
-    // Find path from thread to current node
-    if (currentNodeId) {
-      const pathNodes = [];
-      if (!currentNodeId.startsWith('thread-')) {
-        let currentNode = threads[0].nodes.find(n => 
-          `node-${n.id}` === currentNodeId
-        );
-        
-        // Build path from current node to thread
-        while (currentNode) {
-          pathNodes.unshift(`node-${currentNode.id}`);
-          currentNode = currentNode.parent_id ? 
-            threads[0].nodes.find(n => n.id.toString() === currentNode.parent_id.toString()) :
-            null;
-        }
-      }
-      pathNodes.unshift(`thread-${threads[0].id}`);
-
-      // Highlight path lines
-      for (let i = 0; i < pathNodes.length - 1; i++) {
-        d3.select(svgRef.current)
-          .selectAll('line')
-          .filter(d => 
-            (d.source.id === pathNodes[i] && d.target.id === pathNodes[i + 1]) ||
-            (d.source.id === pathNodes[i + 1] && d.target.id === pathNodes[i])
-          )
-          .classed('path-line', true)
-          .style('opacity', 0.8);
-      }
-
-      // Highlight path nodes
-      pathNodes.forEach(nodeId => {
-        d3.select(svgRef.current)
-          .selectAll('.node')
-          .filter(d => d.id === nodeId)
-          .style('opacity', 1);
-      });
-    }
-
-    // Highlight available nodes
-    nodeIds.forEach(nodeId => {
-      const nodeSelection = d3.select(svgRef.current)
-        .selectAll('.node')
-        .filter(d => d.id === nodeId);
-
-      nodeSelection
-        .style('opacity', 1)
-        .classed('current-node', nodeId === currentNodeId)
-        .select('circle')
-        .style('filter', 'url(#glow-effect)');
-
-      // Highlight connections for available paths
-      if (nodeId !== currentNodeId) {
-        d3.select(svgRef.current)
-          .selectAll('line')
-          .filter(d => d.source.id === nodeId || d.target.id === nodeId)
-          .style('opacity', 0.8)
-          .attr('stroke-width', 2)
-          .classed('highlighted', true);
-      }
-    });
-  };
-
-  // Update traverseToNode function
-  const traverseToNode = (nodeId) => {
-    if (!threads || threads.length === 0 || !isTraversing) return;
-    
-    const thread = threads[0];
-    const isThreadNode = nodeId.startsWith('thread-');
-    const numericId = nodeId.replace(/^(node-|thread-)/, '');
-    
-    // Find the current node
-    const node = isThreadNode 
-      ? { id: thread.id, type: 'thread', metadata: thread.metadata }
-      : thread.nodes?.find(n => n.id.toString() === numericId);
-    
-    if (!node) return;
-
-    // Create node info for path
-    const nodeInfo = {
-      id: nodeId,
-      title: node.metadata?.title || `${isThreadNode ? 'Thread' : 'Node'} ${node.id}`,
-      type: isThreadNode ? 'thread' : node.type
-    };
-
-    // Update traversal path
-    setTraversalPath(prev => {
-      const index = prev.findIndex(n => n.id === nodeId);
-      if (index >= 0) {
-        return prev.slice(0, index + 1);
-      }
-      return [...prev, nodeInfo];
-    });
-
-    // Update available paths
-    let availablePathsList = [];
-    if (isThreadNode) {
-      const childNodes = thread.nodes?.filter(n => !n.parent_id) || [];
-      availablePathsList = childNodes.map(n => ({
-        id: `node-${n.id}`,
-        title: n.metadata?.title || `Node ${n.id}`,
-        type: n.type,
-        nodeType: NODE_TYPES[n.type]?.label,
-        isParent: false
-      }));
-    } else {
-      const parentId = node.parent_id;
-      const parentNode = parentId 
-        ? thread.nodes?.find(n => n.id.toString() === parentId.toString())
-        : { id: thread.id, type: 'thread', metadata: thread.metadata };
-
-      if (parentNode) {
-        availablePathsList.push({
-          id: parentNode.type === 'thread' ? `thread-${parentNode.id}` : `node-${parentNode.id}`,
-          title: parentNode.metadata?.title || `${parentNode.type === 'thread' ? 'Thread' : 'Node'} ${parentNode.id}`,
-          type: parentNode.type,
-          nodeType: parentNode.type === 'thread' ? 'THREAD' : NODE_TYPES[parentNode.type]?.label,
-          isParent: true
-        });
-      }
-
-      const childNodes = thread.nodes?.filter(n => n.parent_id?.toString() === numericId) || [];
-      childNodes.forEach(childNode => {
-        availablePathsList.push({
-          id: `node-${childNode.id}`,
-          title: childNode.metadata?.title || `Node ${childNode.id}`,
-          type: childNode.type,
-          nodeType: NODE_TYPES[childNode.type]?.label,
-          isParent: false
-        });
-      });
-    }
-
-    setAvailablePaths(availablePathsList);
-    setHighlightedNodeId(nodeId);
-    
-    // Update selected node without triggering graph redraw
-    handleNodeClick(node);
-  };
-
-  useEffect(() => {
-    if (isTraversing && highlightedNodeId && threads && threads.length > 0) {
-      // Find path from thread to current node
-      const pathNodes = [];
-      if (!highlightedNodeId.startsWith('thread-')) {
-        let currentNode = threads[0].nodes.find(n => 
-          `node-${n.id}` === highlightedNodeId
-        );
-        
-        // Build path from current node to thread
-        while (currentNode) {
-          pathNodes.unshift(`node-${currentNode.id}`);
-          currentNode = currentNode.parent_id ? 
-            threads[0].nodes.find(n => n.id.toString() === currentNode.parent_id.toString()) :
-            null;
-        }
-      }
-      pathNodes.unshift(`thread-${threads[0].id}`);
-
-      // Get available paths for current node
-      const availableNodeIds = availablePaths.map(p => p.id);
-      const nodesToHighlight = [
-        highlightedNodeId,
-        ...availableNodeIds
-      ];
-
-      highlightAvailablePaths(nodesToHighlight, highlightedNodeId);
-    }
-  }, [isTraversing, highlightedNodeId, threads]);
-
-  const traversalControls = (
-    <div className={`traversal-controls ${showTraversalControls ? 'active' : ''} ${isTraversalCollapsed ? 'collapsed' : ''}`}>
-      <div className="traversal-controls-header">
-        <h3 className="traversal-controls-title">Thread Traversal</h3>
-        <button
-          className="traversal-toggle"
-          onClick={() => {
-            if (!isTraversing) {
-              startHierarchicalTraversal();
-            } else {
-              setIsTraversing(false);
-              setTraversalPath([]);
-              setHighlightedNodeId(null);
-              setAvailablePaths([]);
-              // Reset all nodes and links to default state
-              d3.select(svgRef.current)
-                .selectAll('.node')
-                .style('opacity', 1)
-                .select('circle')
-                .style('filter', 'url(#glow-effect)');
-              
-              d3.select(svgRef.current)
-                .selectAll('line')
-                .style('opacity', linkOpacity)
-                .attr('stroke-width', linkWidth);
-            }
-          }}
-        >
-          {isTraversing ? 'Exit Traversal' : 'Start Traversal'}
-        </button>
-      </div>
-
-      <div className="traversal-content">
-        <div className="breadcrumb-trail">
-          {traversalPath.map((node, index) => (
-            <React.Fragment key={node.id}>
-              {index > 0 && <span className="breadcrumb-separator">→</span>}
-              <button
-                className={`breadcrumb-node ${highlightedNodeId === node.id ? 'active' : ''}`}
-                onClick={() => traverseToNode(node.id)}
-                style={{
-                  backgroundColor: node.type === 'thread' 
-                    ? NODE_COLORS.thread 
-                    : NODE_COLORS[NODE_TYPES[node.type]?.label] || '#666'
-                }}
-              >
-                {node.title}
-              </button>
-            </React.Fragment>
-          ))}
-        </div>
-        
-        {isTraversing && availablePaths.length > 0 && (
-          <div className="available-paths">
-            <h4>Available Paths:</h4>
-            <div className="path-buttons">
-              {availablePaths.map(path => (
-                <button
-                  key={path.id}
-                  className={`path-button ${path.isParent ? 'parent' : 'child'}`}
-                  onClick={() => traverseToNode(path.id)}
-                  style={{
-                    backgroundColor: path.nodeType === 'THREAD' 
-                      ? NODE_COLORS.thread 
-                      : NODE_COLORS[path.nodeType] || '#666'
-                  }}
-                >
-                  <div className="path-header">
-                    <span className="path-type">{path.nodeType}</span>
-                    {path.isParent && <span className="parent-indicator">↑ PARENT</span>}
-                  </div>
-                  <span className="path-title">{path.title}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <button 
-        className="traversal-collapse-button"
-        onClick={() => setIsTraversalCollapsed(!isTraversalCollapsed)}
-        title={isTraversalCollapsed ? "Expand" : "Collapse"}
-      >
-        {isTraversalCollapsed ? '→' : '←'}
-      </button>
-    </div>
-  );
-
   const formatContent = (content, nodeType) => {
     if (!content) return 'No content available';
     
@@ -1560,7 +1235,6 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
   return (
     <div className={`thread-graph ${isMatteMode ? 'matte' : ''}`}>
       <div className={`graph-container ${selectedNode ? 'with-sidebar' : ''} ${isDottedBackground ? 'dotted-background' : ''}`}>
-        {traversalControls}
         <svg ref={svgRef} className={`thread-graph ${isMatteMode ? 'matte' : ''}`}></svg>
         {loading && (
           <div className="loading-overlay">
@@ -1583,11 +1257,65 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
             D
           </button>
           <button
-            className={`control-button ${areNodesFixed ? 'active' : ''}`}
-            onClick={() => setAreNodesFixed(!areNodesFixed)}
-            title={areNodesFixed ? 'Unfix all nodes' : 'Fix all nodes'}
+            className="control-button"
+            onClick={() => {
+              // Get the current simulation and nodes
+              const svg = d3.select(svgRef.current);
+              const nodes = svg.selectAll('.node');
+              
+              // Get the container dimensions
+              const width = svg.node().getBoundingClientRect().width;
+              const height = svg.node().getBoundingClientRect().height;
+              
+              // Reset all node positions with initial spread
+              nodes.each(function(d) {
+                d.fx = null;
+                d.fy = null;
+                
+                if (d.type === 'thread') {
+                  // Place thread node in center
+                  d.x = width / 2;
+                  d.y = height / 2;
+                } else {
+                  // Spread other nodes in a circle around the center
+                  const angle = Math.random() * 2 * Math.PI;
+                  const radius = 100 + Math.random() * 100; // Random radius between 100 and 200
+                  d.x = width / 2 + radius * Math.cos(angle);
+                  d.y = height / 2 + radius * Math.sin(angle);
+                }
+              });
+              
+              // Update the force simulation
+              const simulation = d3.forceSimulation(nodes.data())
+                .force('link', d3.forceLink(svg.selectAll('line').data())
+                  .id(d => d.id)
+                  .distance(d => d.source.type === 'thread' ? linkDistance * 2 : linkDistance))
+                .force('charge', d3.forceManyBody()
+                  .strength(d => d.type === 'thread' ? forceStrength * 5 : forceStrength))
+                .force('collision', d3.forceCollide()
+                  .radius(d => d.type === 'thread' ? d.radius * 4 : d.radius * nodeSize * collisionRadius))
+                .force('center', d3.forceCenter(width / 2, height / 2)
+                  .strength(centerForce))
+                .alphaDecay(animationSpeed)
+                .velocityDecay(damping);
+
+              // Heat up the simulation and restart
+              simulation.alpha(1).restart();
+
+              // Update positions on each tick
+              simulation.on('tick', () => {
+                svg.selectAll('line')
+                  .attr('x1', d => d.source.x)
+                  .attr('y1', d => d.source.y)
+                  .attr('x2', d => d.target.x)
+                  .attr('y2', d => d.target.y);
+
+                nodes.attr('transform', d => `translate(${d.x},${d.y})`);
+              });
+            }}
+            title="Reset node positions"
           >
-            F
+            R
           </button>
         </div>
         <div className="toolbar-container" ref={toolbarRef}>
@@ -1630,12 +1358,6 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
                   onClick={() => setIsMatteMode(!isMatteMode)}
                 >
                   {isMatteMode ? '✨ Glossy' : '◼️ Matte'}
-                </button>
-                <button
-                  className={`toolbar-button ${areNodesFixed ? 'active' : ''}`}
-                  onClick={() => setAreNodesFixed(!areNodesFixed)}
-                >
-                  {areNodesFixed ? '🔓 Unfix All' : '🔒 Fix All'}
                 </button>
               </div>
               
@@ -1782,14 +1504,25 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
                     }
                     // Otherwise go back to the thread
                     const thread = threads[0];
-                    handleNodeClick({ ...thread, type: 'thread' });
+                    handleNodeClick({ 
+                      ...thread, 
+                      type: 'thread',
+                      metadata: {
+                        ...thread.metadata,
+                        title: thread.metadata?.title || thread.title || `Thread ${thread.id}`
+                      }
+                    });
                   }}
                   aria-label="Back to parent"
                 >
                   ←
                 </button>
               )}
-              <h2>{selectedNode.metadata?.title || `${selectedNode.type === 'thread' ? 'Thread' : 'Node'} ${selectedNode.id}`}</h2>
+              <h2>
+                {selectedNode.type === 'thread' 
+                  ? (selectedNode.originalData?.metadata?.title || selectedNode.originalData?.title || selectedNode.title || `Thread ${selectedNode.id}`)
+                  : (selectedNode.metadata?.title || selectedNode.title || `Node ${selectedNode.id}`)}
+              </h2>
               <div className="header-actions">
                 {!showNodeForm && (
                   <button 
@@ -1935,22 +1668,6 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, loading: p
                   </div>
 
                   <div className="content-sidebar-actions">
-                    {!showNodeForm && (
-                      // <button
-                      //   className={`generate-suggestions-button ${isGeneratingSuggestions ? 'loading' : ''}`}
-                      //   onClick={generateSuggestions}
-                      //   disabled={isGeneratingSuggestions}
-                      // >
-                      //   {isGeneratingSuggestions ? 'Generating...' : 'Generate Node Suggestions'}
-                      // </button>
-                      <button
-                      onClick={generateSuggestions}
-                      disabled={isGeneratingSuggestions}
-                      className="generate-suggestions-button"
-                      >
-Generate Node Children
-                      </button>
-                    )}
                   </div>
                 </>
               )}
