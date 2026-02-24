@@ -368,6 +368,81 @@ app.delete('/api/threads/:threadId/canvas', async (req, res) => {
   }
 });
 
+// Update thread content
+app.put('/api/threads/:threadId/content', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { content } = req.body;
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const now = new Date().toISOString();
+    const result = await session.run(
+      `MATCH (t:Thread {id: $threadId})
+       SET t.content = $content, t.updated_at = $now
+       RETURN t`,
+      { threadId: neo4j.int(threadId), content: content || '', now }
+    );
+    const thread = formatThread(result.records[0].get('t').properties);
+    res.json(thread);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Thread article sequence endpoints
+app.put('/api/threads/:threadId/sequence', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { sequence } = req.body;
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run(
+      `MATCH (t:Thread {id: $threadId})
+       SET t.article_sequence = $sequence`,
+      { threadId: neo4j.int(threadId), sequence: JSON.stringify(sequence) }
+    );
+    res.json({ sequence });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get('/api/threads/:threadId/sequence', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      'MATCH (t:Thread {id: $threadId}) RETURN t.article_sequence AS sequence',
+      { threadId: neo4j.int(threadId) }
+    );
+    const seqStr = result.records[0]?.get('sequence');
+    const sequence = seqStr ? JSON.parse(seqStr) : null;
+    res.json(sequence);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.delete('/api/threads/:threadId/sequence', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run(
+      'MATCH (t:Thread {id: $threadId}) REMOVE t.article_sequence',
+      { threadId: neo4j.int(threadId) }
+    );
+    res.json({});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
 // Search threads endpoint
 app.get('/api/threads/search', async (req, res) => {
   const { query } = req.query;

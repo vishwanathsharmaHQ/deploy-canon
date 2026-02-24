@@ -1,0 +1,131 @@
+.se-page {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #111;
+  overflow-y: auto;
+}
+
+.se-container {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+  width: 100%;
+}
+
+.se-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.se-title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+}
+
+.se-done-btn {
+  background: rgba(0, 255, 157, 0.12);
+  border: 1px solid rgba(0, 255, 157, 0.3);
+  color: #00ff9d;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.se-done-btn:hover {
+  background: rgba(0, 255, 157, 0.2);
+  border-color: #00ff9d;
+}
+
+.se-hint {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+  margin: 0 0 24px;
+}
+
+.se-empty {
+  color: rgba(255, 255, 255, 0.3);
+  font-style: italic;
+  text-align: center;
+  padding: 40px 0;
+}
+
+.se-loading {
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  padding: 60px 0;
+}
+
+.se-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.se-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  cursor: grab;
+  transition: background 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.se-item:active {
+  cursor: grabbing;
+  background: #222;
+  border-color: #444;
+}
+
+.se-item:hover {
+  border-color: #3a3a3a;
+}
+
+.se-handle {
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.se-index {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.se-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  color: #000;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.se-node-title {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

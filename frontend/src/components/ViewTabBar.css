@@ -1,0 +1,83 @@
+.view-tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 16px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+
+/* ── Thread navigation (left) ── */
+.vtb-thread-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vtb-arrow {
+  background: none;
+  border: 1px solid #444;
+  color: #ccc;
+  font-size: 18px;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.vtb-arrow:hover:not(:disabled) {
+  background: #333;
+  border-color: #666;
+}
+
+.vtb-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.vtb-thread-title {
+  color: #e0e0e0;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+/* ── Tabs (right) ── */
+.vtb-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.vtb-tab {
+  background: none;
+  border: 1px solid transparent;
+  color: #888;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.vtb-tab:hover {
+  color: #ccc;
+  background: #2a2a2a;
+}
+
+.vtb-tab--active {
+  color: #00ff9d;
+  border-color: #00ff9d;
+  background: rgba(0, 255, 157, 0.08);
+}

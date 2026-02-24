@@ -1,8 +1,72 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
+import Youtube from '@tiptap/extension-youtube';
+import Placeholder from '@tiptap/extension-placeholder';
+import { api } from '../services/api';
 import './ArticleReader.css';
 
-// ── Content renderer ──────────────────────────────────────────────────────────
-// Handles: raw HTML, YouTube embeds, inline URL linkification, plain paragraphs
+const NODE_TYPES = ['ROOT', 'EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'];
+
+const NODE_TYPE_COLORS = {
+  ROOT: '#888',
+  EVIDENCE: '#4fc3f7',
+  REFERENCE: '#ab47bc',
+  CONTEXT: '#ff8a65',
+  EXAMPLE: '#66bb6a',
+  COUNTERPOINT: '#ef5350',
+  SYNTHESIS: '#fdd835',
+};
+
+// ── Toolbar (reuse pattern from NodeEditor) ───────────────────────────────────
+const Toolbar = ({ editor }) => {
+  if (!editor) return null;
+
+  const addLink = useCallback(() => {
+    const url = window.prompt('URL:');
+    if (url) {
+      editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    }
+  }, [editor]);
+
+  const addYoutube = useCallback(() => {
+    const url = window.prompt('YouTube URL:');
+    if (url) {
+      editor.commands.setYoutubeVideo({ src: url });
+    }
+  }, [editor]);
+
+  const Btn = ({ onClick, active, children }) => (
+    <button type="button" onClick={onClick} className={active ? 'is-active' : ''}>
+      {children}
+    </button>
+  );
+
+  const Divider = () => <span className="ar-toolbar-divider" />;
+
+  return (
+    <div className="ar-toolbar">
+      <Btn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive('bold')}>B</Btn>
+      <Btn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive('italic')}>I</Btn>
+      <Btn onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive('strike')}>S</Btn>
+      <Divider />
+      <Btn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive('heading', { level: 1 })}>H1</Btn>
+      <Btn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={editor.isActive('heading', { level: 2 })}>H2</Btn>
+      <Btn onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} active={editor.isActive('heading', { level: 3 })}>H3</Btn>
+      <Divider />
+      <Btn onClick={() => editor.chain().focus().toggleBulletList().run()} active={editor.isActive('bulletList')}>Bullet</Btn>
+      <Btn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={editor.isActive('orderedList')}>Ordered</Btn>
+      <Btn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive('blockquote')}>Quote</Btn>
+      <Btn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={editor.isActive('codeBlock')}>Code</Btn>
+      <Divider />
+      <Btn onClick={addLink} active={editor.isActive('link')}>Link</Btn>
+      <Btn onClick={addYoutube}>YouTube</Btn>
+    </div>
+  );
+};
+
+// ── Content renderer (for read-only node pages) ──────────────────────────────
 const renderContent = (rawContent) => {
   if (!rawContent) return <p className="ar-empty">No content available.</p>;
 
@@ -26,7 +90,6 @@ const renderContent = (rawContent) => {
     .filter(p => p.trim() !== '');
 
   return paragraphs.map((para, pi) => {
-    // Full-line YouTube URL → embed
     const ytMatch = para.trim().match(ytRegex);
     if (ytMatch) {
       return (
@@ -42,7 +105,6 @@ const renderContent = (rawContent) => {
       );
     }
 
-    // Inline URL linkification
     const segments = [];
     let lastIdx = 0;
     let m;
@@ -50,9 +112,7 @@ const renderContent = (rawContent) => {
     while ((m = urlRegex.exec(para)) !== null) {
       if (m.index > lastIdx) segments.push(para.slice(lastIdx, m.index));
       segments.push(
-        <a key={m.index} href={m[0]} target="_blank" rel="noopener noreferrer">
-          {m[0]}
-        </a>
+        <a key={m.index} href={m[0]} target="_blank" rel="noopener noreferrer">{m[0]}</a>
       );
       lastIdx = m.index + m[0].length;
     }
@@ -62,34 +122,279 @@ const renderContent = (rawContent) => {
   });
 };
 
+const getNodeType = (node) => {
+  if (node.node_type) return node.node_type;
+  if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'ROOT';
+  return node.type || 'ROOT';
+};
+
+// Render a string that may contain HTML
+const renderHtmlOrText = (str) => {
+  if (!str) return null;
+  const s = String(str);
+  if (/<[a-z][\s\S]*>/i.test(s)) {
+    return <div className="ar-html" dangerouslySetInnerHTML={{ __html: s }} />;
+  }
+  return <p>{s}</p>;
+};
+
+// Returns a React element (not a string) for structured node content
+const formatNodeContent = (node) => {
+  let content = node.content;
+  if (!content) return null;
+
+  if (typeof content === 'string') {
+    try {
+      const parsed = JSON.parse(content);
+      if (typeof parsed === 'object') content = parsed;
+    } catch (e) { /* not JSON */ }
+  }
+
+  if (typeof content === 'object') {
+    // ROOT: { title, description, keywords }
+    if (content.title && content.description && 'keywords' in content) {
+      return (
+        <div>
+          <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{content.title}</h3>
+          {renderHtmlOrText(content.description)}
+          {content.keywords?.length > 0 && (
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', marginTop: 16 }}>
+              <em>Keywords: {Array.isArray(content.keywords) ? content.keywords.join(', ') : content.keywords}</em>
+            </p>
+          )}
+        </div>
+      );
+    }
+    // EVIDENCE: { point, source }
+    if (content.point) {
+      return (
+        <div>
+          {renderHtmlOrText(content.point)}
+          {content.source && (
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontStyle: 'italic', marginTop: 16 }}>
+              Source: {content.source}
+            </p>
+          )}
+        </div>
+      );
+    }
+    // EXAMPLE: { title, description }
+    if (content.title && content.description) {
+      return (
+        <div>
+          <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{content.title}</h3>
+          {renderHtmlOrText(content.description)}
+        </div>
+      );
+    }
+    // COUNTERPOINT: { argument, explanation }
+    if (content.argument) {
+      return (
+        <div>
+          <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{content.argument}</h3>
+          {content.explanation && renderHtmlOrText(content.explanation)}
+        </div>
+      );
+    }
+    if (content.content) return content.content;
+    if (content.text) return content.text;
+    return JSON.stringify(content, null, 2);
+  }
+
+  return content;
+};
+
+// ── Thread content editor (page 0) ───────────────────────────────────────────
+const ThreadContentEditor = ({ thread, onContentChange }) => {
+  const saveTimer = useRef(null);
+  const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved'
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Link.configure({ openOnClick: false }),
+      Youtube.configure({ width: 640, height: 360 }),
+      Placeholder.configure({
+        placeholder: 'Start writing your thread content here...',
+      }),
+    ],
+    content: thread.content || '',
+    onUpdate: ({ editor }) => {
+      const html = editor.getHTML();
+      // Debounced auto-save
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      setSaveStatus('saving');
+      saveTimer.current = setTimeout(async () => {
+        try {
+          await api.updateThreadContent(thread.id, html);
+          setSaveStatus('saved');
+          if (onContentChange) onContentChange(html);
+          setTimeout(() => setSaveStatus(null), 2000);
+        } catch (err) {
+          console.error('Failed to save content:', err);
+          setSaveStatus(null);
+        }
+      }, 800);
+    },
+  });
+
+  // Update editor content when thread changes
+  useEffect(() => {
+    if (editor && thread.content !== undefined) {
+      const currentHtml = editor.getHTML();
+      // Only update if content is truly different (avoid cursor jump)
+      if (currentHtml === '<p></p>' && thread.content && thread.content !== '<p></p>') {
+        editor.commands.setContent(thread.content);
+      }
+    }
+  }, [thread.id]);
+
+  const title = thread.metadata?.title || thread.title || `Thread ${thread.id}`;
+  const description = thread.metadata?.description || thread.description || '';
+
+  return (
+    <article className="ar-article">
+      <h1 className="ar-title">{title}</h1>
+      {description && <p className="ar-description">{description}</p>}
+      <hr className="ar-divider" />
+      <div className="ar-editor-section">
+        <Toolbar editor={editor} />
+        <div className="ar-editor-wrapper">
+          <EditorContent editor={editor} />
+        </div>
+        {saveStatus && (
+          <div className="ar-save-status">
+            {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
-const ArticleReader = ({ thread, onBack }) => {
+const ArticleReader = ({ thread, initialNodeId }) => {
+  const [currentPage, setCurrentPage] = useState(0);
+  const [orderedNodes, setOrderedNodes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!thread?.id) return;
+    loadOrder();
+  }, [thread?.id]);
+
+  // When initialNodeId changes (e.g. user selected a node then clicked Article tab), navigate to it
+  useEffect(() => {
+    if (!initialNodeId || orderedNodes.length === 0) return;
+    const idx = orderedNodes.findIndex(n => n.id === initialNodeId);
+    if (idx >= 0) {
+      setCurrentPage(idx + 1); // +1 because page 0 is thread overview
+    }
+  }, [initialNodeId, orderedNodes]);
+
+  const loadOrder = async () => {
+    setLoading(true);
+    try {
+      const nodes = thread.nodes || [];
+      const saved = await api.loadArticleSequence(thread.id);
+
+      let ordered;
+      if (saved && Array.isArray(saved)) {
+        const savedSet = new Set(saved);
+        const savedOrdered = saved.map(id => nodes.find(n => n.id === id)).filter(Boolean);
+        const remaining = nodes.filter(n => !savedSet.has(n.id));
+        ordered = [...savedOrdered, ...remaining];
+      } else {
+        ordered = [...nodes];
+      }
+      setOrderedNodes(ordered);
+
+      // Set initial page based on initialNodeId or default to 0
+      if (initialNodeId) {
+        const idx = ordered.findIndex(n => n.id === initialNodeId);
+        setCurrentPage(idx >= 0 ? idx + 1 : 0);
+      } else {
+        setCurrentPage(0);
+      }
+    } catch (err) {
+      console.error('Failed to load article sequence:', err);
+      const fallback = [...(thread.nodes || [])];
+      setOrderedNodes(fallback);
+      if (initialNodeId) {
+        const idx = fallback.findIndex(n => n.id === initialNodeId);
+        setCurrentPage(idx >= 0 ? idx + 1 : 0);
+      } else {
+        setCurrentPage(0);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!thread) return null;
 
-  const title =
-    thread.metadata?.title || thread.title || `Thread ${thread.id}`;
-  const description =
-    thread.metadata?.description || thread.description || '';
+  const totalPages = 1 + orderedNodes.length;
+
+  const renderPage = () => {
+    if (currentPage === 0) {
+      return <ThreadContentEditor thread={thread} />;
+    }
+
+    const node = orderedNodes[currentPage - 1];
+    if (!node) return <p className="ar-empty">Node not found.</p>;
+
+    const nodeType = getNodeType(node);
+    const color = NODE_TYPE_COLORS[nodeType] || '#888';
+    const nodeTitle = node.title || `Node ${node.id}`;
+    const nodeRendered = formatNodeContent(node);
+    // formatNodeContent returns React elements for structured types, strings for plain content
+    const isReactElement = React.isValidElement(nodeRendered);
+
+    return (
+      <article className="ar-article">
+        <div className="ar-node-badge" style={{ background: color }}>
+          {nodeType}
+        </div>
+        <h1 className="ar-title">{nodeTitle}</h1>
+        <hr className="ar-divider" />
+        <div className="ar-content">
+          {isReactElement ? nodeRendered : renderContent(nodeRendered)}
+        </div>
+      </article>
+    );
+  };
 
   return (
     <div className="ar-page">
-      <header className="ar-header">
-        <button className="ar-back" onClick={onBack}>
-          ← Back to graph
-        </button>
-        <span className="ar-brand">canonthread</span>
-      </header>
-
       <main className="ar-body">
-        <article className="ar-article">
-          <h1 className="ar-title">{title}</h1>
-          {description && <p className="ar-description">{description}</p>}
-          <hr className="ar-divider" />
-          <div className="ar-content">
-            {renderContent(thread.content)}
-          </div>
-        </article>
+        {loading ? (
+          <div className="ar-loading">Loading...</div>
+        ) : (
+          renderPage()
+        )}
       </main>
+
+      {!loading && totalPages > 1 && (
+        <div className="ar-nav">
+          <button
+            className="ar-nav-btn"
+            disabled={currentPage === 0}
+            onClick={() => setCurrentPage(p => p - 1)}
+          >
+            &#8592; Prev
+          </button>
+          <span className="ar-nav-info">
+            {currentPage + 1} / {totalPages}
+          </span>
+          <button
+            className="ar-nav-btn"
+            disabled={currentPage >= totalPages - 1}
+            onClick={() => setCurrentPage(p => p + 1)}
+          >
+            Next &#8594;
+          </button>
+        </div>
+      )}
     </div>
   );
 };

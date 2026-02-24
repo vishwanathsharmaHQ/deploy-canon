@@ -8,6 +8,8 @@ import ThreadGraph from './components/ThreadGraph'
 import NodeDetailsModal from './components/NodeDetailsModal'
 import ArticleReader from './components/ArticleReader'
 import ThreadCanvas from './components/ThreadCanvas'
+import SequenceEditor from './components/SequenceEditor'
+import ViewTabBar from './components/ViewTabBar'
 import NodeEditor from './components/NodeEditor'
 import { api } from './services/api'
 import './App.css'
@@ -38,8 +40,9 @@ function App() {
   const [isIPFSConnected, setIsIPFSConnected] = useState(false);
   const dropdownRef = useRef(null);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
-  const [view, setView] = useState('graph'); // 'graph' | 'article' | 'editor' | 'canvas'
+  const [view, setView] = useState('graph'); // 'graph' | 'article' | 'sequence' | 'editor' | 'canvas'
   const [editorNode, setEditorNode] = useState(null);
+  const [graphSelectedNodeId, setGraphSelectedNodeId] = useState(null);
 
   const NODE_TYPES = [
     'ROOT',
@@ -748,6 +751,22 @@ function App() {
   const threadToShow = displayThreads.find(t => t.id === selectedThreadId);
   const graphData = threadToShow ? [threadToShow] : [];
 
+  const currentThreadIndex = displayThreads.findIndex(t => t.id === selectedThreadId);
+  const hasPrevThread = currentThreadIndex > 0;
+  const hasNextThread = currentThreadIndex >= 0 && currentThreadIndex < displayThreads.length - 1;
+
+  const handlePrevThread = () => {
+    if (hasPrevThread) {
+      setSelectedThreadId(displayThreads[currentThreadIndex - 1].id);
+    }
+  };
+
+  const handleNextThread = () => {
+    if (hasNextThread) {
+      setSelectedThreadId(displayThreads[currentThreadIndex + 1].id);
+    }
+  };
+
   const handleCreateThreadClick = (e) => {
     if (e.target.value === 'create') {
       setShowCreateThreadModal(true);
@@ -944,6 +963,17 @@ function App() {
       </div>
 
       <div className="main-content">
+        {threadToShow && (
+          <ViewTabBar
+            view={view}
+            onChangeView={setView}
+            threadTitle={threadToShow.metadata?.title || threadToShow.title || `Thread ${threadToShow.id}`}
+            onPrevThread={handlePrevThread}
+            onNextThread={handleNextThread}
+            hasPrev={hasPrevThread}
+            hasNext={hasNextThread}
+          />
+        )}
         {view === 'editor' && editorNode && threadToShow ? (
           <NodeEditor
             thread={threadToShow}
@@ -951,18 +981,24 @@ function App() {
             onSubmit={async (data) => { await handleAddNode(data); setView('graph'); setEditorNode(null); }}
             onCancel={() => { setView('graph'); setEditorNode(null); }}
           />
+        ) : view === 'sequence' && threadToShow ? (
+          <SequenceEditor
+            thread={threadToShow}
+            onDone={() => setView('article')}
+          />
         ) : view === 'canvas' && threadToShow ? (
           <ThreadCanvas
             thread={threadToShow}
-            onBack={() => setView('graph')}
           />
         ) : view === 'article' && threadToShow ? (
           <ArticleReader
             thread={threadToShow}
-            onBack={() => setView('graph')}
+            initialNodeId={graphSelectedNodeId}
           />
-        ) : (
-        <div className="visualization-container">
+        ) : null}
+
+        {/* Graph view — always mounted to avoid remount/layout-jump, hidden via CSS */}
+        <div className="visualization-container" style={{ display: view === 'graph' ? undefined : 'none' }}>
           <div className="thread-controls">
             <div className="custom-select" ref={dropdownRef}>
               <button
@@ -1046,8 +1082,7 @@ function App() {
                 onNodeClick={handleNodeClick}
                 onAddNode={handleAddNode}
                 onOpenEditor={(node) => { setEditorNode(node); setView('editor'); }}
-                onOpenArticle={() => setView('article')}
-                onOpenCanvas={() => setView('canvas')}
+                onSelectedNodeChange={setGraphSelectedNodeId}
                 loading={loading}
               />
             </ReactFlowProvider>
@@ -1057,7 +1092,6 @@ function App() {
             </div>
           )}
         </div>
-        )}
 
         {showCreateThreadModal && (
           <div className="modal-overlay" onClick={() => setShowCreateThreadModal(false)}>

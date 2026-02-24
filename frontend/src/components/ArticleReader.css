@@ -186,6 +186,227 @@
   border: none;
 }
 
+/* Node type badge */
+.ar-node-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 3px;
+  color: #000;
+  margin-bottom: 14px;
+}
+
+/* Loading state */
+.ar-loading {
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  padding: 60px 0;
+}
+
+/* Pagination nav bar */
+.ar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: #1a1a1a;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+}
+
+.ar-nav-btn {
+  background: none;
+  border: 1px solid #444;
+  color: #ccc;
+  font-size: 13px;
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ar-nav-btn:hover:not(:disabled) {
+  background: #333;
+  border-color: #666;
+  color: #fff;
+}
+
+.ar-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.ar-nav-info {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 60px;
+  text-align: center;
+}
+
+/* ── Rich text editor (thread content) ────────────────────── */
+
+.ar-editor-section {
+  position: relative;
+}
+
+.ar-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+}
+
+.ar-toolbar button {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 32px;
+  text-align: center;
+}
+
+.ar-toolbar button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.ar-toolbar button.is-active {
+  background: rgba(0, 255, 157, 0.18);
+  color: #00ff9d;
+  border-color: rgba(0, 255, 157, 0.3);
+}
+
+.ar-toolbar-divider {
+  width: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 4px 4px;
+  align-self: stretch;
+}
+
+.ar-editor-wrapper {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0 0 6px 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ar-editor-wrapper .ProseMirror {
+  min-height: 300px;
+  padding: 20px 24px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 1.05rem;
+  line-height: 1.75;
+  outline: none;
+}
+
+.ar-editor-wrapper .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+  height: 0;
+}
+
+.ar-editor-wrapper .ProseMirror h1 { font-size: 1.6rem; font-weight: 700; color: #fff; margin: 1.2em 0 0.4em; }
+.ar-editor-wrapper .ProseMirror h2 { font-size: 1.35rem; font-weight: 600; color: #fff; margin: 1.1em 0 0.4em; }
+.ar-editor-wrapper .ProseMirror h3 { font-size: 1.15rem; font-weight: 600; color: #fff; margin: 1em 0 0.4em; }
+
+.ar-editor-wrapper .ProseMirror a {
+  color: #00ff9d;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.ar-editor-wrapper .ProseMirror blockquote {
+  border-left: 3px solid rgba(0, 255, 157, 0.4);
+  margin: 1em 0;
+  padding: 4px 0 4px 20px;
+  color: rgba(255, 255, 255, 0.6);
+  font-style: italic;
+}
+
+.ar-editor-wrapper .ProseMirror code {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+}
+
+.ar-editor-wrapper .ProseMirror pre {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.ar-editor-wrapper .ProseMirror pre code {
+  background: none;
+  padding: 0;
+}
+
+.ar-editor-wrapper .ProseMirror ul,
+.ar-editor-wrapper .ProseMirror ol {
+  padding-left: 24px;
+  margin: 0.6em 0;
+}
+
+.ar-editor-wrapper .ProseMirror li {
+  margin: 0.3em 0;
+}
+
+.ar-editor-wrapper .ProseMirror s {
+  text-decoration: line-through;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.ar-editor-wrapper .ProseMirror div[data-youtube-video] {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin: 20px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}
+
+.ar-editor-wrapper .ProseMirror div[data-youtube-video] iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.ar-editor-wrapper .ProseMirror hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin: 1.5em 0;
+}
+
+.ar-save-status {
+  position: absolute;
+  bottom: -28px;
+  right: 0;
+  font-size: 12px;
+  color: rgba(0, 255, 157, 0.6);
+}
+
 /* Empty state */
 .ar-empty {
   color: rgba(255, 255, 255, 0.3);

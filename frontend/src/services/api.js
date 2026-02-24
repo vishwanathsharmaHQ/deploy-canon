@@ -140,6 +140,42 @@ export const api = {
     return response.json();
   },
 
+  // Update thread content
+  async updateThreadContent(threadId, content) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/content`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!response.ok) throw new Error('Failed to update thread content');
+    return response.json();
+  },
+
+  // Article sequence functions
+  async saveArticleSequence(threadId, sequence) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/sequence`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sequence }),
+    });
+    if (!response.ok) throw new Error('Failed to save article sequence');
+    return response.json();
+  },
+
+  async loadArticleSequence(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/sequence`);
+    if (!response.ok) return null;
+    return response.json();
+  },
+
+  async deleteArticleSequence(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/sequence`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete article sequence');
+    return response.json();
+  },
+
   async generateNodeSuggestions({ nodeId, nodeType, content, title }) {
     const response = await fetch(`${API_BASE_URL}/nodes/suggest`, {
       method: 'POST',

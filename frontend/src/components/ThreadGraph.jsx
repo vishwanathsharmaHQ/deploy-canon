@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   ReactFlow,
   useNodesState,
@@ -67,7 +67,7 @@ function GraphNode({ data }) {
 
 const nodeTypes = { graphNode: GraphNode };
 
-const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onOpenArticle, onOpenCanvas, loading: parentLoading }) => {
+const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onSelectedNodeChange, loading: parentLoading }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
@@ -99,23 +99,67 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     }
   }
 
-  // Build React Flow nodes/edges from thread data
+  // Track saved layout data
+  const savedLayoutRef = useRef(null);
+  const lastThreadIdRef = useRef(null);
+  const hasFitRef = useRef(false);
+
+  // Load saved layout when thread changes
   useEffect(() => {
     if (!threads || threads.length === 0) return;
+    const threadId = threads[0].id;
+    if (lastThreadIdRef.current === threadId && savedLayoutRef.current) return;
+    lastThreadIdRef.current = threadId;
+
+    hasFitRef.current = false;
+    (async () => {
+      try {
+        const savedData = await api.loadThreadLayout(threadId);
+        savedLayoutRef.current = savedData;
+        if (savedData?.settings?.isMatteMode !== undefined) {
+          setIsMatteMode(savedData.settings.isMatteMode);
+        }
+        // Re-trigger node build now that we have the layout
+        buildGraph(threads, savedData);
+      } catch (e) {
+        savedLayoutRef.current = null;
+        buildGraph(threads, null);
+      }
+      // Fit view once after initial layout is ready
+      if (!hasFitRef.current) {
+        hasFitRef.current = true;
+        setTimeout(() => fitView({ padding: 0.2 }), 50);
+      }
+    })();
+  }, [threads]);
+
+  // Build React Flow nodes/edges from thread data, merging saved positions
+  const buildGraph = useCallback((threadList, savedData) => {
+    if (!threadList || threadList.length === 0) return;
+
+    // Also preserve current positions of existing nodes (for when data refreshes after adding a node)
+    const currentPosMap = {};
+    nodes.forEach(n => { currentPosMap[n.id] = n.position; });
 
     const rfNodes = [];
     const rfEdges = [];
     let yOffset = 0;
 
-    threads.forEach(thread => {
+    threadList.forEach(thread => {
       const threadTitle = thread.metadata?.title || thread.title || `Thread ${thread.id}`;
       const titleWords = (threadTitle || '').split(/\s+/);
       const shortTitle = titleWords.length > 2 ? titleWords.slice(0, 2).join(' ') + '...' : threadTitle;
 
+      const threadNodeId = `thread-${thread.id}`;
+      const savedThreadPos = savedData?.nodes?.[threadNodeId];
+      const currentThreadPos = currentPosMap[threadNodeId];
+
       rfNodes.push({
-        id: `thread-${thread.id}`,
+        id: threadNodeId,
         type: 'graphNode',
-        position: { x: 400, y: 300 + yOffset },
+        position: savedThreadPos
+          ? { x: savedThreadPos.x, y: savedThreadPos.y }
+          : currentThreadPos || { x: 400, y: 300 + yOffset },
         data: {
           label: shortTitle,
           isThread: true,
@@ -147,16 +191,29 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
           }
         } catch (e) { /* keep as string */ }
 
-        // Arrange in a circle around the thread node
-        const angle = (2 * Math.PI * idx) / Math.max(nodeCount, 1) - Math.PI / 2;
-        const radius = 180;
-        const cx = 400 + radius * Math.cos(angle);
-        const cy = 300 + yOffset + radius * Math.sin(angle);
+        // Use saved position > current position > default circular layout
+        const nodeId = `node-${node.id}`;
+        const savedPos = savedData?.nodes?.[nodeId];
+        const currentPos = currentPosMap[nodeId];
+
+        let position;
+        if (savedPos) {
+          position = { x: savedPos.x, y: savedPos.y };
+        } else if (currentPos) {
+          position = currentPos;
+        } else {
+          const angle = (2 * Math.PI * idx) / Math.max(nodeCount, 1) - Math.PI / 2;
+          const radius = 180;
+          position = {
+            x: 400 + radius * Math.cos(angle),
+            y: 300 + yOffset + radius * Math.sin(angle),
+          };
+        }
 
         rfNodes.push({
-          id: `node-${node.id}`,
+          id: nodeId,
           type: 'graphNode',
-          position: { x: cx, y: cy },
+          position,
           data: {
             label: typeLabel,
             isThread: false,
@@ -166,7 +223,6 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
           },
           draggable: true,
         });
-
       });
 
       // Build edges with best handle pairs based on positions
@@ -201,6 +257,16 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     setNodes(rfNodes);
     setEdges(rfEdges);
     setLoading(false);
+  }, [nodes, isMatteMode]);
+
+  // When threads change but we already have a saved layout, rebuild immediately
+  useEffect(() => {
+    if (!threads || threads.length === 0) return;
+    const threadId = threads[0].id;
+    // Only do the synchronous rebuild if we already loaded the layout for this thread
+    if (lastThreadIdRef.current === threadId && savedLayoutRef.current !== undefined) {
+      buildGraph(threads, savedLayoutRef.current);
+    }
   }, [threads]);
 
   // Update matte mode on existing nodes without resetting positions
@@ -211,33 +277,13 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     })));
   }, [isMatteMode]);
 
-  // Load saved layout positions
-  useEffect(() => {
-    if (!threads || threads.length === 0) return;
-    const threadId = threads[0].id;
-    (async () => {
-      try {
-        const savedData = await api.loadThreadLayout(threadId);
-        if (!savedData || !savedData.nodes) return;
-        setNodes(prev => prev.map(n => {
-          const saved = savedData.nodes[n.id];
-          if (saved) {
-            return { ...n, position: { x: saved.x, y: saved.y } };
-          }
-          return n;
-        }));
-        if (savedData.settings?.isMatteMode !== undefined) {
-          setIsMatteMode(savedData.settings.isMatteMode);
-        }
-      } catch (e) {
-        // no saved layout
-      }
-    })();
-  }, [threads]);
-
   const handleNodeClick = useCallback((node) => {
     setSelectedNode(node);
-  }, []);
+    // Notify parent of selected node id (null for thread-level, numeric id for nodes)
+    if (onSelectedNodeChange) {
+      onSelectedNodeChange(node?.type === 'thread' ? null : node?.id ?? null);
+    }
+  }, [onSelectedNodeChange]);
 
   const onNodeClickHandler = useCallback((event, rfNode) => {
     handleNodeClick(rfNode.data.originalData);
@@ -245,6 +291,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
 
   const closeContentSidebar = () => {
     setSelectedNode(null);
+    if (onSelectedNodeChange) onSelectedNodeChange(null);
   };
 
   const getChildNodes = (nodeId) => {
@@ -267,8 +314,9 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     return NODE_COLORS[NODE_TYPE_LABELS[type]] || '#666';
   };
 
-  // Save layout
-  const saveCurrentLayout = async () => {
+  // Save layout (also updates the ref so rebuilds preserve positions)
+  const layoutSaveTimer = useRef(null);
+  const saveCurrentLayout = useCallback(async () => {
     if (!threads || threads.length === 0) return;
     const threadId = threads[0].id;
     const currentLayout = {
@@ -278,6 +326,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     nodes.forEach(n => {
       currentLayout.nodes[n.id] = { x: n.position.x, y: n.position.y };
     });
+    savedLayoutRef.current = currentLayout;
     try {
       setLayoutLoading(true);
       await api.saveThreadLayout(threadId, currentLayout);
@@ -286,7 +335,15 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     } finally {
       setLayoutLoading(false);
     }
-  };
+  }, [threads, nodes, isMatteMode]);
+
+  // Auto-save layout after dragging nodes
+  const handleNodeDragStop = useCallback(() => {
+    if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current);
+    layoutSaveTimer.current = setTimeout(() => {
+      saveCurrentLayout();
+    }, 500);
+  }, [saveCurrentLayout]);
 
   // Reset layout
   const resetLayout = async () => {
@@ -408,8 +465,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClickHandler}
+          onNodeDragStop={handleNodeDragStop}
           nodeTypes={nodeTypes}
-          fitView
           minZoom={0.3}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
@@ -493,18 +550,6 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
                   : (selectedNode.metadata?.title || selectedNode.title || `Node ${selectedNode.id}`)}
               </h2>
               <div className="header-actions">
-                <button
-                  className="read-article-btn"
-                  onClick={() => onOpenArticle && onOpenArticle()}
-                >
-                  Read Article
-                </button>
-                <button
-                  className="read-article-btn"
-                  onClick={() => onOpenCanvas && onOpenCanvas()}
-                >
-                  Canvas
-                </button>
                 <button
                   className="add-node-button"
                   onClick={() => onOpenEditor && onOpenEditor(selectedNode)}

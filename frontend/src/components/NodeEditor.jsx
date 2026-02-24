@@ -97,6 +97,7 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
   });
   const [title, setTitle] = useState('');
   const [keywords, setKeywords] = useState('');
+  const [hasContent, setHasContent] = useState(false);
 
   const currentLabel = NODE_TYPES[Number(nodeType)]?.label || 'EVIDENCE';
 
@@ -110,6 +111,9 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
       }),
     ],
     content: '',
+    onUpdate: ({ editor }) => {
+      setHasContent(!editor.isEmpty);
+    },
   });
 
   const handleSubmit = () => {
@@ -182,7 +186,7 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
     });
   };
 
-  const canSubmit = title.trim() && editor && !editor.isEmpty;
+  const canSubmit = title.trim() && editor && hasContent;
 
   return (
     <div className="ne-page">
