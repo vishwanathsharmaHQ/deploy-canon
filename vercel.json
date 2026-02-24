@@ -5,19 +5,17 @@
       "src": "server.js",
       "use": "@vercel/node",
       "config": {
-        "maxDuration": 60,
-        "includeFiles": "dist/**"
+        "maxDuration": 60
       }
+    },
+    {
+      "src": "dist/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "server.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "server.js"
-    }
+    { "src": "/api/(.*)", "dest": "server.js" },
+    { "src": "/assets/(.*)", "dest": "/dist/assets/$1" },
+    { "src": "/(.*)", "dest": "/dist/index.html" }
   ]
-} 
+}
