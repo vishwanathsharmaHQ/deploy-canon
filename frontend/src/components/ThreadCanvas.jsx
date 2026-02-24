@@ -4,7 +4,7 @@ import '@excalidraw/excalidraw/index.css';
 import { api } from '../services/api';
 import './ThreadCanvas.css';
 
-const ThreadCanvas = ({ thread, onBack }) => {
+const ThreadCanvas = ({ thread }) => {
   const [initialData, setInitialData] = useState(null);
   const [loading, setLoading] = useState(true);
   const saveTimeoutRef = useRef(null);
@@ -74,14 +74,6 @@ const ThreadCanvas = ({ thread, onBack }) => {
             loadScene: false,
           },
         }}
-        renderTopRightUI={() => (
-          <button
-            className="canvas-back-btn"
-            onClick={onBack}
-          >
-            Back to Graph
-          </button>
-        )}
       />
     </div>
   );

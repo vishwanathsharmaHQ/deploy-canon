@@ -994,6 +994,11 @@ function App() {
           <ArticleReader
             thread={threadToShow}
             initialNodeId={graphSelectedNodeId}
+            onContentChange={(html) => {
+              setOffChainThreads(prev => prev.map(t =>
+                t.id === threadToShow.id ? { ...t, content: html } : t
+              ));
+            }}
           />
         ) : null}
 

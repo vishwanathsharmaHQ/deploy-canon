@@ -165,6 +165,8 @@ export const api = {
   async loadArticleSequence(threadId) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/sequence`);
     if (!response.ok) return null;
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return null;
     return response.json();
   },
 

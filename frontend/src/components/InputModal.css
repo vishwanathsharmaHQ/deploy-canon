@@ -1,0 +1,93 @@
+.im-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.im-dialog {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 20px 24px;
+  width: 380px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.im-label {
+  display: block;
+  color: #e0e0e0;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.im-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 5px;
+  padding: 10px 12px;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.im-input:focus {
+  border-color: #00ff9d;
+  box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.12);
+}
+
+.im-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.im-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.im-cancel {
+  background: none;
+  border: 1px solid #444;
+  color: #aaa;
+  padding: 7px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.im-cancel:hover {
+  background: #2a2a2a;
+  border-color: #666;
+}
+
+.im-submit {
+  background: #00ff9d;
+  border: none;
+  color: #1a1a1a;
+  padding: 7px 20px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.im-submit:hover:not(:disabled) {
+  background: #00cc7d;
+}
+
+.im-submit:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
