@@ -113,6 +113,33 @@ export const api = {
     return response.json();
   },
 
+  // Thread canvas functions
+  async saveThreadCanvas(threadId, canvas) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/canvas`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ canvas }),
+    });
+    if (!response.ok) throw new Error(`Failed to save thread canvas: ${response.status}`);
+    return response.json();
+  },
+
+  async loadThreadCanvas(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/canvas`);
+    if (!response.ok) return null;
+    return response.json();
+  },
+
+  async deleteThreadCanvas(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/canvas`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete thread canvas');
+    return response.json();
+  },
+
   async generateNodeSuggestions({ nodeId, nodeType, content, title }) {
     const response = await fetch(`${API_BASE_URL}/nodes/suggest`, {
       method: 'POST',

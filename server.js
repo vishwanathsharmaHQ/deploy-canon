@@ -29,7 +29,7 @@ const driver = neo4j.driver(
 );
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Apply timeout middleware to AI routes
 app.use(['/api/nodes/suggest', '/api/threads/generate'], aiTimeout);
@@ -305,6 +305,59 @@ app.delete('/api/threads/:threadId/layout', async (req, res) => {
   try {
     await session.run(
       'MATCH (t:Thread {id: $threadId}) REMOVE t.layout',
+      { threadId: neo4j.int(threadId) }
+    );
+    res.json({});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Thread canvas endpoints
+app.put('/api/threads/:threadId/canvas', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { canvas } = req.body;
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run(
+      `MATCH (t:Thread {id: $threadId})
+       SET t.canvas = $canvas`,
+      { threadId: neo4j.int(threadId), canvas: JSON.stringify(canvas) }
+    );
+    res.json({ canvas });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get('/api/threads/:threadId/canvas', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      'MATCH (t:Thread {id: $threadId}) RETURN t.canvas AS canvas',
+      { threadId: neo4j.int(threadId) }
+    );
+    const canvasStr = result.records[0]?.get('canvas');
+    const canvas = canvasStr ? JSON.parse(canvasStr) : null;
+    res.json(canvas);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.delete('/api/threads/:threadId/canvas', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run(
+      'MATCH (t:Thread {id: $threadId}) REMOVE t.canvas',
       { threadId: neo4j.int(threadId) }
     );
     res.json({});

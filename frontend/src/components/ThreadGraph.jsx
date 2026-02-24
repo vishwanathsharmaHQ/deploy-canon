@@ -67,7 +67,7 @@ function GraphNode({ data }) {
 
 const nodeTypes = { graphNode: GraphNode };
 
-const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onOpenArticle, loading: parentLoading }) => {
+const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onOpenArticle, onOpenCanvas, loading: parentLoading }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
@@ -498,6 +498,12 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
                   onClick={() => onOpenArticle && onOpenArticle()}
                 >
                   Read Article
+                </button>
+                <button
+                  className="read-article-btn"
+                  onClick={() => onOpenCanvas && onOpenCanvas()}
+                >
+                  Canvas
                 </button>
                 <button
                   className="add-node-button"

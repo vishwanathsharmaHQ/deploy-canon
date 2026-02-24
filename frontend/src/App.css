@@ -150,6 +150,34 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* Reset global styles inside Excalidraw */
+.thread-canvas button {
+  padding: revert;
+  background: revert;
+  color: revert;
+  border: revert;
+  border-radius: revert;
+  font-size: revert;
+  transition: revert;
+}
+
+.thread-canvas button:hover {
+  background: revert;
+}
+
+.thread-canvas button:disabled {
+  background: revert;
+  cursor: revert;
+}
+
+.thread-canvas input,
+.thread-canvas textarea {
+  padding: revert;
+  border: revert;
+  border-radius: revert;
+  font-size: revert;
+}
+
 .error {
   background: #ffebee;
   color: #c62828;

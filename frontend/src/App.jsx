@@ -7,6 +7,7 @@ import { ReactFlowProvider } from '@xyflow/react'
 import ThreadGraph from './components/ThreadGraph'
 import NodeDetailsModal from './components/NodeDetailsModal'
 import ArticleReader from './components/ArticleReader'
+import ThreadCanvas from './components/ThreadCanvas'
 import NodeEditor from './components/NodeEditor'
 import { api } from './services/api'
 import './App.css'
@@ -37,7 +38,7 @@ function App() {
   const [isIPFSConnected, setIsIPFSConnected] = useState(false);
   const dropdownRef = useRef(null);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
-  const [view, setView] = useState('graph'); // 'graph' | 'article' | 'editor'
+  const [view, setView] = useState('graph'); // 'graph' | 'article' | 'editor' | 'canvas'
   const [editorNode, setEditorNode] = useState(null);
 
   const NODE_TYPES = [
@@ -950,6 +951,11 @@ function App() {
             onSubmit={async (data) => { await handleAddNode(data); setView('graph'); setEditorNode(null); }}
             onCancel={() => { setView('graph'); setEditorNode(null); }}
           />
+        ) : view === 'canvas' && threadToShow ? (
+          <ThreadCanvas
+            thread={threadToShow}
+            onBack={() => setView('graph')}
+          />
         ) : view === 'article' && threadToShow ? (
           <ArticleReader
             thread={threadToShow}
@@ -1041,6 +1047,7 @@ function App() {
                 onAddNode={handleAddNode}
                 onOpenEditor={(node) => { setEditorNode(node); setView('editor'); }}
                 onOpenArticle={() => setView('article')}
+                onOpenCanvas={() => setView('canvas')}
                 loading={loading}
               />
             </ReactFlowProvider>
