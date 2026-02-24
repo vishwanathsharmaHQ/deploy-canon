@@ -244,6 +244,33 @@ app.post('/api/threads/:threadId/nodes', async (req, res) => {
   }
 });
 
+// Update node content
+app.put('/api/threads/:threadId/nodes/:nodeId', async (req, res) => {
+  const nodeId = parseInt(req.params.nodeId);
+  const { title, content } = req.body;
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const now = new Date().toISOString();
+    const metaStr = JSON.stringify({
+      title,
+      description: content ? String(content).substring(0, 100) : '',
+    });
+    const result = await session.run(
+      `MATCH (n:Node {id: $nodeId})
+       SET n.title = $title, n.content = $content, n.metadata = $metadata, n.updated_at = $now
+       RETURN n`,
+      { nodeId: neo4j.int(nodeId), title, content: content || '', metadata: metaStr, now }
+    );
+    if (!result.records.length) return res.status(404).json({ error: 'Node not found' });
+    const node = formatNode(result.records[0].get('n').properties, null);
+    res.json(node);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
 // Edge endpoints
 app.post('/api/edges', async (req, res) => {
   const { sourceId, targetId } = req.body;
@@ -652,7 +679,11 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(staticDir, 'index.html'));
 });
 
-// Start the server
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+// Export for Vercel serverless; also listen locally when not on Vercel
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+module.exports = app;

@@ -178,6 +178,16 @@ export const api = {
     return response.json();
   },
 
+  async updateNode(threadId, nodeId, { title, content }) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, content }),
+    });
+    if (!response.ok) throw new Error('Failed to update node');
+    return response.json();
+  },
+
   async generateNodeSuggestions({ nodeId, nodeType, content, title }) {
     const response = await fetch(`${API_BASE_URL}/nodes/suggest`, {
       method: 'POST',

@@ -79,6 +79,67 @@ const Toolbar = ({ editor }) => {
   );
 };
 
+// ── Node edit helpers ─────────────────────────────────────────────────────────
+
+function getEditableContent(node) {
+  const nodeType = getNodeType(node);
+  let raw = node.content;
+  if (raw && typeof raw === 'object' && raw.content !== undefined) raw = raw.content;
+  let parsed = raw;
+  if (typeof raw === 'string' && (raw.startsWith('{') || raw.startsWith('['))) {
+    try { parsed = JSON.parse(raw); } catch (e) { /* keep as string */ }
+  }
+  switch (nodeType) {
+    case 'ROOT':
+      return {
+        title: (typeof parsed === 'object' ? parsed?.title : null) || node.title || '',
+        html: (typeof parsed === 'object' ? parsed?.description : null) || '',
+        keywords: typeof parsed === 'object' && parsed?.keywords
+          ? (Array.isArray(parsed.keywords) ? parsed.keywords.join(', ') : parsed.keywords)
+          : '',
+      };
+    case 'EVIDENCE':
+      return {
+        title: (typeof parsed === 'object' ? parsed?.source : null) || node.title || '',
+        html: (typeof parsed === 'object' ? parsed?.point : null) || '',
+      };
+    case 'EXAMPLE':
+      return {
+        title: (typeof parsed === 'object' ? parsed?.title : null) || node.title || '',
+        html: (typeof parsed === 'object' ? parsed?.description : null) || '',
+      };
+    case 'COUNTERPOINT':
+      return {
+        title: (typeof parsed === 'object' ? parsed?.argument : null) || node.title || '',
+        html: (typeof parsed === 'object' ? parsed?.explanation : null) || '',
+      };
+    default:
+      return {
+        title: node.title || '',
+        html: typeof raw === 'string' ? raw : '',
+      };
+  }
+}
+
+function buildSavedContent(nodeType, title, html, keywords) {
+  switch (nodeType) {
+    case 'ROOT':
+      return JSON.stringify({
+        title,
+        description: html,
+        keywords: keywords ? keywords.split(',').map(k => k.trim()).filter(Boolean) : [],
+      });
+    case 'EVIDENCE':
+      return JSON.stringify({ point: html, source: title });
+    case 'EXAMPLE':
+      return JSON.stringify({ title, description: html });
+    case 'COUNTERPOINT':
+      return JSON.stringify({ argument: title, explanation: html });
+    default:
+      return html;
+  }
+}
+
 // ── Content renderer (for read-only node pages) ──────────────────────────────
 const renderContent = (rawContent) => {
   if (!rawContent) return <p className="ar-empty">No content available.</p>;
@@ -286,10 +347,29 @@ const ThreadContentEditor = ({ thread, onContentChange }) => {
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const ArticleReader = ({ thread, initialNodeId, onContentChange }) => {
+const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [orderedNodes, setOrderedNodes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editKeywords, setEditKeywords] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
+  const nodeEditEditor = useEditor({
+    extensions: [
+      StarterKit,
+      Link.configure({ openOnClick: false }),
+      Youtube.configure({ width: 640, height: 360 }),
+      Placeholder.configure({ placeholder: 'Edit content...' }),
+    ],
+    content: '',
+  });
+
+  // Reset edit mode when navigating to a different page
+  useEffect(() => {
+    setIsEditing(false);
+  }, [currentPage]);
 
   useEffect(() => {
     if (!thread?.id) return;
@@ -360,19 +440,92 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange }) => {
     const color = NODE_TYPE_COLORS[nodeType] || '#888';
     const nodeTitle = node.title || `Node ${node.id}`;
     const nodeRendered = formatNodeContent(node);
-    // formatNodeContent returns React elements for structured types, strings for plain content
     const isReactElement = React.isValidElement(nodeRendered);
+
+    const handleEditStart = () => {
+      const { title, html, keywords } = getEditableContent(node);
+      setEditTitle(title);
+      setEditKeywords(keywords || '');
+      nodeEditEditor?.commands.setContent(html || '');
+      setIsEditing(true);
+    };
+
+    const handleEditSave = async () => {
+      if (!nodeEditEditor || !onUpdateNode) return;
+      const html = nodeEditEditor.getHTML();
+      const newContent = buildSavedContent(nodeType, editTitle, html, editKeywords);
+      setEditSaving(true);
+      try {
+        await onUpdateNode(
+          { nodeId: node.id, threadId: thread.id },
+          { title: editTitle, content: newContent }
+        );
+        // Optimistically update the local node list so read view reflects changes
+        setOrderedNodes(prev => prev.map(n =>
+          n.id === node.id ? { ...n, title: editTitle, content: newContent } : n
+        ));
+        setIsEditing(false);
+      } catch (e) {
+        console.error('Failed to save node:', e);
+      } finally {
+        setEditSaving(false);
+      }
+    };
 
     return (
       <article className="ar-article">
-        <div className="ar-node-badge" style={{ background: color }}>
-          {nodeType}
+        <div className="ar-node-header">
+          <div className="ar-node-badge" style={{ background: color }}>{nodeType}</div>
+          {!isEditing && onUpdateNode && (
+            <button className="ar-edit-btn" onClick={handleEditStart}>Edit</button>
+          )}
+          {isEditing && (
+            <div className="ar-edit-actions">
+              <button className="ar-save-btn" onClick={handleEditSave} disabled={editSaving}>
+                {editSaving ? 'Saving…' : 'Save'}
+              </button>
+              <button className="ar-cancel-btn" onClick={() => setIsEditing(false)} disabled={editSaving}>
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
-        <h1 className="ar-title">{nodeTitle}</h1>
-        <hr className="ar-divider" />
-        <div className="ar-content">
-          {isReactElement ? nodeRendered : renderContent(nodeRendered)}
-        </div>
+
+        {isEditing ? (
+          <>
+            <input
+              className="ar-edit-title"
+              type="text"
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              placeholder="Title"
+            />
+            {nodeType === 'ROOT' && (
+              <input
+                className="ar-edit-keywords"
+                type="text"
+                value={editKeywords}
+                onChange={e => setEditKeywords(e.target.value)}
+                placeholder="Keywords (comma-separated)"
+              />
+            )}
+            <hr className="ar-divider" />
+            <div className="ar-editor-section">
+              <Toolbar editor={nodeEditEditor} />
+              <div className="ar-editor-wrapper">
+                <EditorContent editor={nodeEditEditor} />
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="ar-title">{nodeTitle}</h1>
+            <hr className="ar-divider" />
+            <div className="ar-content">
+              {isReactElement ? nodeRendered : renderContent(nodeRendered)}
+            </div>
+          </>
+        )}
       </article>
     );
   };

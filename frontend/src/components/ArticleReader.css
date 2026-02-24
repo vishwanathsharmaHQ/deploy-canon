@@ -407,6 +407,107 @@
   color: rgba(0, 255, 157, 0.6);
 }
 
+/* Node page header row (badge + edit button) */
+.ar-node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.ar-node-header .ar-node-badge {
+  margin-bottom: 0;
+}
+
+.ar-edit-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 5px 14px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ar-edit-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.ar-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ar-save-btn {
+  background: #00ff9d;
+  color: #1a1a1a;
+  border: none;
+  padding: 5px 16px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ar-save-btn:hover:not(:disabled) { background: #00cc7d; }
+.ar-save-btn:disabled { background: rgba(0, 255, 157, 0.3); cursor: not-allowed; }
+
+.ar-cancel-btn {
+  background: none;
+  color: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 5px 14px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ar-cancel-btn:hover:not(:disabled) {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Title + keywords inputs in edit mode */
+.ar-edit-title {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  padding: 0 0 8px;
+  width: 100%;
+  margin-bottom: 16px;
+  transition: border-color 0.2s;
+}
+
+.ar-edit-title:focus {
+  outline: none;
+  border-bottom-color: #00ff9d;
+}
+
+.ar-edit-keywords {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 8px 14px;
+  color: #fff;
+  font-size: 0.9rem;
+  width: 100%;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.ar-edit-keywords:focus {
+  outline: none;
+  border-color: #00ff9d;
+}
+
 /* Empty state */
 .ar-empty {
   color: rgba(255, 255, 255, 0.3);

@@ -589,6 +589,16 @@ function App() {
     }
   };
 
+  const handleUpdateNode = async ({ nodeId, threadId }, { title, content }) => {
+    try {
+      await api.updateNode(threadId, nodeId, { title, content });
+      await loadOffChainThreads();
+    } catch (error) {
+      console.error('Error updating node:', error);
+      setError('Failed to update node: ' + error.message);
+    }
+  };
+
   const handleAddNode = async (threadData) => {
     if (isOnChain && (!contract || !account)) {
       console.log("No contract or account for on-chain operation");
@@ -999,6 +1009,7 @@ function App() {
                 t.id === threadToShow.id ? { ...t, content: html } : t
               ));
             }}
+            onUpdateNode={handleUpdateNode}
           />
         ) : null}
 
