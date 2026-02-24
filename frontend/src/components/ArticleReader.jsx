@@ -351,7 +351,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange }) => {
   const renderPage = () => {
     if (currentPage === 0) {
       return <ThreadContentEditor thread={thread} onContentChange={onContentChange} />;
-    }
+   }
 
     const node = orderedNodes[currentPage - 1];
     if (!node) return <p className="ar-empty">Node not found.</p>;
