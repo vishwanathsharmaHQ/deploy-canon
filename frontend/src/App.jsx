@@ -3,8 +3,11 @@ import { ethers } from 'ethers'
 import CanonThread from './contracts/CanonThread.json'
 import CanonToken from './contracts/CanonToken.json'
 import deployments from './contracts/deployments.json'
+import { ReactFlowProvider } from '@xyflow/react'
 import ThreadGraph from './components/ThreadGraph'
 import NodeDetailsModal from './components/NodeDetailsModal'
+import ArticleReader from './components/ArticleReader'
+import NodeEditor from './components/NodeEditor'
 import { api } from './services/api'
 import './App.css'
 
@@ -34,8 +37,11 @@ function App() {
   const [isIPFSConnected, setIsIPFSConnected] = useState(false);
   const dropdownRef = useRef(null);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [view, setView] = useState('graph'); // 'graph' | 'article' | 'editor'
+  const [editorNode, setEditorNode] = useState(null);
 
   const NODE_TYPES = [
+    'ROOT',
     'EVIDENCE',
     'REFERENCE',
     'CONTEXT',
@@ -45,7 +51,9 @@ function App() {
   ]
 
   useEffect(() => {
-    connectWallet()
+    if (isOnChain) {
+      connectWallet()
+    }
   }, [])
 
   async function setupNetwork() {
@@ -188,8 +196,8 @@ function App() {
       setLoading(true);
       setError(null);
 
-      if (!title.trim() || !content.trim()) {
-        setError('Title and content are required');
+      if (!title.trim()) {
+        setError('Title is required');
         setLoading(false);
         return;
       }
@@ -234,18 +242,17 @@ function App() {
         const newThread = await api.createThread({
           title,
           description,
-          content,
+          content: '',
           metadata: {
             createdAt: new Date().toISOString(),
             version: 1,
             title,
-            description,
-            content
+            description
           }
         });
-        
+
         console.log('Created thread:', newThread);
-        
+
         // Clear form and close modal
         setTitle('');
         setDescription('');
@@ -255,6 +262,9 @@ function App() {
         // Update off-chain threads and set the new thread as selected
         await loadOffChainThreads();
         setSelectedThreadId(newThread.id);
+
+        // Navigate to article view for content editing
+        setView('article');
       }
     } catch (error) {
       console.error("Error creating thread:", error);
@@ -648,16 +658,8 @@ function App() {
           edges
         };
         
-        // Update offChainThreads to trigger graph refresh
-        setOffChainThreads(prev => 
-          prev.map(t => t.id === newNode.threadId ? updatedThread : t)
-        );
-
-        // Force a re-render of the graph by updating the selected thread
-        if (selectedThreadId === newNode.threadId) {
-          setSelectedThreadId(null);
-          setTimeout(() => setSelectedThreadId(newNode.threadId), 0);
-        }
+        // Refresh all off-chain threads to update the graph in place
+        await loadOffChainThreads();
       }
 
       setSelectedNode(null);
@@ -847,6 +849,7 @@ function App() {
   const handleThreadSelect = async (threadId) => {
     setSelectedThreadId(threadId);
     setShowSearchResults(false);
+    setView('graph');
   };
 
   // Modify the search functionality
@@ -875,8 +878,12 @@ function App() {
           setSearchQuery('');
           setShowSearchResults(false);
         } else {
-          // Show search results
-          setDisplayThreads(results);
+          // Merge search results into offChainThreads, then show
+          setOffChainThreads(prev => {
+            const existingIds = new Set(prev.map(t => t.id));
+            const newThreads = results.filter(t => !existingIds.has(t.id));
+            return [...prev, ...newThreads];
+          });
           setShowSearchResults(true);
         }
       } catch (err) {
@@ -936,20 +943,33 @@ function App() {
       </div>
 
       <div className="main-content">
+        {view === 'editor' && editorNode && threadToShow ? (
+          <NodeEditor
+            thread={threadToShow}
+            selectedNode={editorNode}
+            onSubmit={async (data) => { await handleAddNode(data); setView('graph'); setEditorNode(null); }}
+            onCancel={() => { setView('graph'); setEditorNode(null); }}
+          />
+        ) : view === 'article' && threadToShow ? (
+          <ArticleReader
+            thread={threadToShow}
+            onBack={() => setView('graph')}
+          />
+        ) : (
         <div className="visualization-container">
           <div className="thread-controls">
             <div className="custom-select" ref={dropdownRef}>
-              <button 
+              <button
                 className="thread-selector"
                 onClick={() => setShowThreadDropdown(!showThreadDropdown)}
               >
-                {selectedThreadId ? 
-                  displayThreads.find(t => t.id === selectedThreadId)?.metadata?.title || `Thread ${selectedThreadId}` 
+                {selectedThreadId ?
+                  displayThreads.find(t => t.id === selectedThreadId)?.metadata?.title || `Thread ${selectedThreadId}`
                   : 'Select a Thread'}
               </button>
               {showThreadDropdown && (
                 <div className="dropdown-menu">
-                  <div 
+                  <div
                     className="dropdown-item create-thread-option"
                     onClick={() => {
                       setShowCreateThreadModal(true);
@@ -974,7 +994,7 @@ function App() {
               )}
             </div>
 
-            <div className="search-container">
+<div className="search-container">
               <input
                 type="text"
                 className="search-input"
@@ -1014,20 +1034,23 @@ function App() {
           </div>
 
           {selectedThreadId ? (
-            <>
-              <ThreadGraph 
-                threads={graphData} 
+            <ReactFlowProvider>
+              <ThreadGraph
+                threads={graphData}
                 onNodeClick={handleNodeClick}
                 onAddNode={handleAddNode}
+                onOpenEditor={(node) => { setEditorNode(node); setView('editor'); }}
+                onOpenArticle={() => setView('article')}
                 loading={loading}
               />
-            </>
+            </ReactFlowProvider>
           ) : (
             <div className="no-thread-message">
               Please select a thread from the dropdown
             </div>
           )}
         </div>
+        )}
 
         {showCreateThreadModal && (
           <div className="modal-overlay" onClick={() => setShowCreateThreadModal(false)}>
@@ -1051,13 +1074,6 @@ function App() {
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     className="thread-input"
-                  />
-                  <textarea
-                    placeholder="Content"
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    className="thread-input"
-                    rows={6}
                   />
                   <div className="form-buttons">
                     <button 

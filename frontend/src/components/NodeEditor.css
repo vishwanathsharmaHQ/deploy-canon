@@ -1,0 +1,313 @@
+/* ── Node Editor — full-page WYSIWYG view ────────────────── */
+
+.ne-page {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #111;
+  overflow: hidden;
+}
+
+/* Top bar */
+.ne-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  height: 52px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: #1a1a1a;
+}
+
+.ne-back {
+  background: none;
+  border: none;
+  color: rgba(0, 255, 157, 0.8);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.ne-back:hover {
+  color: #00ff9d;
+  background: rgba(0, 255, 157, 0.08);
+}
+
+.ne-submit {
+  background: #00ff9d;
+  color: #1a1a1a;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.ne-submit:hover:not(:disabled) {
+  background: #00cc7d;
+  transform: translateY(-1px);
+}
+
+.ne-submit:disabled {
+  background: rgba(0, 255, 157, 0.3);
+  cursor: not-allowed;
+}
+
+/* Scrollable body */
+.ne-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 40px 24px 100px;
+}
+
+.ne-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ne-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ne-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+/* Centered column */
+.ne-column {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Type select */
+.ne-select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+  padding-right: 36px;
+  transition: border-color 0.2s;
+}
+
+.ne-select:focus {
+  outline: none;
+  border-color: #00ff9d;
+  box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.15);
+}
+
+/* Title input */
+.ne-title-input {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  padding: 0;
+  width: 100%;
+}
+
+.ne-title-input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+.ne-title-input:focus {
+  outline: none;
+}
+
+/* Keywords input */
+.ne-keywords-input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: #fff;
+  font-size: 0.95rem;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+
+.ne-keywords-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.ne-keywords-input:focus {
+  outline: none;
+  border-color: #00ff9d;
+  box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.15);
+}
+
+/* ── TipTap toolbar ───────────────────────────────────────── */
+
+.ne-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+}
+
+.ne-toolbar button {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 32px;
+  text-align: center;
+}
+
+.ne-toolbar button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.ne-toolbar button.is-active {
+  background: rgba(0, 255, 157, 0.18);
+  color: #00ff9d;
+  border-color: rgba(0, 255, 157, 0.3);
+}
+
+.ne-toolbar-divider {
+  width: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 4px 4px;
+  align-self: stretch;
+}
+
+/* ── ProseMirror (TipTap editor area) ─────────────────────── */
+
+.ne-editor-wrapper {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0 0 6px 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ne-editor-wrapper .ProseMirror {
+  min-height: 300px;
+  padding: 20px 24px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 1.05rem;
+  line-height: 1.75;
+  outline: none;
+}
+
+.ne-editor-wrapper .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+  height: 0;
+}
+
+/* Headings */
+.ne-editor-wrapper .ProseMirror h1 { font-size: 1.6rem; font-weight: 700; color: #fff; margin: 1.2em 0 0.4em; }
+.ne-editor-wrapper .ProseMirror h2 { font-size: 1.35rem; font-weight: 600; color: #fff; margin: 1.1em 0 0.4em; }
+.ne-editor-wrapper .ProseMirror h3 { font-size: 1.15rem; font-weight: 600; color: #fff; margin: 1em 0 0.4em; }
+
+/* Links */
+.ne-editor-wrapper .ProseMirror a {
+  color: #00ff9d;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Blockquote */
+.ne-editor-wrapper .ProseMirror blockquote {
+  border-left: 3px solid rgba(0, 255, 157, 0.4);
+  margin: 1em 0;
+  padding: 4px 0 4px 20px;
+  color: rgba(255, 255, 255, 0.6);
+  font-style: italic;
+}
+
+/* Code */
+.ne-editor-wrapper .ProseMirror code {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+}
+
+.ne-editor-wrapper .ProseMirror pre {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.ne-editor-wrapper .ProseMirror pre code {
+  background: none;
+  padding: 0;
+}
+
+/* Lists */
+.ne-editor-wrapper .ProseMirror ul,
+.ne-editor-wrapper .ProseMirror ol {
+  padding-left: 24px;
+  margin: 0.6em 0;
+}
+
+.ne-editor-wrapper .ProseMirror li {
+  margin: 0.3em 0;
+}
+
+/* Strikethrough */
+.ne-editor-wrapper .ProseMirror s {
+  text-decoration: line-through;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* YouTube embeds */
+.ne-editor-wrapper .ProseMirror div[data-youtube-video] {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin: 20px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}
+
+.ne-editor-wrapper .ProseMirror div[data-youtube-video] iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Horizontal rule */
+.ne-editor-wrapper .ProseMirror hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin: 1.5em 0;
+}
