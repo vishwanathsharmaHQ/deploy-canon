@@ -5,6 +5,7 @@ import Link from '@tiptap/extension-link';
 import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
 import InputModal from './InputModal';
+import ChatPanel from './ChatPanel';
 import { api } from '../services/api';
 import './ArticleReader.css';
 
@@ -241,13 +242,34 @@ const formatNodeContent = (node) => {
     }
     // EVIDENCE: { point, source }
     if (content.point) {
+      const src = content.source;
+      const ytMatch = src?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+      const isUrl = src && /^https?:\/\//.test(src);
       return (
         <div>
           {renderHtmlOrText(content.point)}
-          {content.source && (
-            <p style={{ color: 'rgba(255,255,255,0.5)', fontStyle: 'italic', marginTop: 16 }}>
-              Source: {content.source}
-            </p>
+          {src && (
+            ytMatch ? (
+              <div className="ar-youtube" style={{ marginTop: 20 }}>
+                <iframe
+                  src={`https://www.youtube.com/embed/${ytMatch[1]}`}
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  title={`yt-${ytMatch[1]}`}
+                />
+              </div>
+            ) : (
+              <p style={{ color: 'rgba(255,255,255,0.45)', fontStyle: 'italic', marginTop: 16, fontSize: '0.9rem' }}>
+                Source:{' '}
+                {isUrl ? (
+                  <a href={src} target="_blank" rel="noopener noreferrer"
+                     style={{ color: '#00ff9d', textDecoration: 'underline', textUnderlineOffset: '3px', wordBreak: 'break-all' }}>
+                    {src}
+                  </a>
+                ) : src}
+              </p>
+            )
           )}
         </div>
       );
@@ -280,78 +302,110 @@ const formatNodeContent = (node) => {
 
 // ── Thread content editor (page 0) ───────────────────────────────────────────
 const ThreadContentEditor = ({ thread, onContentChange }) => {
-  const saveTimer = useRef(null);
-  const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved'
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const editor = useEditor({
     extensions: [
       StarterKit,
       Link.configure({ openOnClick: false }),
       Youtube.configure({ width: 640, height: 360 }),
-      Placeholder.configure({
-        placeholder: 'Start writing your thread content here...',
-      }),
+      Placeholder.configure({ placeholder: 'Write your thread notes here...' }),
     ],
     content: thread.content || '',
-    onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      // Debounced auto-save
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      setSaveStatus('saving');
-      saveTimer.current = setTimeout(async () => {
-        try {
-          await api.updateThreadContent(thread.id, html);
-          setSaveStatus('saved');
-          if (onContentChange) onContentChange(html);
-          setTimeout(() => setSaveStatus(null), 2000);
-        } catch (err) {
-          console.error('Failed to save content:', err);
-          setSaveStatus(null);
-        }
-      }, 800);
-    },
+    editable: false,
   });
 
-  // Update editor content when thread changes
+  // Keep editor content in sync when thread changes (e.g. different thread selected)
   useEffect(() => {
-    if (editor && thread.content !== undefined) {
-      const currentHtml = editor.getHTML();
-      // Only update if content is truly different (avoid cursor jump)
-      if (currentHtml === '<p></p>' && thread.content && thread.content !== '<p></p>') {
-        editor.commands.setContent(thread.content);
-      }
+    if (editor) {
+      editor.commands.setContent(thread.content || '');
+      editor.setEditable(false);
+      setIsEditing(false);
     }
   }, [thread.id]);
+
+  const handleEditStart = () => {
+    editor?.setEditable(true);
+    setIsEditing(true);
+  };
+
+  const handleSave = async () => {
+    if (!editor) return;
+    setSaving(true);
+    const html = editor.getHTML();
+    try {
+      await api.updateThreadContent(thread.id, html);
+      if (onContentChange) onContentChange(html);
+      editor.setEditable(false);
+      setIsEditing(false);
+    } catch (err) {
+      console.error('Failed to save content:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    editor?.commands.setContent(thread.content || '');
+    editor?.setEditable(false);
+    setIsEditing(false);
+  };
 
   const title = thread.metadata?.title || thread.title || `Thread ${thread.id}`;
   const description = thread.metadata?.description || thread.description || '';
 
   return (
     <article className="ar-article">
-      <h1 className="ar-title">{title}</h1>
-      {description && <p className="ar-description">{description}</p>}
-      <hr className="ar-divider" />
-      <div className="ar-editor-section">
-        <Toolbar editor={editor} />
-        <div className="ar-editor-wrapper">
-          <EditorContent editor={editor} />
-        </div>
-        {saveStatus && (
-          <div className="ar-save-status">
-            {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
+      <div className="ar-node-header">
+        <div className="ar-node-badge" style={{ background: '#555' }}>THREAD</div>
+        {!isEditing && (
+          <button className="ar-edit-btn" onClick={handleEditStart}>Edit</button>
+        )}
+        {isEditing && (
+          <div className="ar-edit-actions">
+            <button className="ar-save-btn" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button className="ar-cancel-btn" onClick={handleCancel} disabled={saving}>
+              Cancel
+            </button>
           </div>
         )}
       </div>
+
+      <h1 className="ar-title">{title}</h1>
+      {description && <p className="ar-description">{description}</p>}
+      <hr className="ar-divider" />
+
+      {isEditing ? (
+        <div className="ar-editor-section">
+          <Toolbar editor={editor} />
+          <div className="ar-editor-wrapper">
+            <EditorContent editor={editor} />
+          </div>
+        </div>
+      ) : (
+        <div className="ar-content">
+          {thread.content && thread.content !== '<p></p>' ? (
+            <div className="ar-html" dangerouslySetInnerHTML={{ __html: thread.content }} />
+          ) : (
+            <p className="ar-empty">No notes yet. Click Edit to add content.</p>
+          )}
+        </div>
+      )}
     </article>
   );
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode }) => {
+const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [orderedNodes, setOrderedNodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editKeywords, setEditKeywords] = useState('');
   const [editSaving, setEditSaving] = useState(false);
@@ -427,6 +481,65 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode })
   if (!thread) return null;
 
   const totalPages = 1 + orderedNodes.length;
+
+  // Context passed to chat so it knows what article the user is viewing
+  const currentArticleContext = (() => {
+    if (loading) return null;
+    if (currentPage === 0) return null; // thread overview, no specific node
+    const node = orderedNodes[currentPage - 1];
+    if (!node) return null;
+    return {
+      nodeId: node.id,
+      nodeType: getNodeType(node),
+      title: node.title || `Node ${node.id}`,
+      content: node.content || '',
+    };
+  })();
+
+  const handleProposedUpdate = async (update) => {
+    if (!update || !update.nodeId || !onUpdateNode) return;
+    const node = orderedNodes.find(n => n.id === update.nodeId);
+    if (!node) return;
+    const nodeType = getNodeType(node);
+
+    // Preserve existing fields (e.g. keywords for ROOT), only replace title + body
+    let existingParsed = {};
+    if (typeof node.content === 'string') {
+      try { existingParsed = JSON.parse(node.content); } catch (e) { /* ignore */ }
+    }
+
+    let newContent;
+    if (nodeType === 'ROOT') {
+      newContent = JSON.stringify({
+        title: update.title,
+        description: update.description,
+        keywords: existingParsed.keywords || [],
+      });
+    } else if (nodeType === 'EXAMPLE') {
+      newContent = JSON.stringify({ title: update.title, description: update.description });
+    } else if (nodeType === 'COUNTERPOINT') {
+      newContent = JSON.stringify({ argument: update.title, explanation: update.description });
+    } else if (nodeType === 'EVIDENCE') {
+      newContent = JSON.stringify({ point: update.description, source: existingParsed.source || '' });
+    } else {
+      newContent = update.description;
+    }
+
+    try {
+      await onUpdateNode(
+        { nodeId: update.nodeId, threadId: thread.id },
+        { title: update.title, content: newContent }
+      );
+      setOrderedNodes(prev => prev.map(n =>
+        n.id === update.nodeId ? { ...n, title: update.title, content: newContent } : n
+      ));
+      // Navigate to the updated node so the user sees the result
+      const idx = orderedNodes.findIndex(n => n.id === update.nodeId);
+      if (idx >= 0) setCurrentPage(idx + 1);
+    } catch (e) {
+      console.error('Failed to apply proposed update:', e);
+    }
+  };
 
   const renderPage = () => {
     if (currentPage === 0) {
@@ -532,35 +645,62 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode })
 
   return (
     <div className="ar-page">
-      <main className="ar-body">
-        {loading ? (
-          <div className="ar-loading">Loading...</div>
-        ) : (
-          renderPage()
-        )}
-      </main>
+      <div className="ar-content-row">
+        {/* ── Main reading area ── */}
+        <div className="ar-content-area">
+          <main className="ar-body">
+            {loading ? (
+              <div className="ar-loading">Loading...</div>
+            ) : (
+              renderPage()
+            )}
+          </main>
 
-      {!loading && totalPages > 1 && (
-        <div className="ar-nav">
-          <button
-            className="ar-nav-btn"
-            disabled={currentPage === 0}
-            onClick={() => setCurrentPage(p => p - 1)}
-          >
-            &#8592; Prev
-          </button>
-          <span className="ar-nav-info">
-            {currentPage + 1} / {totalPages}
-          </span>
-          <button
-            className="ar-nav-btn"
-            disabled={currentPage >= totalPages - 1}
-            onClick={() => setCurrentPage(p => p + 1)}
-          >
-            Next &#8594;
-          </button>
+          {!loading && totalPages > 1 && (
+            <div className="ar-nav">
+              <button
+                className="ar-nav-btn"
+                disabled={currentPage === 0}
+                onClick={() => setCurrentPage(p => p - 1)}
+              >
+                &#8592; Prev
+              </button>
+              <span className="ar-nav-info">
+                {currentPage + 1} / {totalPages}
+              </span>
+              <button
+                className="ar-nav-btn"
+                disabled={currentPage >= totalPages - 1}
+                onClick={() => setCurrentPage(p => p + 1)}
+              >
+                Next &#8594;
+              </button>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* ── Collapsible chat sidebar ── */}
+        <div className={`ar-chat-sidebar${chatOpen ? ' ar-chat-sidebar--open' : ''}`}>
+          <ChatPanel
+            selectedThreadId={thread.id}
+            initialThreadId={thread.id}
+            onNodesCreated={onNodesCreated}
+            onThreadCreated={onThreadCreated}
+            articleContext={currentArticleContext}
+            onProposedUpdate={handleProposedUpdate}
+            defaultSidebarCollapsed={true}
+          />
+        </div>
+      </div>
+
+      {/* ── Chat toggle button ── */}
+      <button
+        className={`ar-chat-toggle${chatOpen ? ' ar-chat-toggle--open' : ''}`}
+        onClick={() => setChatOpen(o => !o)}
+        title={chatOpen ? 'Close chat' : 'Open chat'}
+      >
+        {chatOpen ? '✕' : '✦'}
+      </button>
     </div>
   );
 };

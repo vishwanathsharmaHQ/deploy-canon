@@ -188,16 +188,74 @@ export const api = {
     return response.json();
   },
 
-  async chat({ message, history, threadId, apiKey }) {
+  async chatStream({ message, history, threadId, apiKey, nodeContext, onToken, onProcessing, onDone, onError }) {
     const response = await fetch(`${API_BASE_URL}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history, threadId, apiKey }),
+      body: JSON.stringify({ message, history, threadId, apiKey, nodeContext }),
     });
+
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       throw new Error(err.error || 'Chat request failed');
     }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete last line
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === 'token') onToken?.(event.content);
+          else if (event.type === 'processing') onProcessing?.();
+          else if (event.type === 'done') setTimeout(() => onDone?.(event), 0);
+          else if (event.type === 'error') onError?.(new Error(event.error));
+        } catch {
+          // malformed line — skip
+        }
+      }
+    }
+  },
+
+  async getThreadChats(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/chats`);
+    if (!response.ok) throw new Error('Failed to fetch chats');
+    return response.json();
+  },
+
+  async getChat(chatId) {
+    const response = await fetch(`${API_BASE_URL}/chats/${chatId}`);
+    if (!response.ok) throw new Error('Failed to fetch chat');
+    return response.json();
+  },
+
+  async createChat({ threadId, title, messages }) {
+    const response = await fetch(`${API_BASE_URL}/chats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId, title, messages }),
+    });
+    if (!response.ok) throw new Error('Failed to create chat');
+    return response.json();
+  },
+
+  async updateChat(chatId, { title, messages }) {
+    const response = await fetch(`${API_BASE_URL}/chats/${chatId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, messages }),
+    });
+    if (!response.ok) throw new Error('Failed to update chat');
     return response.json();
   },
 

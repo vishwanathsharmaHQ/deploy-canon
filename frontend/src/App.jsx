@@ -974,11 +974,11 @@ function App() {
       </div>
 
       <div className="main-content">
-        {threadToShow && (
+        {(threadToShow || view === 'chat') && (
           <ViewTabBar
             view={view}
             onChangeView={setView}
-            threadTitle={threadToShow.metadata?.title || threadToShow.title || `Thread ${threadToShow.id}`}
+            threadTitle={threadToShow?.metadata?.title || threadToShow?.title || (threadToShow ? `Thread ${threadToShow.id}` : '')}
             onPrevThread={handlePrevThread}
             onNextThread={handleNextThread}
             hasPrev={hasPrevThread}
@@ -1011,8 +1011,19 @@ function App() {
               ));
             }}
             onUpdateNode={handleUpdateNode}
+            onNodesCreated={async (tid) => {
+              await loadOffChainThreads();
+              setSelectedThreadId(tid);
+            }}
+            onThreadCreated={async (tid) => {
+              await loadOffChainThreads();
+              setSelectedThreadId(tid);
+            }}
           />
-        ) : view === 'chat' ? (
+        ) : null}
+
+        {/* Chat — always mounted to preserve conversation across tab switches */}
+        <div style={{ display: view === 'chat' ? undefined : 'none', flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <ChatPanel
             selectedThreadId={selectedThreadId}
             onNodesCreated={async (tid) => {
@@ -1024,7 +1035,7 @@ function App() {
               setSelectedThreadId(tid);
             }}
           />
-        ) : null}
+        </div>
 
         {/* Graph view — always mounted to avoid remount/layout-jump, hidden via CSS */}
         <div className="visualization-container" style={{ display: view === 'graph' ? undefined : 'none' }}>

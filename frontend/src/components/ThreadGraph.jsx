@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef, memo } from 'react';
 import {
   ReactFlow,
   useNodesState,
@@ -75,6 +75,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
   const [isMatteMode, setIsMatteMode] = useState(true);
   const [isDottedBackground, setIsDottedBackground] = useState(true);
   const [layoutLoading, setLayoutLoading] = useState(false);
+  const [showAllSecondary, setShowAllSecondary] = useState(false);
+  const [hoveredRootId, setHoveredRootId] = useState(null);
   const { fitView } = useReactFlow();
 
   useEffect(() => {
@@ -210,13 +212,22 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
           };
         }
 
+        const isRoot = typeLabel === 'ROOT';
+        const parentRfId = node.parent_id ? `node-${node.parent_id}` : null;
+
+        const rawLabel = isRoot && node.title
+          ? (node.title.split(/\s+/).slice(0, 3).join(' ') + (node.title.split(/\s+/).length > 3 ? '…' : ''))
+          : typeLabel;
+
         rfNodes.push({
           id: nodeId,
           type: 'graphNode',
           position,
           data: {
-            label: typeLabel,
+            label: rawLabel,
             isThread: false,
+            isRoot,
+            parentRfId,
             nodeColor: color,
             isMatteMode,
             originalData: { ...node, type: nodeType, content: parsedContent }
@@ -277,6 +288,23 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     })));
   }, [isMatteMode]);
 
+  // Compute which nodes/edges are visible based on showAllSecondary + hover
+  const visibleNodes = useMemo(() => nodes.map(n => {
+    if (n.id.startsWith('thread-') || n.data.isRoot) return { ...n, hidden: false };
+    if (showAllSecondary) return { ...n, hidden: false };
+    const visible = hoveredRootId !== null && n.data.parentRfId === hoveredRootId;
+    return { ...n, hidden: !visible };
+  }), [nodes, showAllSecondary, hoveredRootId]);
+
+  const visibleEdges = useMemo(() => edges.map(e => {
+    if (showAllSecondary) return { ...e, hidden: false };
+    // Thread → ROOT edges always visible
+    if (e.source.startsWith('thread-')) return { ...e, hidden: false };
+    // ROOT → secondary: visible when that ROOT is hovered
+    if (hoveredRootId !== null && e.source === hoveredRootId) return { ...e, hidden: false };
+    return { ...e, hidden: true };
+  }), [edges, showAllSecondary, hoveredRootId]);
+
   const handleNodeClick = useCallback((node) => {
     setSelectedNode(node);
     // Notify parent of selected node id (null for thread-level, numeric id for nodes)
@@ -298,10 +326,10 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     if (!threads.length) return [];
     const thread = threads[0];
     if (nodeId.startsWith('thread-')) {
-      return (thread.nodes || []).filter(node => !node.parentId);
+      return (thread.nodes || []).filter(node => !node.parent_id);
     } else {
       const nodeIdNumber = parseInt(nodeId.replace('node-', ''));
-      return (thread.nodes || []).filter(node => node.parentId === nodeIdNumber);
+      return (thread.nodes || []).filter(node => node.parent_id === nodeIdNumber);
     }
   };
 
@@ -460,12 +488,16 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     <div className={`thread-graph ${isMatteMode ? 'matte' : ''}`}>
       <div className={`graph-container ${selectedNode ? 'with-sidebar' : ''}`}>
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={visibleNodes}
+          edges={visibleEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClickHandler}
           onNodeDragStop={handleNodeDragStop}
+          onNodeMouseEnter={(_, node) => {
+            if (!showAllSecondary && node.data.isRoot) setHoveredRootId(node.id);
+          }}
+          onNodeMouseLeave={() => setHoveredRootId(null)}
           nodeTypes={nodeTypes}
           minZoom={0.3}
           maxZoom={2}
@@ -485,6 +517,13 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
           </div>
         )}
         <div className="bottom-right-controls">
+          <button
+            className={`control-button ${showAllSecondary ? 'active' : ''}`}
+            onClick={() => setShowAllSecondary(v => !v)}
+            title={showAllSecondary ? 'Hide secondary nodes (show roots only)' : 'Show all secondary nodes'}
+          >
+            {showAllSecondary ? 'All' : 'Roots'}
+          </button>
           <button
             className={`control-button ${isMatteMode ? 'active' : ''}`}
             onClick={() => setIsMatteMode(!isMatteMode)}
@@ -525,8 +564,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
                 <button
                   className="back-button"
                   onClick={() => {
-                    if (selectedNode.parentId) {
-                      const parentNode = threads[0].nodes.find(n => n.id === selectedNode.parentId);
+                    if (selectedNode.parent_id) {
+                      const parentNode = threads[0].nodes.find(n => n.id === selectedNode.parent_id);
                       if (parentNode) { handleNodeClick(parentNode); return; }
                     }
                     const thread = threads[0];

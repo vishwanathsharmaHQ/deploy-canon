@@ -674,23 +674,50 @@ Format your response as a JSON array of node suggestions:
   }
 });
 
-// Chat endpoint — uses the caller's OpenAI API key
+// Chat endpoint — SSE streaming, uses caller's key or env fallback
 app.post('/api/chat', async (req, res) => {
-  const { message, history = [], threadId, apiKey } = req.body;
-  if (!apiKey) return res.status(400).json({ error: 'OpenAI API key required' });
+  const { message, history = [], threadId, apiKey, nodeContext } = req.body;
+  const resolvedKey = apiKey || process.env.OPENAI_API_KEY;
+  if (!resolvedKey) {
+    return res.status(400).json({ error: 'OpenAI API key required' });
+  }
   if (!message) return res.status(400).json({ error: 'Message required' });
 
-  const userOpenAI = new OpenAI({ apiKey, timeout: 50000 });
+  // SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+
+  const userOpenAI = new OpenAI({ apiKey: resolvedKey, timeout: 50000 });
   const session = driver.session({ database: process.env.NEO4J_DATABASE });
 
   try {
-    // ── Step 1: Generate reply (web search if available, else regular chat) ──
+    // ── Step 1: Stream the reply ──────────────────────────────────────────
     let reply = '';
     let citations = [];
 
+    // Serialize the current article node for context
+    let nodeContextText = '';
+    if (nodeContext) {
+      let contentStr = nodeContext.content || '';
+      if (typeof contentStr === 'string' && (contentStr.startsWith('{') || contentStr.startsWith('['))) {
+        try {
+          const parsed = JSON.parse(contentStr);
+          if (parsed.description) contentStr = parsed.description;
+          else if (parsed.point) contentStr = `${parsed.point}\nSource: ${parsed.source || ''}`;
+          else if (parsed.explanation) contentStr = `${parsed.argument}\n${parsed.explanation}`;
+          else contentStr = JSON.stringify(parsed);
+        } catch (e) { /* keep raw */ }
+      }
+      nodeContextText = `\n\nThe user is currently viewing this article node:\nType: ${nodeContext.nodeType}\nTitle: ${nodeContext.title}\nContent: ${contentStr}\n\nWhen the user says "this", "it", or other deictic references, they mean the above node. If your response substantially expands on this node's content, you may propose an updated version.`;
+    }
+
     const systemMsg = {
       role: 'system',
-      content: 'You are a research assistant helping build a knowledge graph. Be thorough and cite web sources for factual claims. Highlight key evidence, concrete examples, and opposing viewpoints.'
+      content: `You are a research assistant helping build a knowledge graph. Be thorough and cite web sources for factual claims. Use markdown for structure. Highlight key evidence, concrete examples, and opposing viewpoints.${nodeContextText}`
     };
     const inputMsgs = [
       systemMsg,
@@ -698,46 +725,69 @@ app.post('/api/chat', async (req, res) => {
       { role: 'user', content: message }
     ];
 
-    // Try Responses API with web_search_preview
+    // Try Responses API streaming with web_search_preview
     let usedResponsesAPI = false;
     if (typeof userOpenAI.responses === 'object' && typeof userOpenAI.responses.create === 'function') {
       try {
-        const searchResp = await userOpenAI.responses.create({
+        const stream = await userOpenAI.responses.create({
           model: 'gpt-4o',
           tools: [{ type: 'web_search_preview' }],
-          input: inputMsgs
+          input: inputMsgs,
+          stream: true,
         });
-        reply = searchResp.output_text || '';
-        usedResponsesAPI = true;
 
-        // Extract URL citations from output annotations
-        for (const item of searchResp.output || []) {
-          if (item.type === 'message') {
-            for (const part of item.content || []) {
-              if (part.type === 'text' && Array.isArray(part.annotations)) {
-                for (const ann of part.annotations) {
-                  if (ann.type === 'url_citation' && ann.url) {
-                    citations.push({ url: ann.url, title: ann.title || ann.url });
+        for await (const event of stream) {
+          if (event.type === 'response.output_text.delta') {
+            const delta = event.delta || '';
+            if (delta) {
+              reply += delta;
+              send({ type: 'token', content: delta });
+            }
+          } else if (event.type === 'response.completed') {
+            // Extract citations from the completed response
+            for (const item of event.response?.output || []) {
+              if (item.type === 'message') {
+                for (const part of item.content || []) {
+                  if (part.type === 'text' && Array.isArray(part.annotations)) {
+                    for (const ann of part.annotations) {
+                      if (ann.type === 'url_citation' && ann.url) {
+                        citations.push({ url: ann.url, title: ann.title || ann.url });
+                      }
+                    }
                   }
                 }
               }
             }
           }
         }
+        usedResponsesAPI = true;
       } catch (e) {
-        console.warn('Responses API failed, falling back to chat.completions:', e.message);
+        console.warn('Responses API streaming failed, falling back:', e.message);
+        reply = '';
       }
     }
 
-    if (!reply) {
-      const fallback = await userOpenAI.chat.completions.create({
+    // Fallback: chat.completions streaming
+    if (!usedResponsesAPI || !reply) {
+      reply = '';
+      const stream = await userOpenAI.chat.completions.create({
         model: 'gpt-4o',
-        messages: inputMsgs
+        messages: inputMsgs,
+        stream: true,
       });
-      reply = fallback.choices[0].message.content || '';
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+          reply += delta;
+          send({ type: 'token', content: delta });
+        }
+      }
     }
 
-    // ── Step 2: Structure extraction — what nodes to create ───────────────
+    // Signal to the client that streaming is done, extraction is starting
+    send({ type: 'processing' });
+
+    // ── Step 2: Structure extraction ──────────────────────────────────────
     let currentThreadTitle = '';
     if (threadId) {
       const tr = await session.run(
@@ -759,24 +809,40 @@ app.post('/api/chat', async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: `Extract structured knowledge nodes from a research exchange. Return JSON only with this shape:
+            content: `Extract structured knowledge nodes from a research exchange. Return JSON only:
 {
   "topicShift": boolean,
   "threadTitle": "topic of current conversation",
   "nodes": [
     {
+      "type": "ROOT",
+      "title": "main idea title (max 60 chars)",
+      "content": "comprehensive 3-5 sentence summary covering the key facts, context, and significance"
+    },
+    {
       "type": "EVIDENCE|EXAMPLE|CONTEXT|COUNTERPOINT|SYNTHESIS|REFERENCE",
       "title": "concise title (max 60 chars)",
-      "content": "substantive content",
-      "sourceUrl": "URL or null"
+      "content": "the specific fact or insight from the text",
+      "sourceUrl": "full URL or null"
     }
-  ]
+  ],
+  "proposedUpdate": {
+    "title": "improved node title (keep original if fine)",
+    "description": "Convert the COMPLETE Assistant response to HTML — preserve every heading, bullet point, bold term, and paragraph. Use <h3> for headings, <ul><li> for lists, <strong> for bold, <p> for paragraphs. Include ALL detail, do NOT shorten or omit anything."
+  } | null
 }
-Rules: create 1-3 nodes per exchange. topicShift=true only when the user clearly switches to a different subject. EVIDENCE=cited facts, EXAMPLE=case studies, CONTEXT=background, COUNTERPOINT=opposing views, SYNTHESIS=summaries, REFERENCE=links/resources.`
+Rules:
+- ALWAYS output exactly ONE ROOT node first — it represents the main idea of this exchange.
+- Create ONE EVIDENCE node for EVERY web citation provided — each citation must become its own EVIDENCE node with its URL as sourceUrl and the key fact it supports as content.
+- Additionally create 0-2 higher-level nodes (CONTEXT, EXAMPLE, COUNTERPOINT, or SYNTHESIS) to capture broader insights.
+- All non-ROOT nodes are children of the ROOT node.
+- topicShift=true only when the user clearly switches to a completely different subject.
+- Do not skip citations — every URL must appear as a sourceUrl in some EVIDENCE node.
+- proposedUpdate: If a currentNode was provided, generate a proposedUpdate whenever the response adds useful information about the node's topic — for follow-up questions, integrate the new details with the existingContent into a richer unified article. Only omit if the response is completely unrelated to the node. Description MUST be HTML, not markdown.`
           },
           {
             role: 'user',
-            content: `Current thread: "${currentThreadTitle || 'none'}"\nUser: ${message}\nAssistant: ${reply.substring(0, 1500)}\nCitations: ${JSON.stringify(citations.slice(0, 4))}`
+            content: `${currentThreadTitle ? `Thread: "${currentThreadTitle}"\n` : ''}User: ${message}\nAssistant: ${reply.substring(0, 8000)}\nCitations (ALL must become EVIDENCE nodes): ${JSON.stringify(citations)}${nodeContext ? `\ncurrentNode: ${JSON.stringify({ title: nodeContext.title, type: nodeContext.nodeType, existingContent: (nodeContext.content || '').substring(0, 600) })}` : ''}`
           }
         ],
         response_format: { type: 'json_object' },
@@ -797,7 +863,8 @@ Rules: create 1-3 nodes per exchange. topicShift=true only when the user clearly
       if (!activeThreadId || structure.topicShift) {
         const newId = await getNextId('thread', tx);
         const now = new Date().toISOString();
-        const ttl = (structure.threadTitle || message).substring(0, 120);
+        const rawTitle = structure.threadTitle || '';
+        const ttl = (rawTitle && rawTitle.toLowerCase() !== 'none' ? rawTitle : message).substring(0, 120);
         await tx.run(
           `CREATE (t:Thread {
              id: $id, title: $title, description: $desc,
@@ -807,8 +874,8 @@ Rules: create 1-3 nodes per exchange. topicShift=true only when the user clearly
           {
             id: neo4j.int(newId),
             title: ttl,
-            desc: reply.substring(0, 255),
-            content: reply.substring(0, 500),
+            desc: reply.substring(0, 500),
+            content: reply.substring(0, 4000),
             meta: JSON.stringify({ title: ttl }),
             now
           }
@@ -818,10 +885,42 @@ Rules: create 1-3 nodes per exchange. topicShift=true only when the user clearly
       }
 
       const createdNodes = [];
-      for (const n of structure.nodes.slice(0, 4)) {
+      const rootNode = structure.nodes.find(n => n.type === 'ROOT');
+      const secondaryNodes = structure.nodes.filter(n => n.type !== 'ROOT').slice(0, 11);
+
+      // Create ROOT node first
+      let rootNodeId = null;
+      if (rootNode) {
         const nid = await getNextId('node', tx);
         const now = new Date().toISOString();
+        const nodeContent = JSON.stringify({ title: rootNode.title, description: rootNode.content });
+        await tx.run(
+          `CREATE (nd:Node {
+             id: $id, title: $title, content: $content,
+             node_type: $type, metadata: $meta,
+             created_at: $now, updated_at: $now
+           })
+           WITH nd
+           MATCH (t:Thread {id: $tid})
+           CREATE (t)-[:HAS_NODE]->(nd)`,
+          {
+            id: neo4j.int(nid),
+            title: rootNode.title,
+            content: nodeContent,
+            type: 'ROOT',
+            meta: JSON.stringify({ title: rootNode.title }),
+            now,
+            tid: neo4j.int(activeThreadId)
+          }
+        );
+        rootNodeId = nid;
+        createdNodes.push({ id: nid, title: rootNode.title, type: 'ROOT' });
+      }
 
+      // Create secondary nodes and link them to the ROOT via PARENT_OF
+      for (const n of secondaryNodes) {
+        const nid = await getNextId('node', tx);
+        const now = new Date().toISOString();
         let nodeContent = n.content || '';
         if (n.type === 'EVIDENCE' && n.sourceUrl) {
           nodeContent = JSON.stringify({ point: n.content, source: n.sourceUrl });
@@ -830,7 +929,6 @@ Rules: create 1-3 nodes per exchange. topicShift=true only when the user clearly
         } else if (n.type === 'COUNTERPOINT') {
           nodeContent = JSON.stringify({ argument: n.title, explanation: n.content });
         }
-
         await tx.run(
           `CREATE (nd:Node {
              id: $id, title: $title, content: $content,
@@ -850,17 +948,146 @@ Rules: create 1-3 nodes per exchange. topicShift=true only when the user clearly
             tid: neo4j.int(activeThreadId)
           }
         );
+        // Link to ROOT parent
+        if (rootNodeId) {
+          await tx.run(
+            `MATCH (p:Node {id: $parentId}), (nd:Node {id: $nodeId})
+             CREATE (p)-[:PARENT_OF]->(nd)`,
+            { parentId: neo4j.int(rootNodeId), nodeId: neo4j.int(nid) }
+          );
+        }
         createdNodes.push({ id: nid, title: n.title, type: n.type });
       }
 
       await tx.commit();
-      res.json({ reply, citations, createdNodes, threadId: activeThreadId, newThread });
+      // Send final metadata event then close
+      const proposedUpdate = (nodeContext && structure.proposedUpdate?.description)
+        ? { nodeId: nodeContext.nodeId, nodeType: nodeContext.nodeType, title: structure.proposedUpdate.title || nodeContext.title, description: structure.proposedUpdate.description }
+        : null;
+      send({ type: 'done', citations, createdNodes, threadId: activeThreadId, newThread, proposedUpdate });
+      res.end();
     } catch (dbErr) {
       await tx.rollback();
       throw dbErr;
     }
   } catch (err) {
     console.error('Chat endpoint error:', err);
+    send({ type: 'error', error: err.message });
+    res.end();
+  } finally {
+    await session.close();
+  }
+});
+
+// ── Chat session CRUD ─────────────────────────────────────────────────────────
+
+app.get('/api/threads/:threadId/chats', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_CHAT]->(c:Chat)
+       RETURN c ORDER BY c.created_at DESC`,
+      { threadId: neo4j.int(threadId) }
+    );
+    const chats = result.records.map(r => {
+      const p = r.get('c').properties;
+      const msgs = p.messages ? JSON.parse(p.messages) : [];
+      return {
+        id: toNum(p.id),
+        title: p.title,
+        threadId: toNum(p.thread_id),
+        messageCount: msgs.filter(m => m.role === 'user').length,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+      };
+    });
+    res.json(chats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get('/api/chats/:chatId', async (req, res) => {
+  const chatId = parseInt(req.params.chatId);
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      'MATCH (c:Chat {id: $chatId}) RETURN c',
+      { chatId: neo4j.int(chatId) }
+    );
+    if (!result.records.length) return res.status(404).json({ error: 'Chat not found' });
+    const p = result.records[0].get('c').properties;
+    res.json({
+      id: toNum(p.id),
+      title: p.title,
+      threadId: toNum(p.thread_id),
+      messages: p.messages ? JSON.parse(p.messages) : [],
+      created_at: p.created_at,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.post('/api/chats', async (req, res) => {
+  const { threadId, title, messages } = req.body;
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const id = await getNextId('chat', session);
+    const now = new Date().toISOString();
+    const result = await session.run(
+      `CREATE (c:Chat {
+         id: $id, title: $title, thread_id: $threadId,
+         messages: $messages, created_at: $now, updated_at: $now
+       })
+       WITH c
+       MATCH (t:Thread {id: $threadId})
+       CREATE (t)-[:HAS_CHAT]->(c)
+       RETURN c`,
+      {
+        id: neo4j.int(id),
+        title: (title || 'Chat').substring(0, 120),
+        threadId: neo4j.int(parseInt(threadId)),
+        messages: JSON.stringify(messages || []),
+        now,
+      }
+    );
+    const p = result.records[0].get('c').properties;
+    res.json({ id: toNum(p.id), title: p.title, created_at: p.created_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.put('/api/chats/:chatId', async (req, res) => {
+  const chatId = parseInt(req.params.chatId);
+  const { title, messages } = req.body;
+  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const now = new Date().toISOString();
+    const result = await session.run(
+      `MATCH (c:Chat {id: $chatId})
+       SET c.messages = $messages, c.updated_at = $now,
+           c.title = COALESCE($title, c.title)
+       RETURN c`,
+      {
+        chatId: neo4j.int(chatId),
+        messages: JSON.stringify(messages || []),
+        now,
+        title: title || null,
+      }
+    );
+    if (!result.records.length) return res.status(404).json({ error: 'Chat not found' });
+    const p = result.records[0].get('c').properties;
+    res.json({ id: toNum(p.id), title: p.title, updated_at: p.updated_at });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
     await session.close();
