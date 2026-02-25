@@ -6,6 +6,7 @@ const TABS = [
   { key: 'article', label: 'Article' },
   { key: 'sequence', label: 'Sequence' },
   { key: 'canvas', label: 'Canvas' },
+  { key: 'chat', label: 'Chat' },
 ];
 
 const ViewTabBar = ({

@@ -1,0 +1,345 @@
+/* ── Chat panel ─────────────────────────────────────────────── */
+
+.cp-panel {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #111;
+  overflow: hidden;
+}
+
+/* Header */
+.cp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 52px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: #1a1a1a;
+}
+
+.cp-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+  letter-spacing: 0.02em;
+}
+
+/* API key controls */
+.cp-key-area {
+  display: flex;
+  align-items: center;
+}
+
+.cp-key-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cp-key-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 0.82rem;
+  padding: 5px 10px;
+  width: 200px;
+}
+
+.cp-key-input:focus {
+  outline: none;
+  border-color: #00ff9d;
+}
+
+.cp-key-save {
+  background: #00ff9d;
+  color: #1a1a1a;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cp-key-save:hover {
+  background: #00cc7d;
+}
+
+.cp-key-cancel {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cp-key-cancel:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.cp-key-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cp-key-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Messages */
+.cp-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cp-messages::-webkit-scrollbar {
+  width: 5px;
+}
+
+.cp-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cp-messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+/* Empty state */
+.cp-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 40px;
+}
+
+.cp-empty p {
+  color: rgba(255, 255, 255, 0.28);
+  font-size: 0.9rem;
+  line-height: 1.7;
+  max-width: 380px;
+}
+
+/* Message rows */
+.cp-msg {
+  display: flex;
+}
+
+.cp-msg--user {
+  justify-content: flex-end;
+}
+
+.cp-msg--assistant,
+.cp-msg--error {
+  justify-content: flex-start;
+}
+
+/* Bubbles */
+.cp-bubble {
+  max-width: 82%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.cp-bubble--user {
+  background: rgba(0, 255, 157, 0.1);
+  border: 1px solid rgba(0, 255, 157, 0.22);
+  color: #d9fff0;
+  border-bottom-right-radius: 4px;
+}
+
+.cp-bubble--assistant {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  border-bottom-left-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cp-bubble--error {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  color: #fca5a5;
+  border-bottom-left-radius: 4px;
+  font-size: 0.85rem;
+}
+
+/* Loading animation */
+.cp-bubble--loading {
+  padding: 14px 20px;
+  gap: 4px;
+  flex-direction: row;
+  align-items: center;
+}
+
+.cp-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  margin: 0 2px;
+  animation: cp-bounce 1.2s ease-in-out infinite;
+}
+
+.cp-dot:nth-child(2) { animation-delay: 0.2s; }
+.cp-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes cp-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-6px); opacity: 1; }
+}
+
+/* Citations */
+.cp-citations {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 8px;
+}
+
+.cp-citations-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.25);
+  margin-bottom: 2px;
+}
+
+.cp-citation {
+  font-size: 0.78rem;
+  color: rgba(0, 255, 157, 0.7);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s;
+}
+
+.cp-citation:hover {
+  color: #00ff9d;
+  text-decoration: underline;
+}
+
+/* Node chips */
+.cp-nodes-created {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 8px;
+}
+
+.cp-new-thread {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 10px;
+  border-radius: 3px;
+  width: 100%;
+}
+
+.cp-node-chip {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid;
+  opacity: 0.8;
+}
+
+/* Input area */
+.cp-input-area {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #1a1a1a;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+}
+
+.cp-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.9rem;
+  font-family: inherit;
+  padding: 10px 14px;
+  resize: none;
+  min-height: 42px;
+  max-height: 160px;
+  line-height: 1.5;
+  overflow-y: auto;
+  transition: border-color 0.15s;
+}
+
+.cp-input:focus {
+  outline: none;
+  border-color: rgba(0, 255, 157, 0.35);
+}
+
+.cp-input:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cp-send {
+  background: #00ff9d;
+  color: #1a1a1a;
+  border: none;
+  border-radius: 8px;
+  width: 42px;
+  height: 42px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cp-send:hover:not(:disabled) {
+  background: #00cc7d;
+}
+
+.cp-send:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}

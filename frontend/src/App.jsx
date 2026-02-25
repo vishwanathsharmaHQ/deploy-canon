@@ -11,6 +11,7 @@ import ThreadCanvas from './components/ThreadCanvas'
 import SequenceEditor from './components/SequenceEditor'
 import ViewTabBar from './components/ViewTabBar'
 import NodeEditor from './components/NodeEditor'
+import ChatPanel from './components/ChatPanel'
 import { api } from './services/api'
 import './App.css'
 
@@ -1010,6 +1011,18 @@ function App() {
               ));
             }}
             onUpdateNode={handleUpdateNode}
+          />
+        ) : view === 'chat' ? (
+          <ChatPanel
+            selectedThreadId={selectedThreadId}
+            onNodesCreated={async (tid) => {
+              await loadOffChainThreads();
+              setSelectedThreadId(tid);
+            }}
+            onThreadCreated={async (tid) => {
+              await loadOffChainThreads();
+              setSelectedThreadId(tid);
+            }}
           />
         ) : null}
 

@@ -188,6 +188,19 @@ export const api = {
     return response.json();
   },
 
+  async chat({ message, history, threadId, apiKey }) {
+    const response = await fetch(`${API_BASE_URL}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history, threadId, apiKey }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Chat request failed');
+    }
+    return response.json();
+  },
+
   async generateNodeSuggestions({ nodeId, nodeType, content, title }) {
     const response = await fetch(`${API_BASE_URL}/nodes/suggest`, {
       method: 'POST',
