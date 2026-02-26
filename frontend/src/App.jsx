@@ -12,6 +12,7 @@ import SequenceEditor from './components/SequenceEditor'
 import ViewTabBar from './components/ViewTabBar'
 import NodeEditor from './components/NodeEditor'
 import ChatPanel from './components/ChatPanel'
+import AuthModal from './components/AuthModal'
 import { api } from './services/api'
 import './App.css'
 
@@ -44,6 +45,8 @@ function App() {
   const [view, setView] = useState('graph'); // 'graph' | 'article' | 'sequence' | 'editor' | 'canvas'
   const [editorNode, setEditorNode] = useState(null);
   const [graphSelectedNodeId, setGraphSelectedNodeId] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   const NODE_TYPES = [
     'ROOT',
@@ -54,6 +57,15 @@ function App() {
     'COUNTERPOINT',
     'SYNTHESIS'
   ]
+
+  useEffect(() => {
+    api.getMe().then(setCurrentUser).catch(() => {});
+  }, []);
+
+  function requireLogin(action) {
+    if (!currentUser) { setShowAuthModal(true); return; }
+    action();
+  }
 
   useEffect(() => {
     if (isOnChain) {
@@ -903,6 +915,7 @@ function App() {
         
         // If no exact matches found, generate new thread
         if (results.length === 0) {
+          if (!currentUser) { setShowAuthModal(true); return; }
           const newThread = await api.generateThread(searchQuery);
           setSelectedThreadId(newThread.id);
           await loadOffChainThreads(); // Reload threads to get the new one
@@ -936,36 +949,20 @@ function App() {
         </div>
 
         <div className="header-right">
-          {/* {!isOnChain ? (
-            <button 
-              className="mainline-connect-btn"
-              onClick={handleMainlineConnect}
-            >
-              <span className="mainline-text">Connect to Mainline</span>
-              <div className="mainline-animation"></div>
-            </button>
-          ) : (
-            <div className="connection-statuses">
-              {account && (
-                <div className="connection-status">
-                  <div className="status-dot"></div>
-                  <span>Mainline Connected</span>
-                </div>
-              )}
-              {isIPFSConnected && (
-                <div className="connection-status">
-                  <div className="status-dot"></div>
-                  <span>IPFS Connected</span>
-                </div>
-              )}
-              <div className="connection-status">
-                <div className="status-dot"></div>
-                <span>Database Connected</span>
-              </div>
+          {currentUser ? (
+            <div className="user-menu">
+              <span className="user-email">{currentUser.email}</span>
+              <button className="btn-outline" onClick={() => { api.logout(); setCurrentUser(null); }}>
+                Sign out
+              </button>
             </div>
-          )} */}
-          <button 
-            className="fullscreen-toggle" 
+          ) : (
+            <button className="btn-primary" onClick={() => setShowAuthModal(true)}>
+              Sign in
+            </button>
+          )}
+          <button
+            className="fullscreen-toggle"
             onClick={toggleFullScreen}
             title={isFullScreen ? "Exit full screen" : "Enter full screen"}
             aria-label={isFullScreen ? "Exit full screen" : "Enter full screen"}
@@ -977,7 +974,13 @@ function App() {
         {(threadToShow || view === 'chat') && (
           <ViewTabBar
             view={view}
-            onChangeView={setView}
+            onChangeView={(newView) => {
+              if (newView === 'sequence' || newView === 'editor') {
+                requireLogin(() => setView(newView));
+              } else {
+                setView(newView);
+              }
+            }}
             threadTitle={threadToShow?.metadata?.title || threadToShow?.title || (threadToShow ? `Thread ${threadToShow.id}` : '')}
             onPrevThread={handlePrevThread}
             onNextThread={handleNextThread}
@@ -1005,6 +1008,8 @@ function App() {
           <ArticleReader
             thread={threadToShow}
             initialNodeId={graphSelectedNodeId}
+            currentUser={currentUser}
+            onAuthRequired={() => setShowAuthModal(true)}
             onContentChange={(html) => {
               setOffChainThreads(prev => prev.map(t =>
                 t.id === threadToShow.id ? { ...t, content: html } : t
@@ -1026,6 +1031,8 @@ function App() {
         <div style={{ display: view === 'chat' ? undefined : 'none', flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <ChatPanel
             selectedThreadId={selectedThreadId}
+            currentUser={currentUser}
+            onAuthRequired={() => setShowAuthModal(true)}
             onNodesCreated={async (tid) => {
               await loadOffChainThreads();
               setSelectedThreadId(tid);
@@ -1053,10 +1060,10 @@ function App() {
                 <div className="dropdown-menu">
                   <div
                     className="dropdown-item create-thread-option"
-                    onClick={() => {
+                    onClick={() => requireLogin(() => {
                       setShowCreateThreadModal(true);
                       setShowThreadDropdown(false);
-                    }}
+                    })}
                   >
                     + Create New Thread
                   </div>
@@ -1121,7 +1128,7 @@ function App() {
                 threads={graphData}
                 onNodeClick={handleNodeClick}
                 onAddNode={handleAddNode}
-                onOpenEditor={(node) => { setEditorNode(node); setView('editor'); }}
+                onOpenEditor={(node) => requireLogin(() => { setEditorNode(node); setView('editor'); })}
                 onSelectedNodeChange={setGraphSelectedNodeId}
                 loading={loading}
               />
@@ -1193,6 +1200,13 @@ function App() {
             loading={loading}
             voteAmount={voteAmount}
             setVoteAmount={setVoteAmount}
+          />
+        )}
+
+        {showAuthModal && (
+          <AuthModal
+            onSuccess={(user) => { setCurrentUser(user); setShowAuthModal(false); }}
+            onClose={() => setShowAuthModal(false)}
           />
         )}
       </div>

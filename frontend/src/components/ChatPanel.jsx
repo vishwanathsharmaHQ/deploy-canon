@@ -44,7 +44,7 @@ function relativeDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate, defaultSidebarCollapsed = false }) {
+export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate, defaultSidebarCollapsed = false, currentUser, onAuthRequired }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -401,23 +401,30 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="cp-input-area">
-          <textarea
-            ref={textareaRef}
-            className="cp-input"
-            placeholder="Ask anything… (Shift+Enter for new line)"
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            disabled={loading}
-            rows={1}
-            autoFocus
-          />
-          <button className="cp-send" onClick={handleSend}
-            disabled={!input.trim() || loading} aria-label="Send">
-            ▶
-          </button>
-        </div>
+        {currentUser === undefined || currentUser ? (
+          <div className="cp-input-area">
+            <textarea
+              ref={textareaRef}
+              className="cp-input"
+              placeholder="Ask anything… (Shift+Enter for new line)"
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              disabled={loading}
+              rows={1}
+              autoFocus
+            />
+            <button className="cp-send" onClick={handleSend}
+              disabled={!input.trim() || loading} aria-label="Send">
+              ▶
+            </button>
+          </div>
+        ) : (
+          <div className="cp-auth-gate">
+            <p>Sign in to use AI chat</p>
+            <button className="cp-auth-gate-btn" onClick={onAuthRequired}>Sign in</button>
+          </div>
+        )}
       </div>
     </div>
   );

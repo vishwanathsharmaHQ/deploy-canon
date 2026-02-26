@@ -1,18 +1,44 @@
 require('dotenv').config();
 const express = require('express');
-const neo4j = require('neo4j-driver');
 const cors = require('cors');
-const OpenAI = require('openai');
 const path = require('path');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const JWT_SECRET = process.env.JWT_SECRET || 'changeme-in-production';
 
 const app = express();
 const port = process.env.PORT || 3001;
 
-// OpenAI configuration
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  timeout: 50000,
-});
+// ── Lazy-initialise heavy deps so startup errors are visible in responses ──
+let _neo4j, _driver, _openai, _initError;
+
+function getDriver() {
+  if (_initError) throw _initError;
+  if (_driver) return _driver;
+  try {
+    _neo4j = require('neo4j-driver');
+    _driver = _neo4j.driver(
+      process.env.NEO4J_URI,
+      _neo4j.auth.basic(process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD)
+    );
+    return _driver;
+  } catch (e) {
+    _initError = e;
+    throw e;
+  }
+}
+
+function getNeo4j() {
+  getDriver(); // ensures _neo4j is set
+  return _neo4j;
+}
+
+function getOpenAI() {
+  if (_openai) return _openai;
+  const OpenAI = require('openai');
+  _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 50000 });
+  return _openai;
+}
 
 // Timeout middleware for AI operations
 const aiTimeout = (req, res, next) => {
@@ -22,11 +48,16 @@ const aiTimeout = (req, res, next) => {
   next();
 };
 
-// Neo4j connection
-const driver = neo4j.driver(
-  process.env.NEO4J_URI,
-  neo4j.auth.basic(process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD)
-);
+function requireAuth(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    req.user = jwt.verify(auth.slice(7), JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -37,6 +68,14 @@ app.use(['/api/nodes/suggest', '/api/threads/generate', '/api/chat'], aiTimeout)
 // Serve static files from the ./dist directory
 const staticDir = path.join(__dirname, 'dist');
 app.use(express.static(staticDir));
+
+// Catch init errors on first API call so we see the real message
+app.use('/api', (req, res, next) => {
+  try { getDriver(); } catch (e) {
+    return res.status(500).json({ initError: e.message });
+  }
+  next();
+});
 
 // Helper: get next sequential ID (accepts session or transaction)
 async function getNextId(label, runner) {
@@ -53,7 +92,7 @@ async function getNextId(label, runner) {
 // Helper: convert Neo4j integer to JS number
 function toNum(val) {
   if (val == null) return null;
-  if (neo4j.isInt(val)) return val.toNumber();
+  if (getNeo4j().isInt(val)) return val.toNumber();
   return val;
 }
 
@@ -94,6 +133,54 @@ function formatNode(props, parentId) {
   };
 }
 
+// Auth routes
+app.post('/api/auth/register', async (req, res) => {
+  const { name, email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const existing = await session.run('MATCH (u:User {email: $email}) RETURN u', { email });
+    if (existing.records.length > 0) return res.status(409).json({ error: 'Email already registered' });
+    const hash = await bcrypt.hash(password, 10);
+    const id = await getNextId('user', session);
+    const now = new Date().toISOString();
+    await session.run(
+      'CREATE (u:User {id: $id, name: $name, email: $email, password: $hash, created_at: $now})',
+      { id: getNeo4j().int(id), name: name || '', email, hash, now }
+    );
+    const token = jwt.sign({ id, email, name: name || '' }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id, email, name: name || '' } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run('MATCH (u:User {email: $email}) RETURN u', { email });
+    if (!result.records.length) return res.status(401).json({ error: 'Invalid credentials' });
+    const u = result.records[0].get('u').properties;
+    const valid = await bcrypt.compare(password, u.password);
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    const id = toNum(u.id);
+    const token = jwt.sign({ id, email: u.email, name: u.name || '' }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id, email: u.email, name: u.name || '' } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json(req.user);
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
@@ -101,7 +188,7 @@ app.get('/health', (req, res) => {
 
 // Thread endpoints
 app.get('/api/threads', async (req, res) => {
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const result = await session.run(
       'MATCH (t:Thread) RETURN t ORDER BY t.created_at DESC'
@@ -116,9 +203,9 @@ app.get('/api/threads', async (req, res) => {
   }
 });
 
-app.post('/api/threads', async (req, res) => {
+app.post('/api/threads', requireAuth, async (req, res) => {
   const { title, description, content, metadata } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const id = await getNextId('thread', session);
     const now = new Date().toISOString();
@@ -130,7 +217,7 @@ app.post('/api/threads', async (req, res) => {
         content: $content, metadata: $metadata,
         created_at: $now, updated_at: $now
       }) RETURN t`,
-      { id: neo4j.int(id), title, description: description || '', content: content || '', metadata: metaStr, now }
+      { id: getNeo4j().int(id), title, description: description || '', content: content || '', metadata: metaStr, now }
     );
 
     const thread = formatThread(result.records[0].get('t').properties);
@@ -146,14 +233,14 @@ app.post('/api/threads', async (req, res) => {
 // Node endpoints
 app.get('/api/threads/:threadId/nodes', async (req, res) => {
   const threadId = parseInt(req.params.threadId);
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const nodesResult = await session.run(
       `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
        OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
        RETURN n, parent.id AS parent_id
        ORDER BY n.created_at`,
-      { threadId: neo4j.int(threadId) }
+      { threadId: getNeo4j().int(threadId) }
     );
 
     const nodes = nodesResult.records.map(r => {
@@ -166,7 +253,7 @@ app.get('/api/threads/:threadId/nodes', async (req, res) => {
     const edgesResult = await session.run(
       `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(src:Node)-[:PARENT_OF]->(tgt:Node)
        RETURN src.id AS source_id, tgt.id AS target_id`,
-      { threadId: neo4j.int(threadId) }
+      { threadId: getNeo4j().int(threadId) }
     );
 
     const edges = edgesResult.records.map(r => ({
@@ -184,10 +271,10 @@ app.get('/api/threads/:threadId/nodes', async (req, res) => {
   }
 });
 
-app.post('/api/threads/:threadId/nodes', async (req, res) => {
+app.post('/api/threads/:threadId/nodes', requireAuth, async (req, res) => {
   const threadId = parseInt(req.params.threadId);
   const { title, content, nodeType, parentId, metadata } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   const tx = session.beginTransaction();
 
   try {
@@ -210,14 +297,14 @@ app.post('/api/threads/:threadId/nodes', async (req, res) => {
         node_type: $nodeType, metadata: $metadata,
         created_at: $now, updated_at: $now
       }) RETURN n`,
-      { id: neo4j.int(id), title, content: content || '', nodeType: normalizedNodeType, metadata: metaStr, now }
+      { id: getNeo4j().int(id), title, content: content || '', nodeType: normalizedNodeType, metadata: metaStr, now }
     );
 
     // Link to thread
     await tx.run(
       `MATCH (t:Thread {id: $threadId}), (n:Node {id: $nodeId})
        CREATE (t)-[:HAS_NODE]->(n)`,
-      { threadId: neo4j.int(threadId), nodeId: neo4j.int(id) }
+      { threadId: getNeo4j().int(threadId), nodeId: getNeo4j().int(id) }
     );
 
     // Link to parent if provided
@@ -226,7 +313,7 @@ app.post('/api/threads/:threadId/nodes', async (req, res) => {
       await tx.run(
         `MATCH (p:Node {id: $parentId}), (n:Node {id: $nodeId})
          CREATE (p)-[:PARENT_OF]->(n)`,
-        { parentId: neo4j.int(parentId), nodeId: neo4j.int(id) }
+        { parentId: getNeo4j().int(parentId), nodeId: getNeo4j().int(id) }
       );
       resolvedParentId = parentId;
     }
@@ -245,10 +332,10 @@ app.post('/api/threads/:threadId/nodes', async (req, res) => {
 });
 
 // Update node content
-app.put('/api/threads/:threadId/nodes/:nodeId', async (req, res) => {
+app.put('/api/threads/:threadId/nodes/:nodeId', requireAuth, async (req, res) => {
   const nodeId = parseInt(req.params.nodeId);
   const { title, content } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const now = new Date().toISOString();
     const metaStr = JSON.stringify({
@@ -259,7 +346,7 @@ app.put('/api/threads/:threadId/nodes/:nodeId', async (req, res) => {
       `MATCH (n:Node {id: $nodeId})
        SET n.title = $title, n.content = $content, n.metadata = $metadata, n.updated_at = $now
        RETURN n`,
-      { nodeId: neo4j.int(nodeId), title, content: content || '', metadata: metaStr, now }
+      { nodeId: getNeo4j().int(nodeId), title, content: content || '', metadata: metaStr, now }
     );
     if (!result.records.length) return res.status(404).json({ error: 'Node not found' });
     const node = formatNode(result.records[0].get('n').properties, null);
@@ -272,14 +359,14 @@ app.put('/api/threads/:threadId/nodes/:nodeId', async (req, res) => {
 });
 
 // Edge endpoints
-app.post('/api/edges', async (req, res) => {
+app.post('/api/edges', requireAuth, async (req, res) => {
   const { sourceId, targetId } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     await session.run(
       `MATCH (a:Node {id: $src}), (b:Node {id: $tgt})
        CREATE (a)-[:PARENT_OF]->(b)`,
-      { src: neo4j.int(sourceId), tgt: neo4j.int(targetId) }
+      { src: getNeo4j().int(sourceId), tgt: getNeo4j().int(targetId) }
     );
     res.json({ source_id: sourceId, target_id: targetId, relationship_type: 'parent-child' });
   } catch (err) {
@@ -290,15 +377,15 @@ app.post('/api/edges', async (req, res) => {
 });
 
 // Thread layout endpoints
-app.put('/api/threads/:threadId/layout', async (req, res) => {
+app.put('/api/threads/:threadId/layout', requireAuth, async (req, res) => {
   const threadId = parseInt(req.params.threadId);
   const { layout } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     await session.run(
       `MATCH (t:Thread {id: $threadId})
        SET t.layout = $layout`,
-      { threadId: neo4j.int(threadId), layout: JSON.stringify(layout) }
+      { threadId: getNeo4j().int(threadId), layout: JSON.stringify(layout) }
     );
     res.json({ layout });
   } catch (err) {
@@ -310,11 +397,11 @@ app.put('/api/threads/:threadId/layout', async (req, res) => {
 
 app.get('/api/threads/:threadId/layout', async (req, res) => {
   const threadId = parseInt(req.params.threadId);
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const result = await session.run(
       'MATCH (t:Thread {id: $threadId}) RETURN t.layout AS layout',
-      { threadId: neo4j.int(threadId) }
+      { threadId: getNeo4j().int(threadId) }
     );
     const layoutStr = result.records[0]?.get('layout');
     const layout = layoutStr ? JSON.parse(layoutStr) : null;
@@ -326,13 +413,13 @@ app.get('/api/threads/:threadId/layout', async (req, res) => {
   }
 });
 
-app.delete('/api/threads/:threadId/layout', async (req, res) => {
+app.delete('/api/threads/:threadId/layout', requireAuth, async (req, res) => {
   const threadId = parseInt(req.params.threadId);
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     await session.run(
       'MATCH (t:Thread {id: $threadId}) REMOVE t.layout',
-      { threadId: neo4j.int(threadId) }
+      { threadId: getNeo4j().int(threadId) }
     );
     res.json({});
   } catch (err) {
@@ -343,15 +430,15 @@ app.delete('/api/threads/:threadId/layout', async (req, res) => {
 });
 
 // Thread canvas endpoints
-app.put('/api/threads/:threadId/canvas', async (req, res) => {
+app.put('/api/threads/:threadId/canvas', requireAuth, async (req, res) => {
   const threadId = parseInt(req.params.threadId);
   const { canvas } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     await session.run(
       `MATCH (t:Thread {id: $threadId})
        SET t.canvas = $canvas`,
-      { threadId: neo4j.int(threadId), canvas: JSON.stringify(canvas) }
+      { threadId: getNeo4j().int(threadId), canvas: JSON.stringify(canvas) }
     );
     res.json({ canvas });
   } catch (err) {
@@ -363,11 +450,11 @@ app.put('/api/threads/:threadId/canvas', async (req, res) => {
 
 app.get('/api/threads/:threadId/canvas', async (req, res) => {
   const threadId = parseInt(req.params.threadId);
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const result = await session.run(
       'MATCH (t:Thread {id: $threadId}) RETURN t.canvas AS canvas',
-      { threadId: neo4j.int(threadId) }
+      { threadId: getNeo4j().int(threadId) }
     );
     const canvasStr = result.records[0]?.get('canvas');
     const canvas = canvasStr ? JSON.parse(canvasStr) : null;
@@ -379,13 +466,13 @@ app.get('/api/threads/:threadId/canvas', async (req, res) => {
   }
 });
 
-app.delete('/api/threads/:threadId/canvas', async (req, res) => {
+app.delete('/api/threads/:threadId/canvas', requireAuth, async (req, res) => {
   const threadId = parseInt(req.params.threadId);
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     await session.run(
       'MATCH (t:Thread {id: $threadId}) REMOVE t.canvas',
-      { threadId: neo4j.int(threadId) }
+      { threadId: getNeo4j().int(threadId) }
     );
     res.json({});
   } catch (err) {
@@ -396,17 +483,17 @@ app.delete('/api/threads/:threadId/canvas', async (req, res) => {
 });
 
 // Update thread content
-app.put('/api/threads/:threadId/content', async (req, res) => {
+app.put('/api/threads/:threadId/content', requireAuth, async (req, res) => {
   const threadId = parseInt(req.params.threadId);
   const { content } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const now = new Date().toISOString();
     const result = await session.run(
       `MATCH (t:Thread {id: $threadId})
        SET t.content = $content, t.updated_at = $now
        RETURN t`,
-      { threadId: neo4j.int(threadId), content: content || '', now }
+      { threadId: getNeo4j().int(threadId), content: content || '', now }
     );
     const thread = formatThread(result.records[0].get('t').properties);
     res.json(thread);
@@ -418,15 +505,15 @@ app.put('/api/threads/:threadId/content', async (req, res) => {
 });
 
 // Thread article sequence endpoints
-app.put('/api/threads/:threadId/sequence', async (req, res) => {
+app.put('/api/threads/:threadId/sequence', requireAuth, async (req, res) => {
   const threadId = parseInt(req.params.threadId);
   const { sequence } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     await session.run(
       `MATCH (t:Thread {id: $threadId})
        SET t.article_sequence = $sequence`,
-      { threadId: neo4j.int(threadId), sequence: JSON.stringify(sequence) }
+      { threadId: getNeo4j().int(threadId), sequence: JSON.stringify(sequence) }
     );
     res.json({ sequence });
   } catch (err) {
@@ -438,11 +525,11 @@ app.put('/api/threads/:threadId/sequence', async (req, res) => {
 
 app.get('/api/threads/:threadId/sequence', async (req, res) => {
   const threadId = parseInt(req.params.threadId);
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const result = await session.run(
       'MATCH (t:Thread {id: $threadId}) RETURN t.article_sequence AS sequence',
-      { threadId: neo4j.int(threadId) }
+      { threadId: getNeo4j().int(threadId) }
     );
     const seqStr = result.records[0]?.get('sequence');
     const sequence = seqStr ? JSON.parse(seqStr) : null;
@@ -454,13 +541,13 @@ app.get('/api/threads/:threadId/sequence', async (req, res) => {
   }
 });
 
-app.delete('/api/threads/:threadId/sequence', async (req, res) => {
+app.delete('/api/threads/:threadId/sequence', requireAuth, async (req, res) => {
   const threadId = parseInt(req.params.threadId);
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     await session.run(
       'MATCH (t:Thread {id: $threadId}) REMOVE t.article_sequence',
-      { threadId: neo4j.int(threadId) }
+      { threadId: getNeo4j().int(threadId) }
     );
     res.json({});
   } catch (err) {
@@ -477,7 +564,7 @@ app.get('/api/threads/search', async (req, res) => {
     return res.status(400).json({ error: 'Search query is required' });
   }
 
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const result = await session.run(
       `MATCH (t:Thread)
@@ -498,17 +585,17 @@ app.get('/api/threads/search', async (req, res) => {
 });
 
 // Create thread with GPT endpoint
-app.post('/api/threads/generate', async (req, res) => {
+app.post('/api/threads/generate', requireAuth, async (req, res) => {
   const { topic } = req.body;
   if (!topic) {
     return res.status(400).json({ error: 'Topic is required' });
   }
 
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   const tx = session.beginTransaction();
 
   try {
-    const threadResponse = await openai.chat.completions.create({
+    const threadResponse = await getOpenAI().chat.completions.create({
       model: "gpt-4",
       messages: [{
         role: "system",
@@ -518,6 +605,8 @@ app.post('/api/threads/generate', async (req, res) => {
 3. One example
 4. One counterpoint
 5. A brief synthesis (1-2 sentences)
+
+Respond with only the JSON object — no preamble, no explanation, no conversational openers.
 
 Format as JSON:
 {
@@ -552,7 +641,7 @@ Format as JSON:
         created_at: $now, updated_at: $now
       }) RETURN t`,
       {
-        id: neo4j.int(threadId),
+        id: getNeo4j().int(threadId),
         title: topic,
         description: gptContent.summary.substring(0, 255),
         content: gptContent.summary,
@@ -583,13 +672,13 @@ Format as JSON:
         MATCH (t:Thread {id: $threadId})
         CREATE (t)-[:HAS_NODE]->(n)`,
         {
-          id: neo4j.int(nodeId),
+          id: getNeo4j().int(nodeId),
           title: entry.title,
           content: entry.content,
           nodeType: entry.type,
           metadata: nodeMeta,
           now,
-          threadId: neo4j.int(threadId)
+          threadId: getNeo4j().int(threadId)
         }
       );
     }
@@ -608,7 +697,7 @@ Format as JSON:
 });
 
 // Node suggestion endpoint
-app.post('/api/nodes/suggest', async (req, res) => {
+app.post('/api/nodes/suggest', requireAuth, async (req, res) => {
   const { nodeId, nodeType, content, title } = req.body;
 
   try {
@@ -636,7 +725,7 @@ app.post('/api/nodes/suggest', async (req, res) => {
       contentForGPT = nodeContent;
     }
 
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: "gpt-4",
       messages: [{
         role: "system",
@@ -650,6 +739,8 @@ Each node should have:
    - EXAMPLE: title and description
    - COUNTERPOINT: argument and explanation
    - Others: regular text content
+
+Respond with only the JSON array — no preamble, no explanation.
 
 Format your response as a JSON array of node suggestions:
 [
@@ -675,7 +766,7 @@ Format your response as a JSON array of node suggestions:
 });
 
 // Chat endpoint — SSE streaming, uses caller's key or env fallback
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', requireAuth, async (req, res) => {
   const { message, history = [], threadId, apiKey, nodeContext } = req.body;
   const resolvedKey = apiKey || process.env.OPENAI_API_KEY;
   if (!resolvedKey) {
@@ -691,8 +782,9 @@ app.post('/api/chat', async (req, res) => {
 
   const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
 
+  const OpenAI = require('openai');
   const userOpenAI = new OpenAI({ apiKey: resolvedKey, timeout: 50000 });
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
 
   try {
     // ── Step 1: Stream the reply ──────────────────────────────────────────
@@ -717,7 +809,7 @@ app.post('/api/chat', async (req, res) => {
 
     const systemMsg = {
       role: 'system',
-      content: `You are a research assistant helping build a knowledge graph. Be thorough and cite web sources for factual claims. Use markdown for structure. Highlight key evidence, concrete examples, and opposing viewpoints.${nodeContextText}`
+      content: `You are a research assistant helping build a knowledge graph. Be thorough and cite web sources for factual claims. Use markdown for structure. Highlight key evidence, concrete examples, and opposing viewpoints. Never open with conversational filler like "Certainly!", "Sure!", "Of course!", "I'd be happy to", or "Here is a...". Start immediately with the substantive content.${nodeContextText}`
     };
     const inputMsgs = [
       systemMsg,
@@ -792,7 +884,7 @@ app.post('/api/chat', async (req, res) => {
     if (threadId) {
       const tr = await session.run(
         'MATCH (t:Thread {id: $id}) RETURN t.title AS title',
-        { id: neo4j.int(parseInt(threadId)) }
+        { id: getNeo4j().int(parseInt(threadId)) }
       );
       currentThreadTitle = tr.records[0]?.get('title') || '';
     }
@@ -872,7 +964,7 @@ Rules:
              created_at: $now, updated_at: $now
            })`,
           {
-            id: neo4j.int(newId),
+            id: getNeo4j().int(newId),
             title: ttl,
             desc: reply.substring(0, 500),
             content: reply.substring(0, 4000),
@@ -904,13 +996,13 @@ Rules:
            MATCH (t:Thread {id: $tid})
            CREATE (t)-[:HAS_NODE]->(nd)`,
           {
-            id: neo4j.int(nid),
+            id: getNeo4j().int(nid),
             title: rootNode.title,
             content: nodeContent,
             type: 'ROOT',
             meta: JSON.stringify({ title: rootNode.title }),
             now,
-            tid: neo4j.int(activeThreadId)
+            tid: getNeo4j().int(activeThreadId)
           }
         );
         rootNodeId = nid;
@@ -939,13 +1031,13 @@ Rules:
            MATCH (t:Thread {id: $tid})
            CREATE (t)-[:HAS_NODE]->(nd)`,
           {
-            id: neo4j.int(nid),
+            id: getNeo4j().int(nid),
             title: n.title,
             content: nodeContent,
             type: n.type,
             meta: JSON.stringify({ title: n.title }),
             now,
-            tid: neo4j.int(activeThreadId)
+            tid: getNeo4j().int(activeThreadId)
           }
         );
         // Link to ROOT parent
@@ -953,7 +1045,7 @@ Rules:
           await tx.run(
             `MATCH (p:Node {id: $parentId}), (nd:Node {id: $nodeId})
              CREATE (p)-[:PARENT_OF]->(nd)`,
-            { parentId: neo4j.int(rootNodeId), nodeId: neo4j.int(nid) }
+            { parentId: getNeo4j().int(rootNodeId), nodeId: getNeo4j().int(nid) }
           );
         }
         createdNodes.push({ id: nid, title: n.title, type: n.type });
@@ -983,12 +1075,12 @@ Rules:
 
 app.get('/api/threads/:threadId/chats', async (req, res) => {
   const threadId = parseInt(req.params.threadId);
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const result = await session.run(
       `MATCH (t:Thread {id: $threadId})-[:HAS_CHAT]->(c:Chat)
        RETURN c ORDER BY c.created_at DESC`,
-      { threadId: neo4j.int(threadId) }
+      { threadId: getNeo4j().int(threadId) }
     );
     const chats = result.records.map(r => {
       const p = r.get('c').properties;
@@ -1012,11 +1104,11 @@ app.get('/api/threads/:threadId/chats', async (req, res) => {
 
 app.get('/api/chats/:chatId', async (req, res) => {
   const chatId = parseInt(req.params.chatId);
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const result = await session.run(
       'MATCH (c:Chat {id: $chatId}) RETURN c',
-      { chatId: neo4j.int(chatId) }
+      { chatId: getNeo4j().int(chatId) }
     );
     if (!result.records.length) return res.status(404).json({ error: 'Chat not found' });
     const p = result.records[0].get('c').properties;
@@ -1034,9 +1126,9 @@ app.get('/api/chats/:chatId', async (req, res) => {
   }
 });
 
-app.post('/api/chats', async (req, res) => {
+app.post('/api/chats', requireAuth, async (req, res) => {
   const { threadId, title, messages } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const id = await getNextId('chat', session);
     const now = new Date().toISOString();
@@ -1050,9 +1142,9 @@ app.post('/api/chats', async (req, res) => {
        CREATE (t)-[:HAS_CHAT]->(c)
        RETURN c`,
       {
-        id: neo4j.int(id),
+        id: getNeo4j().int(id),
         title: (title || 'Chat').substring(0, 120),
-        threadId: neo4j.int(parseInt(threadId)),
+        threadId: getNeo4j().int(parseInt(threadId)),
         messages: JSON.stringify(messages || []),
         now,
       }
@@ -1066,10 +1158,10 @@ app.post('/api/chats', async (req, res) => {
   }
 });
 
-app.put('/api/chats/:chatId', async (req, res) => {
+app.put('/api/chats/:chatId', requireAuth, async (req, res) => {
   const chatId = parseInt(req.params.chatId);
   const { title, messages } = req.body;
-  const session = driver.session({ database: process.env.NEO4J_DATABASE });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
     const now = new Date().toISOString();
     const result = await session.run(
@@ -1078,7 +1170,7 @@ app.put('/api/chats/:chatId', async (req, res) => {
            c.title = COALESCE($title, c.title)
        RETURN c`,
       {
-        chatId: neo4j.int(chatId),
+        chatId: getNeo4j().int(chatId),
         messages: JSON.stringify(messages || []),
         now,
         title: title || null,

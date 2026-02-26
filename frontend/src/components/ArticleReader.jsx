@@ -358,7 +358,7 @@ const ThreadContentEditor = ({ thread, onContentChange }) => {
   return (
     <article className="ar-article">
       <div className="ar-node-header">
-        <div className="ar-node-badge" style={{ background: '#555' }}>THREAD</div>
+        <div className="ar-node-badge" style={{ color: '#777', borderColor: '#444' }}>THREAD</div>
         {!isEditing && (
           <button className="ar-edit-btn" onClick={handleEditStart}>Edit</button>
         )}
@@ -399,7 +399,7 @@ const ThreadContentEditor = ({ thread, onContentChange }) => {
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated }) => {
+const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, currentUser, onAuthRequired }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [orderedNodes, setOrderedNodes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -588,7 +588,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     return (
       <article className="ar-article">
         <div className="ar-node-header">
-          <div className="ar-node-badge" style={{ background: color }}>{nodeType}</div>
+          <div className="ar-node-badge" style={{ color, borderColor: color }}>{nodeType}</div>
           {!isEditing && onUpdateNode && (
             <button className="ar-edit-btn" onClick={handleEditStart}>Edit</button>
           )}
@@ -684,6 +684,8 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
           <ChatPanel
             selectedThreadId={thread.id}
             initialThreadId={thread.id}
+            currentUser={currentUser}
+            onAuthRequired={onAuthRequired}
             onNodesCreated={onNodesCreated}
             onThreadCreated={onThreadCreated}
             articleContext={currentArticleContext}

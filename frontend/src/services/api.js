@@ -1,6 +1,18 @@
 // Use relative path since frontend is served by backend
 const API_BASE_URL = '/api';
 
+let _authToken = localStorage.getItem('authToken');
+
+export function setAuthToken(token) {
+  _authToken = token;
+  token ? localStorage.setItem('authToken', token) : localStorage.removeItem('authToken');
+}
+
+function authHeaders() {
+  const base = { 'Content-Type': 'application/json' };
+  return _authToken ? { ...base, Authorization: `Bearer ${_authToken}` } : base;
+}
+
 export const api = {
   // Thread operations
   async getThreads() {
@@ -12,9 +24,7 @@ export const api = {
   async createThread({ title, description, content, metadata }) {
     const response = await fetch(`${API_BASE_URL}/threads`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ title, description, content, metadata }),
     });
     if (!response.ok) throw new Error('Failed to create thread');
@@ -30,9 +40,7 @@ export const api = {
   async generateThread(topic) {
     const response = await fetch(`${API_BASE_URL}/threads/generate`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ topic }),
     });
     if (!response.ok) throw new Error('Failed to generate thread');
@@ -50,9 +58,7 @@ export const api = {
     console.log('API createNode request:', { threadId, title, content, nodeType, parentId, metadata });
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ title, content, nodeType, parentId, metadata }),
     });
     if (!response.ok) throw new Error('Failed to create node');
@@ -65,9 +71,7 @@ export const api = {
   async createEdge({ sourceId, targetId, relationshipType, metadata }) {
     const response = await fetch(`${API_BASE_URL}/edges`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ sourceId, targetId, relationshipType, metadata }),
     });
     if (!response.ok) throw new Error('Failed to create edge');
@@ -78,38 +82,31 @@ export const api = {
   async saveThreadLayout(threadId, layout) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/layout`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ layout }),
     });
-    
     if (!response.ok) {
       throw new Error('Failed to save thread layout');
     }
-    
     return response.json();
   },
 
   async loadThreadLayout(threadId) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/layout`);
-    
     if (!response.ok) {
       throw new Error('Failed to load thread layout');
     }
-    
     return response.json();
   },
 
   async deleteThreadLayout(threadId) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/layout`, {
       method: 'DELETE',
+      headers: authHeaders(),
     });
-    
     if (!response.ok) {
       throw new Error('Failed to delete thread layout');
     }
-    
     return response.json();
   },
 
@@ -117,9 +114,7 @@ export const api = {
   async saveThreadCanvas(threadId, canvas) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/canvas`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ canvas }),
     });
     if (!response.ok) throw new Error(`Failed to save thread canvas: ${response.status}`);
@@ -135,6 +130,7 @@ export const api = {
   async deleteThreadCanvas(threadId) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/canvas`, {
       method: 'DELETE',
+      headers: authHeaders(),
     });
     if (!response.ok) throw new Error('Failed to delete thread canvas');
     return response.json();
@@ -144,7 +140,7 @@ export const api = {
   async updateThreadContent(threadId, content) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/content`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ content }),
     });
     if (!response.ok) throw new Error('Failed to update thread content');
@@ -155,7 +151,7 @@ export const api = {
   async saveArticleSequence(threadId, sequence) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/sequence`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ sequence }),
     });
     if (!response.ok) throw new Error('Failed to save article sequence');
@@ -173,6 +169,7 @@ export const api = {
   async deleteArticleSequence(threadId) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/sequence`, {
       method: 'DELETE',
+      headers: authHeaders(),
     });
     if (!response.ok) throw new Error('Failed to delete article sequence');
     return response.json();
@@ -181,7 +178,7 @@ export const api = {
   async updateNode(threadId, nodeId, { title, content }) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ title, content }),
     });
     if (!response.ok) throw new Error('Failed to update node');
@@ -191,7 +188,7 @@ export const api = {
   async chatStream({ message, history, threadId, apiKey, nodeContext, onToken, onProcessing, onDone, onError }) {
     const response = await fetch(`${API_BASE_URL}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ message, history, threadId, apiKey, nodeContext }),
     });
 
@@ -242,7 +239,7 @@ export const api = {
   async createChat({ threadId, title, messages }) {
     const response = await fetch(`${API_BASE_URL}/chats`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ threadId, title, messages }),
     });
     if (!response.ok) throw new Error('Failed to create chat');
@@ -252,7 +249,7 @@ export const api = {
   async updateChat(chatId, { title, messages }) {
     const response = await fetch(`${API_BASE_URL}/chats/${chatId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ title, messages }),
     });
     if (!response.ok) throw new Error('Failed to update chat');
@@ -262,12 +259,47 @@ export const api = {
   async generateNodeSuggestions({ nodeId, nodeType, content, title }) {
     const response = await fetch(`${API_BASE_URL}/nodes/suggest`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ nodeId, nodeType, content, title }),
     });
     if (!response.ok) throw new Error('Failed to generate suggestions');
     return response.json();
   },
-}; 
+
+  // Auth methods
+  async register({ name, email, password }) {
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Registration failed');
+    setAuthToken(data.token);
+    return data.user;
+  },
+
+  async login({ email, password }) {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Login failed');
+    setAuthToken(data.token);
+    return data.user;
+  },
+
+  async getMe() {
+    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error('Not authenticated');
+    return response.json();
+  },
+
+  logout() {
+    setAuthToken(null);
+  },
+};
