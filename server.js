@@ -596,7 +596,7 @@ app.post('/api/threads/generate', requireAuth, async (req, res) => {
 
   try {
     const threadResponse = await getOpenAI().chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-5.2",
       messages: [{
         role: "system",
         content: `Create a brief knowledge thread about the given topic with:
@@ -726,7 +726,7 @@ app.post('/api/nodes/suggest', requireAuth, async (req, res) => {
     }
 
     const response = await getOpenAI().chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-5.2",
       messages: [{
         role: "system",
         content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
@@ -780,10 +780,13 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  let _streamClosed = false;
+  const send = (obj) => { if (!_streamClosed) res.write(`data: ${JSON.stringify(obj)}\n\n`); };
+  const closeStream = () => { if (!_streamClosed) { _streamClosed = true; res.end(); } };
+
 
   const OpenAI = require('openai');
-  const userOpenAI = new OpenAI({ apiKey: resolvedKey, timeout: 50000 });
+  const userOpenAI = new OpenAI({ apiKey: resolvedKey, timeout: 45000 });
   const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
 
   try {
@@ -822,7 +825,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     if (typeof userOpenAI.responses === 'object' && typeof userOpenAI.responses.create === 'function') {
       try {
         const stream = await userOpenAI.responses.create({
-          model: 'gpt-4o',
+          model: 'gpt-5.2',
           tools: [{ type: 'web_search_preview' }],
           input: inputMsgs,
           stream: true,
@@ -863,7 +866,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     if (!usedResponsesAPI || !reply) {
       reply = '';
       const stream = await userOpenAI.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-5.2',
         messages: inputMsgs,
         stream: true,
       });
@@ -896,8 +899,8 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     };
 
     try {
-      const extractResp = await userOpenAI.chat.completions.create({
-        model: 'gpt-4o-mini',
+      const extractPromise = userOpenAI.chat.completions.create({
+        model: 'gpt-5.2',
         messages: [
           {
             role: 'system',
@@ -940,6 +943,7 @@ Rules:
         response_format: { type: 'json_object' },
         temperature: 0.2
       });
+      const extractResp = await extractPromise;
       const parsed = JSON.parse(extractResp.choices[0].message.content);
       if (parsed && Array.isArray(parsed.nodes)) structure = parsed;
     } catch (e) {
@@ -1057,7 +1061,7 @@ Rules:
         ? { nodeId: nodeContext.nodeId, nodeType: nodeContext.nodeType, title: structure.proposedUpdate.title || nodeContext.title, description: structure.proposedUpdate.description }
         : null;
       send({ type: 'done', citations, createdNodes, threadId: activeThreadId, newThread, proposedUpdate });
-      res.end();
+      closeStream();
     } catch (dbErr) {
       await tx.rollback();
       throw dbErr;
@@ -1065,7 +1069,8 @@ Rules:
   } catch (err) {
     console.error('Chat endpoint error:', err);
     send({ type: 'error', error: err.message });
-    res.end();
+    clearTimeout(safetyTimer);
+    closeStream();
   } finally {
     await session.close();
   }
