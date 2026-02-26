@@ -185,6 +185,19 @@ export const api = {
     return response.json();
   },
 
+  async chatExtract({ message, reply, threadId, apiKey, nodeContext, citations }) {
+    const response = await fetch(`${API_BASE_URL}/chat/extract`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ message, reply, threadId, apiKey, nodeContext, citations }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Extract request failed');
+    }
+    return response.json();
+  },
+
   async chatStream({ message, history, threadId, apiKey, nodeContext, onToken, onProcessing, onDone, onError }) {
     const response = await fetch(`${API_BASE_URL}/chat`, {
       method: 'POST',

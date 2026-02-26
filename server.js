@@ -63,7 +63,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // Apply timeout middleware to AI routes
-app.use(['/api/nodes/suggest', '/api/threads/generate', '/api/chat'], aiTimeout);
+app.use(['/api/nodes/suggest', '/api/threads/generate', '/api/chat', '/api/chat/extract'], aiTimeout);
 
 // Serve static files from the ./dist directory
 const staticDir = path.join(__dirname, 'dist');
@@ -765,9 +765,9 @@ Format your response as a JSON array of node suggestions:
   }
 });
 
-// Chat endpoint — SSE streaming, uses caller's key or env fallback
+// Chat endpoint — SSE streaming only. Extraction is handled by /api/chat/extract.
 app.post('/api/chat', requireAuth, async (req, res) => {
-  const { message, history = [], threadId, apiKey, nodeContext } = req.body;
+  const { message, history = [], apiKey, nodeContext } = req.body;
   const resolvedKey = apiKey || process.env.OPENAI_API_KEY;
   if (!resolvedKey) {
     return res.status(400).json({ error: 'OpenAI API key required' });
@@ -784,13 +784,10 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   const send = (obj) => { if (!_streamClosed) res.write(`data: ${JSON.stringify(obj)}\n\n`); };
   const closeStream = () => { if (!_streamClosed) { _streamClosed = true; res.end(); } };
 
-
   const OpenAI = require('openai');
-  const userOpenAI = new OpenAI({ apiKey: resolvedKey, timeout: 45000 });
-  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  const userOpenAI = new OpenAI({ apiKey: resolvedKey, timeout: 55000 });
 
   try {
-    // ── Step 1: Stream the reply ──────────────────────────────────────────
     let reply = '';
     let citations = [];
 
@@ -839,7 +836,6 @@ app.post('/api/chat', requireAuth, async (req, res) => {
               send({ type: 'token', content: delta });
             }
           } else if (event.type === 'response.completed') {
-            // Extract citations from the completed response
             for (const item of event.response?.output || []) {
               if (item.type === 'message') {
                 for (const part of item.content || []) {
@@ -879,10 +875,31 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       }
     }
 
-    // Signal to the client that streaming is done, extraction is starting
-    send({ type: 'processing' });
+    // Streaming complete — send reply + citations so client can call /api/chat/extract
+    send({ type: 'done', reply, citations });
+    closeStream();
+  } catch (err) {
+    console.error('Chat streaming error:', err);
+    send({ type: 'error', error: err.message });
+    closeStream();
+  }
+});
 
-    // ── Step 2: Structure extraction ──────────────────────────────────────
+// Extraction endpoint — runs after streaming completes.
+// Performs LLM structure extraction + Neo4j persistence in a separate request
+// so neither phase risks the Vercel 60 s function timeout.
+app.post('/api/chat/extract', requireAuth, async (req, res) => {
+  const { message, reply, threadId, apiKey, nodeContext, citations: incomingCitations = [] } = req.body;
+  const resolvedKey = apiKey || process.env.OPENAI_API_KEY;
+  if (!resolvedKey) return res.status(400).json({ error: 'OpenAI API key required' });
+  if (!message || !reply) return res.status(400).json({ error: 'message and reply are required' });
+
+  const OpenAI = require('openai');
+  const userOpenAI = new OpenAI({ apiKey: resolvedKey, timeout: 55000 });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+
+  try {
+    // ── Step 1: Fetch current thread title ───────────────────────────────
     let currentThreadTitle = '';
     if (threadId) {
       const tr = await session.run(
@@ -892,6 +909,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       currentThreadTitle = tr.records[0]?.get('title') || '';
     }
 
+    // ── Step 2: Structure extraction ─────────────────────────────────────
     let structure = {
       topicShift: false,
       threadTitle: currentThreadTitle || message.substring(0, 60),
@@ -899,8 +917,8 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     };
 
     try {
-      const extractPromise = userOpenAI.chat.completions.create({
-        model: 'gpt-5.2',
+      const extractResp = await userOpenAI.chat.completions.create({
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
@@ -937,20 +955,19 @@ Rules:
           },
           {
             role: 'user',
-            content: `${currentThreadTitle ? `Thread: "${currentThreadTitle}"\n` : ''}User: ${message}\nAssistant: ${reply.substring(0, 8000)}\nCitations (ALL must become EVIDENCE nodes): ${JSON.stringify(citations)}${nodeContext ? `\ncurrentNode: ${JSON.stringify({ title: nodeContext.title, type: nodeContext.nodeType, existingContent: (nodeContext.content || '').substring(0, 600) })}` : ''}`
+            content: `${currentThreadTitle ? `Thread: "${currentThreadTitle}"\n` : ''}User: ${message}\nAssistant: ${reply.substring(0, 8000)}\nCitations (ALL must become EVIDENCE nodes): ${JSON.stringify(incomingCitations)}${nodeContext ? `\ncurrentNode: ${JSON.stringify({ title: nodeContext.title, type: nodeContext.nodeType, existingContent: (nodeContext.content || '').substring(0, 600) })}` : ''}`
           }
         ],
         response_format: { type: 'json_object' },
         temperature: 0.2
       });
-      const extractResp = await extractPromise;
       const parsed = JSON.parse(extractResp.choices[0].message.content);
       if (parsed && Array.isArray(parsed.nodes)) structure = parsed;
     } catch (e) {
       console.warn('Structure extraction failed:', e.message);
     }
 
-    // ── Step 3: Persist to Neo4j ──────────────────────────────────────────
+    // ── Step 3: Persist to Neo4j ─────────────────────────────────────────
     let activeThreadId = threadId ? parseInt(threadId) : null;
     let newThread = null;
 
@@ -984,7 +1001,6 @@ Rules:
       const rootNode = structure.nodes.find(n => n.type === 'ROOT');
       const secondaryNodes = structure.nodes.filter(n => n.type !== 'ROOT').slice(0, 11);
 
-      // Create ROOT node first
       let rootNodeId = null;
       if (rootNode) {
         const nid = await getNextId('node', tx);
@@ -1013,7 +1029,6 @@ Rules:
         createdNodes.push({ id: nid, title: rootNode.title, type: 'ROOT' });
       }
 
-      // Create secondary nodes and link them to the ROOT via PARENT_OF
       for (const n of secondaryNodes) {
         const nid = await getNextId('node', tx);
         const now = new Date().toISOString();
@@ -1044,7 +1059,6 @@ Rules:
             tid: getNeo4j().int(activeThreadId)
           }
         );
-        // Link to ROOT parent
         if (rootNodeId) {
           await tx.run(
             `MATCH (p:Node {id: $parentId}), (nd:Node {id: $nodeId})
@@ -1056,21 +1070,19 @@ Rules:
       }
 
       await tx.commit();
-      // Send final metadata event then close
+
       const proposedUpdate = (nodeContext && structure.proposedUpdate?.description)
         ? { nodeId: nodeContext.nodeId, nodeType: nodeContext.nodeType, title: structure.proposedUpdate.title || nodeContext.title, description: structure.proposedUpdate.description }
         : null;
-      send({ type: 'done', citations, createdNodes, threadId: activeThreadId, newThread, proposedUpdate });
-      closeStream();
+
+      res.json({ citations: incomingCitations, createdNodes, threadId: activeThreadId, newThread, proposedUpdate });
     } catch (dbErr) {
       await tx.rollback();
       throw dbErr;
     }
   } catch (err) {
-    console.error('Chat endpoint error:', err);
-    send({ type: 'error', error: err.message });
-    clearTimeout(safetyTimer);
-    closeStream();
+    console.error('Chat extract error:', err);
+    res.status(500).json({ error: err.message });
   } finally {
     await session.close();
   }

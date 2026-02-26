@@ -4,6 +4,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
+import ReactMarkdown from 'react-markdown';
 import InputModal from './InputModal';
 import ChatPanel from './ChatPanel';
 import { api } from '../services/api';
@@ -203,14 +204,15 @@ const getNodeType = (node) => {
   return node.type || 'ROOT';
 };
 
-// Render a string that may contain HTML
+// Render a string that may contain HTML or markdown.
+// TipTap / saved HTML always starts with a tag; AI content is markdown.
 const renderHtmlOrText = (str) => {
   if (!str) return null;
   const s = String(str);
-  if (/<[a-z][\s\S]*>/i.test(s)) {
+  if (s.trim().startsWith('<')) {
     return <div className="ar-html" dangerouslySetInnerHTML={{ __html: s }} />;
   }
-  return <p>{s}</p>;
+  return <div className="ar-markdown"><ReactMarkdown>{s}</ReactMarkdown></div>;
 };
 
 // Returns a React element (not a string) for structured node content
@@ -301,13 +303,13 @@ const formatNodeContent = (node) => {
 };
 
 // ── Thread content editor (page 0) ───────────────────────────────────────────
-const ThreadContentEditor = ({ thread, onContentChange }) => {
+const ThreadContentEditor = ({ thread, onContentChange, currentUser, onAuthRequired }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ link: false }),
       Link.configure({ openOnClick: false }),
       Youtube.configure({ width: 640, height: 360 }),
       Placeholder.configure({ placeholder: 'Write your thread notes here...' }),
@@ -326,6 +328,7 @@ const ThreadContentEditor = ({ thread, onContentChange }) => {
   }, [thread.id]);
 
   const handleEditStart = () => {
+    if (!currentUser) { onAuthRequired?.(); return; }
     editor?.setEditable(true);
     setIsEditing(true);
   };
@@ -354,6 +357,15 @@ const ThreadContentEditor = ({ thread, onContentChange }) => {
 
   const title = thread.metadata?.title || thread.title || `Thread ${thread.id}`;
   const description = thread.metadata?.description || thread.description || '';
+  const hasContent = thread.content && thread.content !== '<p></p>';
+
+  const renderThreadContent = (raw) => {
+    if (!raw) return null;
+    if (raw.trim().startsWith('<')) {
+      return <div className="ar-html" dangerouslySetInnerHTML={{ __html: raw }} />;
+    }
+    return <div className="ar-markdown"><ReactMarkdown>{raw}</ReactMarkdown></div>;
+  };
 
   return (
     <article className="ar-article">
@@ -375,7 +387,6 @@ const ThreadContentEditor = ({ thread, onContentChange }) => {
       </div>
 
       <h1 className="ar-title">{title}</h1>
-      {description && <p className="ar-description">{description}</p>}
       <hr className="ar-divider" />
 
       {isEditing ? (
@@ -387,8 +398,10 @@ const ThreadContentEditor = ({ thread, onContentChange }) => {
         </div>
       ) : (
         <div className="ar-content">
-          {thread.content && thread.content !== '<p></p>' ? (
-            <div className="ar-html" dangerouslySetInnerHTML={{ __html: thread.content }} />
+          {hasContent ? (
+            renderThreadContent(thread.content)
+          ) : description ? (
+            renderThreadContent(description)
           ) : (
             <p className="ar-empty">No notes yet. Click Edit to add content.</p>
           )}
@@ -412,7 +425,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
 
   const nodeEditEditor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ link: false }),
       Link.configure({ openOnClick: false }),
       Youtube.configure({ width: 640, height: 360 }),
       Placeholder.configure({ placeholder: 'Edit content...' }),
@@ -543,8 +556,8 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
 
   const renderPage = () => {
     if (currentPage === 0) {
-      return <ThreadContentEditor thread={thread} onContentChange={onContentChange} />;
-   }
+      return <ThreadContentEditor thread={thread} onContentChange={onContentChange} currentUser={currentUser} onAuthRequired={onAuthRequired} />;
+    }
 
     const node = orderedNodes[currentPage - 1];
     if (!node) return <p className="ar-empty">Node not found.</p>;
@@ -556,6 +569,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     const isReactElement = React.isValidElement(nodeRendered);
 
     const handleEditStart = () => {
+      if (!currentUser) { onAuthRequired?.(); return; }
       const { title, html, keywords } = getEditableContent(node);
       setEditTitle(title);
       setEditKeywords(keywords || '');

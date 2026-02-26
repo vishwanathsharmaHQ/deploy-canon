@@ -116,7 +116,7 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ link: false }),
       Link.configure({ openOnClick: false }),
       Youtube.configure({ width: 640, height: 360 }),
       Placeholder.configure({

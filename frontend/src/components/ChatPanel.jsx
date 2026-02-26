@@ -128,23 +128,12 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     accReplyRef.current = '';
 
     try {
+      // Phase 1: stream the LLM reply
       await api.chatStream({
         message: userMsg,
         history: historySnapshot,
         threadId: activeThreadIdRef.current,
         nodeContext: articleContext || null,
-        onProcessing: () => {
-          flushSync(() => {
-            setMessages(prev => {
-              const updated = [...prev];
-              const msg = updated[assistantIndex];
-              if (msg?.role === 'assistant') {
-                updated[assistantIndex] = { ...msg, streaming: false, processing: true };
-              }
-              return updated;
-            });
-          });
-        },
         onToken: (token) => {
           accReplyRef.current += token;
           setMessages(prev => {
@@ -157,7 +146,36 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
           });
         },
         onDone: async (data) => {
-          // Finalize the assistant message in UI
+          // Streaming finished — show "extracting" spinner while we call /api/chat/extract
+          flushSync(() => {
+            setMessages(prev => {
+              const updated = [...prev];
+              const msg = updated[assistantIndex];
+              if (msg?.role === 'assistant') {
+                updated[assistantIndex] = { ...msg, streaming: false, processing: true, citations: data.citations || [] };
+              }
+              return updated;
+            });
+          });
+
+          const streamedReply = data.reply || accReplyRef.current;
+          const streamedCitations = data.citations || [];
+
+          // Phase 2: extraction + Neo4j persistence in a separate request
+          let extractData = { citations: streamedCitations, createdNodes: [], threadId: activeThreadIdRef.current, newThread: null, proposedUpdate: null };
+          try {
+            extractData = await api.chatExtract({
+              message: userMsg,
+              reply: streamedReply,
+              threadId: activeThreadIdRef.current,
+              nodeContext: articleContext || null,
+              citations: streamedCitations,
+            });
+          } catch (extractErr) {
+            console.error('Extraction failed:', extractErr);
+          }
+
+          // Finalize the assistant message with node data
           setMessages(prev => {
             const updated = [...prev];
             const msg = updated[assistantIndex];
@@ -166,24 +184,24 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                 ...msg,
                 streaming: false,
                 processing: false,
-                citations: data.citations || [],
-                createdNodes: data.createdNodes || [],
-                newThread: data.newThread || null,
-                proposedUpdate: data.proposedUpdate || null,
+                citations: extractData.citations || streamedCitations,
+                createdNodes: extractData.createdNodes || [],
+                newThread: extractData.newThread || null,
+                proposedUpdate: extractData.proposedUpdate || null,
               };
             }
             return updated;
           });
 
-          const resolvedThreadId = data.threadId || activeThreadIdRef.current;
+          const resolvedThreadId = extractData.threadId || activeThreadIdRef.current;
 
           // Notify parent of thread/node changes
-          if (data.newThread) {
-            activeThreadIdRef.current = data.threadId;
-            onThreadCreated?.(data.threadId);
-          } else if (data.createdNodes?.length > 0) {
-            activeThreadIdRef.current = data.threadId;
-            onNodesCreated?.(data.threadId);
+          if (extractData.newThread) {
+            activeThreadIdRef.current = extractData.threadId;
+            onThreadCreated?.(extractData.threadId);
+          } else if (extractData.createdNodes?.length > 0) {
+            activeThreadIdRef.current = extractData.threadId;
+            onNodesCreated?.(extractData.threadId);
           }
 
           // Persist the conversation to the database
@@ -194,8 +212,8 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
               {
                 role: 'assistant',
                 content: accReplyRef.current,
-                citations: data.citations || [],
-                createdNodes: data.createdNodes || [],
+                citations: extractData.citations || streamedCitations,
+                createdNodes: extractData.createdNodes || [],
               },
             ];
             const chatTitle = userMsg.substring(0, 80);
@@ -207,7 +225,6 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                 savedChatIdRef.current = saved.id;
                 setActiveChatId(saved.id);
               }
-              // Refresh sidebar
               await loadChatHistory(resolvedThreadId);
             } catch (err) {
               console.error('Failed to save chat:', err);

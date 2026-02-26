@@ -975,7 +975,7 @@ function App() {
           <ViewTabBar
             view={view}
             onChangeView={(newView) => {
-              if (newView === 'sequence' || newView === 'editor') {
+              if (newView === 'sequence' || newView === 'editor' || newView === 'canvas') {
                 requireLogin(() => setView(newView));
               } else {
                 setView(newView);

@@ -185,8 +185,60 @@
 }
 
 /* Raw HTML pass-through */
-.ar-html {
+.ar-html,
+.ar-markdown {
   color: rgba(255, 255, 255, 0.82);
+}
+
+.ar-markdown p { margin: 0 0 1.4em; }
+
+.ar-markdown h1,
+.ar-markdown h2,
+.ar-markdown h3,
+.ar-markdown h4 {
+  color: #fff;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.6em 0 0.5em;
+}
+
+.ar-markdown h1 { font-size: 1.7rem; }
+.ar-markdown h2 { font-size: 1.4rem; }
+.ar-markdown h3 { font-size: 1.15rem; }
+
+.ar-markdown a { color: #00ff9d; text-decoration: underline; }
+.ar-markdown a:hover { color: #00cc7d; }
+
+.ar-markdown ul,
+.ar-markdown ol {
+  padding-left: 1.6em;
+  margin: 0.8em 0;
+}
+
+.ar-markdown li { margin: 0.3em 0; }
+
+.ar-markdown strong { color: #fff; font-weight: 600; }
+
+.ar-markdown blockquote {
+  border-left: 3px solid rgba(0, 255, 157, 0.4);
+  margin: 1.2em 0;
+  padding: 4px 0 4px 20px;
+  color: rgba(255, 255, 255, 0.6);
+  font-style: italic;
+}
+
+.ar-markdown pre,
+.ar-markdown code {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+}
+
+.ar-markdown pre {
+  padding: 14px 18px;
+  overflow-x: auto;
+  margin: 1em 0;
 }
 
 .ar-html p { margin: 0 0 1.4em; }
