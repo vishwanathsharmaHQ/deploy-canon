@@ -5,8 +5,7 @@
       "src": "server.js",
       "use": "@vercel/node",
       "config": {
-        "maxDuration": 60,
-        "runtime": "nodejs20.x"
+        "maxDuration": 60
       }
     },
     {
