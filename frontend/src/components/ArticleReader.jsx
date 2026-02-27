@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -302,6 +302,69 @@ const formatNodeContent = (node) => {
   return content;
 };
 
+// ── Secondary node panel (split-screen right sidebar for ROOT pages) ─────────
+const SecondaryNodePanel = ({ nodes, selectedId, onSelect }) => {
+  if (!nodes || nodes.length === 0) return null;
+
+  const selectedNode = nodes.find(n => n.id === selectedId) || nodes[0];
+  const selectedType = getNodeType(selectedNode);
+  const selectedColor = NODE_TYPE_COLORS[selectedType] || '#888';
+
+  return (
+    <div className="ar-snp">
+      <div className="ar-snp-header">
+        <span className="ar-snp-label">Supporting Nodes</span>
+        {/* <span className="ar-snp-count">{nodes.length}</span> */}
+      </div>
+
+      <div className="ar-snp-tabs">
+        {nodes.map(node => {
+          const nodeType = getNodeType(node);
+          const color = NODE_TYPE_COLORS[nodeType] || '#888';
+          const isActive = node.id === selectedId;
+          return (
+            <button
+              key={node.id}
+              className={`ar-snp-tab${isActive ? ' ar-snp-tab--active' : ''}`}
+              onClick={() => onSelect(node.id)}
+              style={isActive ? { borderColor: color } : {}}
+            >
+              <span
+                className="ar-snp-tab-badge ar-node-badge"
+                style={{ color, borderColor: color }}
+              >
+                {nodeType}
+              </span>
+              <span className="ar-snp-tab-title">{node.title || `Node ${node.id}`}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedNode && (
+        <div className="ar-snp-content">
+          <div
+            className="ar-node-badge"
+            style={{ color: selectedColor, borderColor: selectedColor }}
+          >
+            {selectedType}
+          </div>
+          <h2 className="ar-snp-article-title">
+            {selectedNode.title || `Node ${selectedNode.id}`}
+          </h2>
+          <hr className="ar-divider" />
+          <div className="ar-content">
+            {(() => {
+              const rendered = formatNodeContent(selectedNode);
+              return React.isValidElement(rendered) ? rendered : renderContent(rendered);
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Thread content editor (page 0) ───────────────────────────────────────────
 const ThreadContentEditor = ({ thread, onContentChange, currentUser, onAuthRequired }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -418,10 +481,20 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [secondaryOpen, setSecondaryOpen] = useState(false);
+  const [selectedSecondaryId, setSelectedSecondaryId] = useState(null);
   const [pendingUpdate, setPendingUpdate] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editKeywords, setEditKeywords] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+
+  // Children of the current ROOT node (empty on non-ROOT pages)
+  const currentRootChildren = useMemo(() => {
+    if (currentPage === 0 || loading || !orderedNodes.length) return [];
+    const node = orderedNodes[currentPage - 1];
+    if (!node || getNodeType(node) !== 'ROOT') return [];
+    return orderedNodes.filter(n => n.parent_id === node.id);
+  }, [currentPage, orderedNodes, loading]);
 
   const nodeEditEditor = useEditor({
     extensions: [
@@ -437,6 +510,19 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
   useEffect(() => {
     setIsEditing(false);
   }, [currentPage]);
+
+  // Auto-open secondary panel when on a ROOT page with children
+  useEffect(() => {
+    if (currentRootChildren.length > 0) {
+      setSecondaryOpen(true);
+      setSelectedSecondaryId(id =>
+        id && currentRootChildren.some(n => n.id === id) ? id : currentRootChildren[0].id
+      );
+    } else {
+      setSecondaryOpen(false);
+      setSelectedSecondaryId(null);
+    }
+  }, [currentPage]); // intentionally only re-runs on page change
 
   useEffect(() => {
     if (!thread?.id) return;
@@ -693,6 +779,15 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
           )}
         </div>
 
+        {/* ── Secondary nodes sidebar ── */}
+        <div className={`ar-secondary-sidebar${secondaryOpen && currentRootChildren.length > 0 ? ' ar-secondary-sidebar--open' : ''}${secondaryOpen && currentRootChildren.length > 0 && chatOpen ? ' ar-secondary-sidebar--compact' : ''}`}>
+          <SecondaryNodePanel
+            nodes={currentRootChildren}
+            selectedId={selectedSecondaryId}
+            onSelect={setSelectedSecondaryId}
+          />
+        </div>
+
         {/* ── Collapsible chat sidebar ── */}
         <div className={`ar-chat-sidebar${chatOpen ? ' ar-chat-sidebar--open' : ''}`}>
           <ChatPanel
@@ -708,6 +803,17 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
           />
         </div>
       </div>
+
+      {/* ── Secondary nodes toggle button (shown only on ROOT pages with children) ── */}
+      {currentRootChildren.length > 0 && !loading && (
+        <button
+          className={`ar-secondary-toggle${secondaryOpen ? ' ar-secondary-toggle--open' : ''}`}
+          onClick={() => setSecondaryOpen(o => !o)}
+          title={secondaryOpen ? 'Hide supporting nodes' : 'Show supporting nodes'}
+        >
+          {secondaryOpen ? '✕' : '⊞'}
+        </button>
+      )}
 
       {/* ── Chat toggle button ── */}
       <button
