@@ -269,6 +269,73 @@ export const api = {
     return response.json();
   },
 
+  async redTeamThread(threadId, nodeId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/redteam`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ nodeId }),
+    });
+    if (!response.ok) throw new Error('Red team failed');
+    return response.json();
+  },
+
+  async steelmanNode(threadId, nodeId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}/steelman`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error('Steelman failed');
+    return response.json();
+  },
+
+  async forkThread(threadId, { altClaim } = {}) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/fork`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ altClaim }),
+    });
+    if (!response.ok) throw new Error('Fork failed');
+    return response.json();
+  },
+
+  async socraticQuestion({ threadId, history, currentAnswer, nodeContext }) {
+    const response = await fetch(`${API_BASE_URL}/socratic`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ threadId, history, currentAnswer, nodeContext }),
+    });
+    if (!response.ok) throw new Error('Socratic request failed');
+    return response.json();
+  },
+
+  async analyzeThread(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/analyze`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error('Analysis failed');
+    return response.json();
+  },
+
+  async suggestSequence(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/sequence/suggest`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error('Sequence suggestion failed');
+    return response.json();
+  },
+
+  async verifySource({ url, claim }) {
+    const response = await fetch(`${API_BASE_URL}/verify-source`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ url, claim }),
+    });
+    if (!response.ok) throw new Error('Verification failed');
+    return response.json();
+  },
+
   async generateNodeSuggestions({ nodeId, nodeType, content, title }) {
     const response = await fetch(`${API_BASE_URL}/nodes/suggest`, {
       method: 'POST',

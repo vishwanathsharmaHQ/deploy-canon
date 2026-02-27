@@ -17,6 +17,8 @@ const NODE_TYPES = ['ROOT', 'EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUN
 const SequenceEditor = ({ thread, onDone }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState(null);
   const dragItem = useRef(null);
   const dragOverItem = useRef(null);
   const saveTimer = useRef(null);
@@ -63,6 +65,28 @@ const SequenceEditor = ({ thread, onDone }) => {
     }, 400);
   }, [thread?.id]);
 
+  const handleAiOptimize = async () => {
+    setAiLoading(true);
+    try {
+      const result = await api.suggestSequence(thread.id);
+      const nodeMap = Object.fromEntries(items.map(n => [n.id, n]));
+      const orderedNodes = result.orderedIds.map(id => nodeMap[id]).filter(Boolean);
+      const inSuggestion = new Set(result.orderedIds);
+      const remaining = items.filter(n => !inSuggestion.has(n.id));
+      setAiSuggestion({ reasoning: result.reasoning, orderedNodes: [...orderedNodes, ...remaining] });
+    } catch (err) {
+      console.error('AI suggest failed:', err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleApplySuggestion = () => {
+    setItems(aiSuggestion.orderedNodes);
+    saveSequence(aiSuggestion.orderedNodes);
+    setAiSuggestion(null);
+  };
+
   const handleDragStart = (index) => {
     dragItem.current = index;
   };
@@ -108,9 +132,42 @@ const SequenceEditor = ({ thread, onDone }) => {
       <div className="se-container">
         <div className="se-header">
           <h2 className="se-title">Reading Order</h2>
-          <button className="se-done-btn" onClick={onDone}>Done</button>
+          <div className="se-header-actions">
+            <button
+              className={`se-ai-btn${aiLoading ? ' se-ai-btn--loading' : ''}`}
+              onClick={handleAiOptimize}
+              disabled={aiLoading || items.length === 0}
+            >
+              {aiLoading ? 'Analysing…' : '✦ AI Optimise'}
+            </button>
+            <button className="se-done-btn" onClick={onDone}>Done</button>
+          </div>
         </div>
         <p className="se-hint">Drag items to reorder. The article reader will follow this sequence.</p>
+
+        {aiSuggestion && (
+          <div className="se-ai-suggestion">
+            <div className="se-ai-suggestion-header">
+              <span className="se-ai-suggestion-title">✦ AI Suggestion</span>
+              <button className="se-ai-dismiss" onClick={() => setAiSuggestion(null)}>✕</button>
+            </div>
+            <p className="se-ai-reasoning">{aiSuggestion.reasoning}</p>
+            <div className="se-ai-preview">
+              {aiSuggestion.orderedNodes.map((node, i) => {
+                const nodeType = getNodeType(node);
+                const color = NODE_TYPE_COLORS[nodeType] || '#888';
+                return (
+                  <div key={node.id} className="se-ai-preview-item">
+                    <span className="se-index">{i + 1}</span>
+                    <span className="se-badge" style={{ background: color }}>{nodeType}</span>
+                    <span className="se-node-title">{node.title || `Node ${node.id}`}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <button className="se-ai-apply" onClick={handleApplySuggestion}>Apply This Order</button>
+          </div>
+        )}
 
         {items.length === 0 ? (
           <div className="se-empty">No nodes in this thread yet.</div>

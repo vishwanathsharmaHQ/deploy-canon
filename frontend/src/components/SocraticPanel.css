@@ -1,0 +1,258 @@
+.sp-panel {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #111;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+.sp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+}
+
+.sp-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sp-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(171, 71, 188, 0.9);
+}
+
+.sp-exchanges {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 7px;
+  border-radius: 8px;
+}
+
+.sp-reset {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.sp-reset:hover { color: rgba(255, 255, 255, 0.65); }
+
+/* ── Scrollable body ── */
+.sp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sp-body::-webkit-scrollbar { width: 4px; }
+.sp-body::-webkit-scrollbar-track { background: transparent; }
+.sp-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+/* ── Past exchange ── */
+.sp-exchange {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sp-exchange-q {
+  font-size: 0.85rem;
+  color: rgba(171, 71, 188, 0.75);
+  line-height: 1.55;
+  font-style: italic;
+}
+
+.sp-exchange-a {
+  font-size: 0.88rem;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.6;
+  padding-left: 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ── Current question block ── */
+.sp-question-block {
+  min-height: 56px;
+}
+
+.sp-question {
+  font-size: 1rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Typing dots */
+.sp-thinking {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.sp-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(171, 71, 188, 0.5);
+  animation: sp-bounce 1.2s ease-in-out infinite;
+}
+.sp-dot:nth-child(2) { animation-delay: 0.2s; }
+.sp-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes sp-bounce {
+  0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; }
+  40%           { transform: scale(1);   opacity: 1; }
+}
+
+/* ── Input row ── */
+.sp-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+  align-items: flex-end;
+}
+
+.sp-textarea {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  padding: 10px 12px;
+  resize: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+  min-height: 68px;
+}
+
+.sp-textarea:focus {
+  outline: none;
+  border-color: rgba(171, 71, 188, 0.45);
+}
+
+.sp-textarea:disabled { opacity: 0.4; }
+
+.sp-textarea::placeholder { color: rgba(255, 255, 255, 0.22); }
+
+.sp-send {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(171, 71, 188, 0.35);
+  background: rgba(171, 71, 188, 0.1);
+  color: rgba(171, 71, 188, 0.8);
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.sp-send:hover:not(:disabled) {
+  background: rgba(171, 71, 188, 0.2);
+  color: #ce93d8;
+  border-color: rgba(171, 71, 188, 0.6);
+}
+.sp-send:disabled { opacity: 0.3; cursor: default; }
+
+/* ── Captured nodes ── */
+.sp-captures {
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sp-captures-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.25);
+  margin-bottom: 2px;
+}
+
+.sp-capture {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 5px;
+  transition: border-color 0.15s;
+}
+
+.sp-capture--saved {
+  border-color: rgba(0, 255, 157, 0.2);
+  background: rgba(0, 255, 157, 0.03);
+}
+
+.sp-capture-type {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(171, 71, 188, 0.7);
+  flex-shrink: 0;
+}
+
+.sp-capture-title {
+  flex: 1;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sp-capture-add {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sp-capture-add:hover {
+  background: rgba(0, 255, 157, 0.1);
+  border-color: rgba(0, 255, 157, 0.3);
+  color: #00ff9d;
+}
+
+.sp-capture-done {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: rgba(0, 255, 157, 0.65);
+}

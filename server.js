@@ -1088,6 +1088,435 @@ Rules:
   }
 });
 
+// ── Thread analysis (Claim Confidence Meter) ──────────────────────────────────
+app.post('/api/threads/:threadId/analyze', requireAuth, aiTimeout, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+    const nodes = result.records.map(r => {
+      const p = r.get('n').properties;
+      return { id: toNum(p.id), title: p.title, node_type: p.node_type, content: p.content };
+    });
+    if (!nodes.length) return res.status(400).json({ error: 'No nodes found' });
+    const rootNode = nodes.find(n => n.node_type === 'ROOT');
+    if (!rootNode) return res.status(400).json({ error: 'No ROOT node found' });
+
+    const nodesSummary = nodes.map(n => {
+      let c = String(n.content || '');
+      try { const p = JSON.parse(c); c = p.description || p.point || p.explanation || p.argument || c; } catch (e) { /* raw */ }
+      return `[${n.node_type}] ${n.title}: ${c.replace(/<[^>]+>/g, ' ').substring(0, 400)}`;
+    }).join('\n\n');
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert argument analyst. Analyse the strength of a knowledge thread and return a JSON confidence assessment.
+Return exactly this JSON structure:
+{
+  "score": <0-100 integer, overall confidence>,
+  "verdict": "<one of: Well-Supported | Moderately-Supported | Weakly-Supported | Contested>",
+  "breakdown": {
+    "evidenceStrength": <0-100>,
+    "counterpointCoverage": <0-100, how well counterpoints are addressed>,
+    "sourcingQuality": <0-100>,
+    "logicalCoherence": <0-100>
+  },
+  "strengths": ["<strength 1>", "<strength 2>"],
+  "gaps": ["<gap 1>", "<gap 2>"],
+  "summary": "<2-3 sentence plain-English analysis>"
+}`,
+        },
+        {
+          role: 'user',
+          content: `ROOT claim: "${rootNode.title}"\n\nAll nodes:\n${nodesSummary}`,
+        },
+      ],
+    });
+    res.json(JSON.parse(completion.choices[0].message.content));
+  } catch (err) {
+    console.error('Analyze error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ── AI sequence suggestion (Smart Sequence Suggester) ─────────────────────────
+app.post('/api/threads/:threadId/sequence/suggest', requireAuth, aiTimeout, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+    const nodes = result.records.map(r => {
+      const p = r.get('n').properties;
+      return { id: toNum(p.id), title: p.title, node_type: p.node_type };
+    });
+    if (!nodes.length) return res.status(400).json({ error: 'No nodes found' });
+
+    const nodeList = nodes.map(n => `ID:${n.id} [${n.node_type}] "${n.title}"`).join('\n');
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You are a knowledge architect. Suggest the optimal reading order for a knowledge thread so it reads as a compelling, logically-flowing article.
+Ordering principles: ROOT first → CONTEXT early → EVIDENCE (strongest first) → EXAMPLE → COUNTERPOINT → SYNTHESIS last.
+Return JSON: { "orderedIds": [<all node IDs in optimal order>], "reasoning": "<2-3 sentences>" }`,
+        },
+        { role: 'user', content: `Optimise reading order for:\n\n${nodeList}` },
+      ],
+    });
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    const suggestedIds = (parsed.orderedIds || []).map(id => parseInt(id));
+    const allIds = nodes.map(n => n.id);
+    const missing = allIds.filter(id => !suggestedIds.includes(id));
+    res.json({ orderedIds: [...suggestedIds, ...missing], reasoning: parsed.reasoning || '' });
+  } catch (err) {
+    console.error('Sequence suggest error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ── Source verification (Inline Source Verification) ──────────────────────────
+app.post('/api/verify-source', requireAuth, aiTimeout, async (req, res) => {
+  const { url, claim } = req.body;
+  if (!url || !claim) return res.status(400).json({ error: 'url and claim required' });
+
+  let pageContent = '';
+  try {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 8000);
+    const pageRes = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CanonThread/1.0)' },
+    });
+    clearTimeout(tid);
+    if (pageRes.ok) {
+      const html = await pageRes.text();
+      pageContent = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 4000);
+    }
+  } catch (fetchErr) {
+    return res.json({ status: 'unavailable', explanation: 'Source URL could not be reached.' });
+  }
+  if (!pageContent) return res.json({ status: 'unavailable', explanation: 'Source returned no readable content.' });
+
+  try {
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.1,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `Verify whether a claim is supported by a web source excerpt.
+Return JSON: { "status": "<verified|partial|unverified>", "explanation": "<1-2 sentences>" }
+verified = source clearly and directly supports the claim.
+partial = source is relevant but doesn't fully confirm the specific claim.
+unverified = source contradicts the claim or doesn't mention it.`,
+        },
+        { role: 'user', content: `CLAIM: "${claim}"\n\nSOURCE EXCERPT:\n${pageContent}` },
+      ],
+    });
+    res.json(JSON.parse(completion.choices[0].message.content));
+  } catch (err) {
+    console.error('Verify source error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Red Team: attack any node's claim ─────────────────────────────────────────
+app.post('/api/threads/:threadId/redteam', requireAuth, aiTimeout, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { nodeId: targetNodeId } = req.body; // optional — defaults to ROOT
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const read = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+    const nodes = read.records.map(r => {
+      const p = r.get('n').properties;
+      return { id: toNum(p.id), title: p.title, node_type: p.node_type, content: p.content };
+    });
+
+    // Use the specified node, or fall back to ROOT
+    const targetNode = targetNodeId
+      ? nodes.find(n => n.id === parseInt(targetNodeId))
+      : nodes.find(n => n.node_type === 'ROOT');
+    if (!targetNode) return res.status(400).json({ error: 'Target node not found' });
+
+    // Extract plain text from target node content
+    let targetContent = String(targetNode.content || '');
+    try {
+      const p = JSON.parse(targetContent);
+      targetContent = p.description || p.point || p.explanation || p.argument || targetContent;
+    } catch (e) { /* raw */ }
+    targetContent = targetContent.replace(/<[^>]+>/g, ' ').substring(0, 600);
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 0.85,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You are a rigorous red-team critic. Attack the given claim by identifying 3-5 of its weakest points.
+Each attack should target a specific gap: missing evidence, logical leaps, unstated assumptions, alternative explanations, or weak sourcing.
+Return JSON: { "counterpoints": [{ "argument": "<concise attack title, max 12 words>", "explanation": "<2-3 HTML paragraphs with the critique>" }] }`,
+        },
+        {
+          role: 'user',
+          content: `Red-team this [${targetNode.node_type}] claim:\n\nTitle: "${targetNode.title}"\n\nContent: ${targetContent}`,
+        },
+      ],
+    });
+    const { counterpoints = [] } = JSON.parse(completion.choices[0].message.content);
+
+    const tx = session.beginTransaction();
+    const createdNodes = [];
+    const now = new Date().toISOString();
+    try {
+      for (const cp of counterpoints) {
+        const nodeId = await getNextId('Node', tx);
+        const content = JSON.stringify({ argument: cp.argument, explanation: cp.explanation });
+        await tx.run(
+          `CREATE (n:Node {id:$id, title:$title, content:$content, node_type:'COUNTERPOINT', created_at:$now, updated_at:$now, metadata:'{}'})`,
+          { id: getNeo4j().int(nodeId), title: cp.argument, content, now }
+        );
+        await tx.run(
+          `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(n)`,
+          { tid: getNeo4j().int(threadId), nid: getNeo4j().int(nodeId) }
+        );
+        await tx.run(
+          `MATCH (r:Node {id:$rid}),(n:Node {id:$nid}) CREATE (r)-[:PARENT_OF]->(n)`,
+          { rid: getNeo4j().int(targetNode.id), nid: getNeo4j().int(nodeId) }
+        );
+        createdNodes.push(formatNode({ id: nodeId, title: cp.argument, content, node_type: 'COUNTERPOINT', created_at: now, updated_at: now, metadata: '{}' }, targetNode.id));
+      }
+      await tx.commit();
+    } catch (e) { await tx.rollback(); throw e; }
+
+    res.json({ createdNodes });
+  } catch (err) {
+    console.error('Red team error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ── Steelman: rewrite a COUNTERPOINT in its strongest form ────────────────────
+app.post('/api/threads/:threadId/nodes/:nodeId/steelman', requireAuth, aiTimeout, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const nodeId   = parseInt(req.params.nodeId);
+  const session  = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const read = await session.run(
+      `MATCH (n:Node {id:$nodeId}) OPTIONAL MATCH (parent)-[:PARENT_OF]->(n) RETURN n, parent`,
+      { nodeId: getNeo4j().int(nodeId) }
+    );
+    if (!read.records.length) return res.status(404).json({ error: 'Node not found' });
+    const nodeProps  = read.records[0].get('n').properties;
+    const parentRaw  = read.records[0].get('parent');
+    const parentId   = parentRaw ? toNum(parentRaw.properties.id) : null;
+
+    let argument = nodeProps.title, explanation = '';
+    try { const p = JSON.parse(nodeProps.content); argument = p.argument || nodeProps.title; explanation = p.explanation || ''; } catch (e) { explanation = String(nodeProps.content || ''); }
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 0.7,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You are a philosophical steelmanner. Rewrite the given argument in its STRONGEST possible form.
+Add the best available evidence, sharpen the logic, remove strawman elements, and make it as compelling and hard to dismiss as possible.
+Return JSON: { "argument": "<improved title, max 12 words>", "explanation": "<2-4 HTML paragraphs>" }`,
+        },
+        { role: 'user', content: `Steelman this:\n\nTitle: "${argument}"\nArgument: ${explanation.replace(/<[^>]+>/g, ' ')}` },
+      ],
+    });
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    const steelTitle   = parsed.argument;
+    const steelContent = JSON.stringify({ argument: parsed.argument, explanation: parsed.explanation });
+    const now = new Date().toISOString();
+
+    const tx = session.beginTransaction();
+    try {
+      const newId = await getNextId('Node', tx);
+      await tx.run(
+        `CREATE (n:Node {id:$id, title:$title, content:$content, node_type:'COUNTERPOINT', created_at:$now, updated_at:$now, metadata:'{}'})`,
+        { id: getNeo4j().int(newId), title: steelTitle, content: steelContent, now }
+      );
+      await tx.run(
+        `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(n)`,
+        { tid: getNeo4j().int(threadId), nid: getNeo4j().int(newId) }
+      );
+      if (parentId) {
+        await tx.run(
+          `MATCH (p:Node {id:$pid}),(n:Node {id:$nid}) CREATE (p)-[:PARENT_OF]->(n)`,
+          { pid: getNeo4j().int(parentId), nid: getNeo4j().int(newId) }
+        );
+      }
+      await tx.commit();
+      res.json({ node: formatNode({ id: newId, title: steelTitle, content: steelContent, node_type: 'COUNTERPOINT', created_at: now, updated_at: now, metadata: '{}' }, parentId) });
+    } catch (e) { await tx.rollback(); throw e; }
+  } catch (err) {
+    console.error('Steelman error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ── Fork Thread: clone thread with optional alternative ROOT claim ─────────────
+app.post('/api/threads/:threadId/fork', requireAuth, aiTimeout, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { altClaim } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const tRes = await session.run(`MATCH (t:Thread {id:$tid}) RETURN t`, { tid: getNeo4j().int(threadId) });
+    if (!tRes.records.length) return res.status(404).json({ error: 'Thread not found' });
+    const orig = tRes.records[0].get('t').properties;
+
+    const nRes = await session.run(
+      `MATCH (t:Thread {id:$tid})-[:HAS_NODE]->(n:Node)
+       OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
+       RETURN n, parent.id AS parentId ORDER BY n.created_at ASC`,
+      { tid: getNeo4j().int(threadId) }
+    );
+    const origNodes = nRes.records.map(r => ({
+      ...r.get('n').properties,
+      id: toNum(r.get('n').properties.id),
+      parentId: r.get('parentId') ? toNum(r.get('parentId')) : null,
+    }));
+
+    const tx = session.beginTransaction();
+    try {
+      const now = new Date().toISOString();
+      const forkTitle = altClaim || `Fork: ${orig.title}`;
+      const newThreadId = await getNextId('Thread', tx);
+
+      await tx.run(
+        `CREATE (t:Thread {id:$id, title:$title, description:$desc, content:$content, metadata:$meta, created_at:$now, updated_at:$now})`,
+        { id: getNeo4j().int(newThreadId), title: forkTitle, desc: orig.description || '', content: orig.content || '', meta: orig.metadata || '{}', now }
+      );
+
+      const idMap = {};
+      const cloned = [];
+      for (const node of origNodes) {
+        const newId = await getNextId('Node', tx);
+        idMap[node.id] = newId;
+        let title = node.title, content = node.content || '';
+        if (node.node_type === 'ROOT' && altClaim) {
+          title = altClaim;
+          try { const p = JSON.parse(content); if (p.title) { p.title = altClaim; content = JSON.stringify(p); } } catch (e) { /* raw */ }
+        }
+        await tx.run(
+          `CREATE (n:Node {id:$id, title:$title, content:$content, node_type:$type, created_at:$now, updated_at:$now, metadata:$meta})`,
+          { id: getNeo4j().int(newId), title, content, type: node.node_type, now, meta: node.metadata || '{}' }
+        );
+        await tx.run(
+          `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(n)`,
+          { tid: getNeo4j().int(newThreadId), nid: getNeo4j().int(newId) }
+        );
+        cloned.push({ id: newId, title, content, node_type: node.node_type, oldParentId: node.parentId, metadata: node.metadata });
+      }
+
+      for (const n of cloned) {
+        if (n.oldParentId && idMap[n.oldParentId]) {
+          await tx.run(
+            `MATCH (p:Node {id:$pid}),(c:Node {id:$cid}) CREATE (p)-[:PARENT_OF]->(c)`,
+            { pid: getNeo4j().int(idMap[n.oldParentId]), cid: getNeo4j().int(n.id) }
+          );
+        }
+      }
+      await tx.commit();
+
+      const responseNodes = cloned.map(n => formatNode(
+        { id: n.id, title: n.title, content: n.content, node_type: n.node_type, created_at: now, updated_at: now, metadata: n.metadata || '{}' },
+        n.oldParentId ? idMap[n.oldParentId] : null
+      ));
+      res.json({
+        thread: { id: newThreadId, title: forkTitle, description: orig.description || '', content: orig.content || '', metadata: { title: forkTitle, description: orig.description || '' }, nodes: responseNodes, edges: [], forkedFrom: threadId },
+      });
+    } catch (e) { await tx.rollback(); throw e; }
+  } catch (err) {
+    console.error('Fork error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ── Socratic Dialogue: question-driven reasoning ──────────────────────────────
+app.post('/api/socratic', requireAuth, aiTimeout, async (req, res) => {
+  const { threadId, history = [], currentAnswer = '', nodeContext } = req.body;
+  const openai = getOpenAI();
+
+  let threadSummary = '';
+  if (threadId) {
+    const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+    try {
+      const r = await session.run(
+        `MATCH (t:Thread {id:$tid})-[:HAS_NODE]->(n:Node) RETURN n.node_type AS type, n.title AS title LIMIT 12`,
+        { tid: getNeo4j().int(parseInt(threadId)) }
+      );
+      threadSummary = r.records.map(rec => `[${rec.get('type')}] ${rec.get('title')}`).join(' | ');
+    } finally { await session.close(); }
+  }
+
+  const historyText = history.map((h, i) => `Q${i + 1}: ${h.question}\nA${i + 1}: ${h.answer}`).join('\n\n');
+  const nodeCtxText = nodeContext ? `Node being viewed: [${nodeContext.nodeType}] "${nodeContext.title}"` : '';
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 0.75,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You are a Socratic dialogue facilitator helping a researcher deepen their thinking.
+Rules: (1) Ask exactly ONE open-ended probing question per turn. (2) Never answer the question yourself. (3) Push on assumptions, ask for evidence, explore implications. (4) If an answer was given, extract the key insight as a potential node.
+${threadSummary ? `Thread nodes: ${threadSummary}` : ''}${nodeCtxText ? `\n${nodeCtxText}` : ''}
+Return JSON: { "question": "<next Socratic question>", "nodeFromAnswer": null | { "type": "<EVIDENCE|CONTEXT|SYNTHESIS|EXAMPLE>", "title": "<concise title>", "content": "<HTML paragraph>" } }
+nodeFromAnswer is null when there is no answer yet.`,
+        },
+        {
+          role: 'user',
+          content: history.length === 0
+            ? 'Start the dialogue. Ask your first probing question based on the thread.'
+            : `Previous exchanges:\n${historyText}\n\nMy latest answer: "${currentAnswer}"\n\nNext question + extract a node if there is a clear insight in my answer.`,
+        },
+      ],
+    });
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    res.json({ question: parsed.question, nodeFromAnswer: parsed.nodeFromAnswer || null });
+  } catch (err) {
+    console.error('Socratic error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Chat session CRUD ─────────────────────────────────────────────────────────
 
 app.get('/api/threads/:threadId/chats', async (req, res) => {
