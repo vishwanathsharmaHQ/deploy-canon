@@ -674,6 +674,33 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
+.cp-proposed-nodes {
+  border-top: 1px solid rgba(0, 255, 157, 0.15);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cp-proposed-nodes-label {
+  font-size: 0.75rem;
+  color: rgba(0, 255, 157, 0.8);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.cp-proposed-nodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cp-nodes-saved {
+  font-size: 0.75rem;
+  color: rgba(0, 255, 157, 0.6);
+  font-weight: 600;
+}
+
 .cp-auth-gate {
   display: flex;
   flex-direction: column;

@@ -161,8 +161,8 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
           const streamedReply = data.reply || accReplyRef.current;
           const streamedCitations = data.citations || [];
 
-          // Phase 2: extraction + Neo4j persistence in a separate request
-          let extractData = { citations: streamedCitations, createdNodes: [], threadId: activeThreadIdRef.current, newThread: null, proposedUpdate: null };
+          // Phase 2: extraction — returns proposed nodes (not yet saved)
+          let extractData = { citations: streamedCitations, proposedNodes: [], threadId: activeThreadIdRef.current, newThread: null, proposedUpdate: null };
           try {
             extractData = await api.chatExtract({
               message: userMsg,
@@ -175,7 +175,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
             console.error('Extraction failed:', extractErr);
           }
 
-          // Finalize the assistant message with node data
+          // Finalize the assistant message with proposed nodes (not yet saved)
           setMessages(prev => {
             const updated = [...prev];
             const msg = updated[assistantIndex];
@@ -185,7 +185,8 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                 streaming: false,
                 processing: false,
                 citations: extractData.citations || streamedCitations,
-                createdNodes: extractData.createdNodes || [],
+                proposedNodes: extractData.proposedNodes?.length > 0 ? extractData.proposedNodes : null,
+                proposedThreadId: extractData.threadId,
                 newThread: extractData.newThread || null,
                 proposedUpdate: extractData.proposedUpdate || null,
               };
@@ -195,13 +196,10 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
 
           const resolvedThreadId = extractData.threadId || activeThreadIdRef.current;
 
-          // Notify parent of thread/node changes
+          // Auto-notify for new thread (thread is created immediately, nodes need accept)
           if (extractData.newThread) {
             activeThreadIdRef.current = extractData.threadId;
             onThreadCreated?.(extractData.threadId);
-          } else if (extractData.createdNodes?.length > 0) {
-            activeThreadIdRef.current = extractData.threadId;
-            onNodesCreated?.(extractData.threadId);
           }
 
           // Persist the conversation to the database
@@ -213,7 +211,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                 role: 'assistant',
                 content: accReplyRef.current,
                 citations: extractData.citations || streamedCitations,
-                createdNodes: extractData.createdNodes || [],
+                createdNodes: [],
               },
             ];
             const chatTitle = userMsg.substring(0, 80);
@@ -251,6 +249,31 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
       setLoading(false);
     }
   }, [input, loading, messages, loadChatHistory, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate]);
+
+  const handleAcceptNodes = useCallback(async (msgIndex, proposedNodes, threadId) => {
+    try {
+      const rootNode = proposedNodes.find(n => n.type === 'ROOT');
+      const secondaryNodes = proposedNodes.filter(n => n.type !== 'ROOT');
+      let rootNodeId = null;
+
+      if (rootNode) {
+        const created = await api.createNode({ threadId, title: rootNode.title, content: rootNode.content, nodeType: 'ROOT', parentId: null });
+        rootNodeId = created.id;
+      }
+      if (secondaryNodes.length > 0) {
+        await api.createNodesBatch(threadId, secondaryNodes.map(n => ({
+          title: n.title, content: n.content, nodeType: n.type, parentId: rootNodeId,
+        })));
+      }
+
+      setMessages(prev => prev.map((m, i) =>
+        i === msgIndex ? { ...m, proposedNodes: null, nodesAccepted: true } : m
+      ));
+      onNodesCreated?.(threadId);
+    } catch (err) {
+      console.error('Accept nodes failed:', err);
+    }
+  }, [onNodesCreated]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -363,12 +386,15 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                         </div>
                       )}
 
-                      {(msg.createdNodes?.length > 0 || msg.newThread) && (
+                      {(msg.newThread) && (
                         <div className="cp-nodes-created">
                           {msg.newThread && (
                             <span className="cp-new-thread">↗ New thread: {msg.newThread.title}</span>
                           )}
-                          {msg.createdNodes?.map((n, ni) => (
+                          {msg.nodesAccepted && (
+                            <span className="cp-nodes-saved">✓ Nodes saved</span>
+                          )}
+                          {msg.proposedNodes?.map((n, ni) => (
                             <span key={ni} className="cp-node-chip"
                               style={{ borderColor: NODE_COLORS[n.type] || '#555', color: NODE_COLORS[n.type] || '#aaa' }}
                               title={n.title}>
@@ -400,6 +426,38 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                               ))}
                             >
                               Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {msg.proposedNodes && !msg.nodesAccepted && (
+                        <div className="cp-proposed-nodes">
+                          <div className="cp-proposed-nodes-label">
+                            ✦ {msg.proposedNodes.length} node{msg.proposedNodes.length !== 1 ? 's' : ''} ready to save
+                          </div>
+                          <div className="cp-proposed-nodes-list">
+                            {msg.proposedNodes.map((n, ni) => (
+                              <span key={ni} className="cp-node-chip"
+                                style={{ borderColor: NODE_COLORS[n.type] || '#555', color: NODE_COLORS[n.type] || '#aaa' }}>
+                                {n.type}: {n.title}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="cp-proposed-update-actions">
+                            <button
+                              className="cp-accept-btn"
+                              onClick={() => handleAcceptNodes(i, msg.proposedNodes, msg.proposedThreadId)}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              className="cp-dismiss-btn"
+                              onClick={() => setMessages(prev => prev.map((m, mi) =>
+                                mi === i ? { ...m, proposedNodes: null } : m
+                              ))}
+                            >
+                              Discard
                             </button>
                           </div>
                         </div>

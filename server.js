@@ -331,6 +331,49 @@ app.post('/api/threads/:threadId/nodes', requireAuth, async (req, res) => {
   }
 });
 
+// Batch-create multiple nodes (used when user accepts AI-proposed nodes)
+app.post('/api/threads/:threadId/nodes/batch', requireAuth, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { nodes } = req.body; // [{ title, content, nodeType, parentId }]
+  if (!Array.isArray(nodes) || nodes.length === 0) return res.status(400).json({ error: 'nodes array required' });
+
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  const tx = session.beginTransaction();
+  try {
+    const createdNodes = [];
+    const now = new Date().toISOString();
+    for (const n of nodes) {
+      const nodeType = typeof n.nodeType === 'number'
+        ? ['ROOT','EVIDENCE','REFERENCE','CONTEXT','EXAMPLE','COUNTERPOINT','SYNTHESIS'][n.nodeType]
+        : n.nodeType;
+      const nid = await getNextId('node', tx);
+      await tx.run(
+        `CREATE (nd:Node { id:$id, title:$title, content:$content, node_type:$type, metadata:$meta, created_at:$now, updated_at:$now })`,
+        { id: getNeo4j().int(nid), title: n.title, content: n.content || '', type: nodeType, meta: JSON.stringify({ title: n.title }), now }
+      );
+      await tx.run(
+        `MATCH (t:Thread {id:$tid}),(nd:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(nd)`,
+        { tid: getNeo4j().int(threadId), nid: getNeo4j().int(nid) }
+      );
+      if (n.parentId) {
+        await tx.run(
+          `MATCH (p:Node {id:$pid}),(nd:Node {id:$nid}) CREATE (p)-[:PARENT_OF]->(nd)`,
+          { pid: getNeo4j().int(n.parentId), nid: getNeo4j().int(nid) }
+        );
+      }
+      createdNodes.push(formatNode({ id: nid, title: n.title, content: n.content || '', node_type: nodeType, created_at: now, updated_at: now, metadata: '{}' }, n.parentId || null));
+    }
+    await tx.commit();
+    res.json({ createdNodes });
+  } catch (err) {
+    await tx.rollback();
+    console.error('Batch create error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
 // Update node content
 app.put('/api/threads/:threadId/nodes/:nodeId', requireAuth, async (req, res) => {
   const nodeId = parseInt(req.params.nodeId);
@@ -967,119 +1010,52 @@ Rules:
       console.warn('Structure extraction failed:', e.message);
     }
 
-    // ── Step 3: Persist to Neo4j ─────────────────────────────────────────
+    // ── Step 3: Create thread if needed, return nodes as proposals ───────
     let activeThreadId = threadId ? parseInt(threadId) : null;
     let newThread = null;
 
-    const tx = session.beginTransaction();
-    try {
-      if (!activeThreadId || structure.topicShift) {
-        const newId = await getNextId('thread', tx);
+    if (!activeThreadId || structure.topicShift) {
+      const threadTx = session.beginTransaction();
+      try {
+        const newId = await getNextId('thread', threadTx);
         const now = new Date().toISOString();
         const rawTitle = structure.threadTitle || '';
         const ttl = (rawTitle && rawTitle.toLowerCase() !== 'none' ? rawTitle : message).substring(0, 120);
-        await tx.run(
-          `CREATE (t:Thread {
-             id: $id, title: $title, description: $desc,
-             content: $content, metadata: $meta,
-             created_at: $now, updated_at: $now
-           })`,
-          {
-            id: getNeo4j().int(newId),
-            title: ttl,
-            desc: reply.substring(0, 500),
-            content: reply.substring(0, 4000),
-            meta: JSON.stringify({ title: ttl }),
-            now
-          }
+        await threadTx.run(
+          `CREATE (t:Thread { id:$id, title:$title, description:$desc, content:$content, metadata:$meta, created_at:$now, updated_at:$now })`,
+          { id: getNeo4j().int(newId), title: ttl, desc: reply.substring(0, 500), content: reply.substring(0, 4000), meta: JSON.stringify({ title: ttl }), now }
         );
+        await threadTx.commit();
         newThread = { id: newId, title: ttl };
         activeThreadId = newId;
-      }
-
-      const createdNodes = [];
-      const rootNode = structure.nodes.find(n => n.type === 'ROOT');
-      const secondaryNodes = structure.nodes.filter(n => n.type !== 'ROOT').slice(0, 11);
-
-      let rootNodeId = null;
-      if (rootNode) {
-        const nid = await getNextId('node', tx);
-        const now = new Date().toISOString();
-        const nodeContent = JSON.stringify({ title: rootNode.title, description: rootNode.content });
-        await tx.run(
-          `CREATE (nd:Node {
-             id: $id, title: $title, content: $content,
-             node_type: $type, metadata: $meta,
-             created_at: $now, updated_at: $now
-           })
-           WITH nd
-           MATCH (t:Thread {id: $tid})
-           CREATE (t)-[:HAS_NODE]->(nd)`,
-          {
-            id: getNeo4j().int(nid),
-            title: rootNode.title,
-            content: nodeContent,
-            type: 'ROOT',
-            meta: JSON.stringify({ title: rootNode.title }),
-            now,
-            tid: getNeo4j().int(activeThreadId)
-          }
-        );
-        rootNodeId = nid;
-        createdNodes.push({ id: nid, title: rootNode.title, type: 'ROOT' });
-      }
-
-      for (const n of secondaryNodes) {
-        const nid = await getNextId('node', tx);
-        const now = new Date().toISOString();
-        let nodeContent = n.content || '';
-        if (n.type === 'EVIDENCE' && n.sourceUrl) {
-          nodeContent = JSON.stringify({ point: n.content, source: n.sourceUrl });
-        } else if (n.type === 'EXAMPLE') {
-          nodeContent = JSON.stringify({ title: n.title, description: n.content });
-        } else if (n.type === 'COUNTERPOINT') {
-          nodeContent = JSON.stringify({ argument: n.title, explanation: n.content });
-        }
-        await tx.run(
-          `CREATE (nd:Node {
-             id: $id, title: $title, content: $content,
-             node_type: $type, metadata: $meta,
-             created_at: $now, updated_at: $now
-           })
-           WITH nd
-           MATCH (t:Thread {id: $tid})
-           CREATE (t)-[:HAS_NODE]->(nd)`,
-          {
-            id: getNeo4j().int(nid),
-            title: n.title,
-            content: nodeContent,
-            type: n.type,
-            meta: JSON.stringify({ title: n.title }),
-            now,
-            tid: getNeo4j().int(activeThreadId)
-          }
-        );
-        if (rootNodeId) {
-          await tx.run(
-            `MATCH (p:Node {id: $parentId}), (nd:Node {id: $nodeId})
-             CREATE (p)-[:PARENT_OF]->(nd)`,
-            { parentId: getNeo4j().int(rootNodeId), nodeId: getNeo4j().int(nid) }
-          );
-        }
-        createdNodes.push({ id: nid, title: n.title, type: n.type });
-      }
-
-      await tx.commit();
-
-      const proposedUpdate = (nodeContext && structure.proposedUpdate?.description)
-        ? { nodeId: nodeContext.nodeId, nodeType: nodeContext.nodeType, title: structure.proposedUpdate.title || nodeContext.title, description: structure.proposedUpdate.description }
-        : null;
-
-      res.json({ citations: incomingCitations, createdNodes, threadId: activeThreadId, newThread, proposedUpdate });
-    } catch (dbErr) {
-      await tx.rollback();
-      throw dbErr;
+      } catch (e) { await threadTx.rollback(); throw e; }
     }
+
+    // Build proposed nodes — NOT saved yet. Frontend shows Accept/Discard.
+    const rootNode = structure.nodes.find(n => n.type === 'ROOT');
+    const secondaryNodes = structure.nodes.filter(n => n.type !== 'ROOT').slice(0, 11);
+    const proposedNodes = [];
+
+    if (rootNode) {
+      proposedNodes.push({ title: rootNode.title, type: 'ROOT', content: JSON.stringify({ title: rootNode.title, description: rootNode.content }) });
+    }
+    for (const n of secondaryNodes) {
+      let nodeContent = n.content || '';
+      if (n.type === 'EVIDENCE' && n.sourceUrl) {
+        nodeContent = JSON.stringify({ point: n.content, source: n.sourceUrl });
+      } else if (n.type === 'EXAMPLE') {
+        nodeContent = JSON.stringify({ title: n.title, description: n.content });
+      } else if (n.type === 'COUNTERPOINT') {
+        nodeContent = JSON.stringify({ argument: n.title, explanation: n.content });
+      }
+      proposedNodes.push({ title: n.title, type: n.type, content: nodeContent });
+    }
+
+    const proposedUpdate = (nodeContext && structure.proposedUpdate?.description)
+      ? { nodeId: nodeContext.nodeId, nodeType: nodeContext.nodeType, title: structure.proposedUpdate.title || nodeContext.title, description: structure.proposedUpdate.description }
+      : null;
+
+    res.json({ citations: incomingCitations, proposedNodes, threadId: activeThreadId, newThread, proposedUpdate });
   } catch (err) {
     console.error('Chat extract error:', err);
     res.status(500).json({ error: err.message });
@@ -1290,31 +1266,13 @@ Return JSON: { "counterpoints": [{ "argument": "<concise attack title, max 12 wo
     });
     const { counterpoints = [] } = JSON.parse(completion.choices[0].message.content);
 
-    const tx = session.beginTransaction();
-    const createdNodes = [];
-    const now = new Date().toISOString();
-    try {
-      for (const cp of counterpoints) {
-        const nodeId = await getNextId('Node', tx);
-        const content = JSON.stringify({ argument: cp.argument, explanation: cp.explanation });
-        await tx.run(
-          `CREATE (n:Node {id:$id, title:$title, content:$content, node_type:'COUNTERPOINT', created_at:$now, updated_at:$now, metadata:'{}'})`,
-          { id: getNeo4j().int(nodeId), title: cp.argument, content, now }
-        );
-        await tx.run(
-          `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(n)`,
-          { tid: getNeo4j().int(threadId), nid: getNeo4j().int(nodeId) }
-        );
-        await tx.run(
-          `MATCH (r:Node {id:$rid}),(n:Node {id:$nid}) CREATE (r)-[:PARENT_OF]->(n)`,
-          { rid: getNeo4j().int(targetNode.id), nid: getNeo4j().int(nodeId) }
-        );
-        createdNodes.push(formatNode({ id: nodeId, title: cp.argument, content, node_type: 'COUNTERPOINT', created_at: now, updated_at: now, metadata: '{}' }, targetNode.id));
-      }
-      await tx.commit();
-    } catch (e) { await tx.rollback(); throw e; }
-
-    res.json({ createdNodes });
+    // Return proposals only — not saved yet. Frontend shows Accept/Discard.
+    const proposals = counterpoints.map(cp => ({
+      title: cp.argument,
+      content: JSON.stringify({ argument: cp.argument, explanation: cp.explanation }),
+      nodeType: 'COUNTERPOINT',
+    }));
+    res.json({ proposals, parentNodeId: targetNode.id });
   } catch (err) {
     console.error('Red team error:', err);
     res.status(500).json({ error: err.message });
@@ -1358,28 +1316,12 @@ Return JSON: { "argument": "<improved title, max 12 words>", "explanation": "<2-
     const parsed = JSON.parse(completion.choices[0].message.content);
     const steelTitle   = parsed.argument;
     const steelContent = JSON.stringify({ argument: parsed.argument, explanation: parsed.explanation });
-    const now = new Date().toISOString();
 
-    const tx = session.beginTransaction();
-    try {
-      const newId = await getNextId('Node', tx);
-      await tx.run(
-        `CREATE (n:Node {id:$id, title:$title, content:$content, node_type:'COUNTERPOINT', created_at:$now, updated_at:$now, metadata:'{}'})`,
-        { id: getNeo4j().int(newId), title: steelTitle, content: steelContent, now }
-      );
-      await tx.run(
-        `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(n)`,
-        { tid: getNeo4j().int(threadId), nid: getNeo4j().int(newId) }
-      );
-      if (parentId) {
-        await tx.run(
-          `MATCH (p:Node {id:$pid}),(n:Node {id:$nid}) CREATE (p)-[:PARENT_OF]->(n)`,
-          { pid: getNeo4j().int(parentId), nid: getNeo4j().int(newId) }
-        );
-      }
-      await tx.commit();
-      res.json({ node: formatNode({ id: newId, title: steelTitle, content: steelContent, node_type: 'COUNTERPOINT', created_at: now, updated_at: now, metadata: '{}' }, parentId) });
-    } catch (e) { await tx.rollback(); throw e; }
+    // Return proposal only — not saved yet. Frontend shows Accept/Discard.
+    res.json({
+      proposal: { title: steelTitle, content: steelContent, nodeType: 'COUNTERPOINT' },
+      parentId,
+    });
   } catch (err) {
     console.error('Steelman error:', err);
     res.status(500).json({ error: err.message });
@@ -1514,6 +1456,35 @@ nodeFromAnswer is null when there is no answer yet.`,
   } catch (err) {
     console.error('Socratic error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Socratic history persistence ──────────────────────────────────────────────
+app.get('/api/threads/:threadId/socratic-history', requireAuth, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const r = await session.run('MATCH (t:Thread {id:$id}) RETURN t.socratic_history AS h', { id: getNeo4j().int(threadId) });
+    const raw = r.records[0]?.get('h');
+    res.json({ history: raw ? JSON.parse(raw) : [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.put('/api/threads/:threadId/socratic-history', requireAuth, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { history } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run('MATCH (t:Thread {id:$id}) SET t.socratic_history = $h', { id: getNeo4j().int(threadId), h: JSON.stringify(history || []) });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
   }
 });
 

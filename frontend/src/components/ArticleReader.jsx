@@ -440,7 +440,7 @@ const formatNodeContent = (node) => {
 };
 
 // ── Secondary node panel (split-screen right sidebar for ROOT pages) ─────────
-const SecondaryNodePanel = ({ nodes, selectedId, onSelect, label }) => {
+const SecondaryNodePanel = ({ nodes, selectedId, onSelect, label, onAccept, onDiscard }) => {
   if (!nodes || nodes.length === 0) return null;
 
   const selectedNode = nodes.find(n => n.id === selectedId) || nodes[0];
@@ -495,6 +495,20 @@ const SecondaryNodePanel = ({ nodes, selectedId, onSelect, label }) => {
               const rendered = formatNodeContent(selectedNode);
               return React.isValidElement(rendered) ? rendered : renderContent(rendered);
             })()}
+          </div>
+        </div>
+      )}
+
+      {(onAccept || onDiscard) && (
+        <div className="ar-snp-proposal-footer">
+          <span className="ar-snp-proposal-hint">Review before saving</span>
+          <div className="ar-snp-proposal-actions">
+            {onDiscard && (
+              <button className="ar-snp-discard" onClick={onDiscard}>✗ Discard</button>
+            )}
+            {onAccept && (
+              <button className="ar-snp-accept" onClick={onAccept}>✓ Accept All</button>
+            )}
           </div>
         </div>
       )}
@@ -612,7 +626,7 @@ const ThreadContentEditor = ({ thread, onContentChange, currentUser, onAuthRequi
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, currentUser, onAuthRequired }) => {
+const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [orderedNodes, setOrderedNodes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -621,11 +635,12 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
   const [secondaryOpen, setSecondaryOpen] = useState(false);
   const [selectedSecondaryId, setSelectedSecondaryId] = useState(null);
   const [socraticOpen, setSocraticOpen] = useState(false);
-  // Red Team / Steelman — results shown in secondary panel
+  // Red Team / Steelman — proposals shown in secondary panel with Accept/Discard
   const [redTeamLoading, setRedTeamLoading] = useState(false);
   const [steelmanLoading, setSteelmanLoading] = useState(false);
   const [secondaryPinnedNodes, setSecondaryPinnedNodes] = useState(null); // overrides currentRootChildren
   const [secondaryPanelLabel, setSecondaryPanelLabel] = useState('Supporting Nodes');
+  const [pendingProposals, setPendingProposals] = useState(null); // { nodes, parentNodeId, type }
   // Fork
   const [forkModalOpen, setForkModalOpen] = useState(false);
   const [forkClaim, setForkClaim] = useState('');
@@ -650,14 +665,14 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     if (!currentUser) { onAuthRequired?.(); return; }
     setRedTeamLoading(true);
     try {
-      const { createdNodes } = await api.redTeamThread(thread.id, node.id);
-      setOrderedNodes(prev => [...prev, ...createdNodes]);
-      // Show results in secondary panel for side-by-side reading
-      setSecondaryPinnedNodes(createdNodes);
-      setSecondaryPanelLabel('⚔ Red Team');
+      const { proposals, parentNodeId } = await api.redTeamThread(thread.id, node.id);
+      // Proposals are not saved yet — show with Accept/Discard in secondary panel
+      const previewNodes = proposals.map((p, i) => ({ ...p, id: `pending-rt-${i}`, node_type: p.nodeType, parent_id: parentNodeId }));
+      setPendingProposals({ nodes: previewNodes, parentNodeId, type: 'redteam' });
+      setSecondaryPinnedNodes(previewNodes);
+      setSecondaryPanelLabel('⚔ Red Team — Review');
       setSecondaryOpen(true);
-      setSelectedSecondaryId(createdNodes[0]?.id ?? null);
-      onNodesCreated?.(thread.id);
+      setSelectedSecondaryId(previewNodes[0]?.id ?? null);
     } catch (err) {
       console.error('Red team failed:', err);
     } finally {
@@ -669,18 +684,49 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     if (!currentUser) { onAuthRequired?.(); return; }
     setSteelmanLoading(true);
     try {
-      const { node } = await api.steelmanNode(thread.id, nodeId);
-      setOrderedNodes(prev => [...prev, node]);
-      // Show steelmanned version in secondary panel — compare original (left) vs strongest form (right)
-      setSecondaryPinnedNodes([node]);
-      setSecondaryPanelLabel('▲ Steelmanned');
+      const { proposal, parentId } = await api.steelmanNode(thread.id, nodeId);
+      const previewNode = { ...proposal, id: 'pending-steelman', node_type: proposal.nodeType, parent_id: parentId };
+      setPendingProposals({ nodes: [previewNode], parentNodeId: parentId, type: 'steelman' });
+      setSecondaryPinnedNodes([previewNode]);
+      setSecondaryPanelLabel('▲ Steelmanned — Review');
       setSecondaryOpen(true);
-      setSelectedSecondaryId(node.id);
-      onNodesCreated?.(thread.id);
+      setSelectedSecondaryId(previewNode.id);
     } catch (err) {
       console.error('Steelman failed:', err);
     } finally {
       setSteelmanLoading(false);
+    }
+  };
+
+  const handleAcceptProposals = async () => {
+    if (!pendingProposals) return;
+    try {
+      const { createdNodes } = await api.createNodesBatch(thread.id, pendingProposals.nodes.map(n => ({
+        title: n.title,
+        content: n.content,
+        nodeType: n.node_type || n.nodeType,
+        parentId: pendingProposals.parentNodeId,
+      })));
+      setOrderedNodes(prev => [...prev, ...createdNodes]);
+      setSecondaryPinnedNodes(createdNodes);
+      setSecondaryPanelLabel(pendingProposals.type === 'redteam' ? '⚔ Red Team' : '▲ Steelmanned');
+      setSelectedSecondaryId(createdNodes[0]?.id ?? null);
+      setPendingProposals(null);
+      onNodesCreated?.(thread.id);
+    } catch (err) {
+      console.error('Accept proposals failed:', err);
+    }
+  };
+
+  const handleDiscardProposals = () => {
+    setPendingProposals(null);
+    setSecondaryPinnedNodes(null);
+    setSecondaryPanelLabel('Supporting Nodes');
+    if (currentRootChildren.length > 0) {
+      setSecondaryOpen(true);
+      setSelectedSecondaryId(currentRootChildren[0].id);
+    } else {
+      setSecondaryOpen(false);
     }
   };
 
@@ -895,6 +941,15 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
         <div className="ar-node-header">
           <div className="ar-node-badge" style={{ color, borderColor: color }}>{nodeType}</div>
           <div className="ar-node-actions">
+            {!isEditing && onViewInGraph && (
+              <button
+                className="ar-graph-btn"
+                onClick={() => onViewInGraph(node.id)}
+                title="Jump to this node in Graph view"
+              >
+                ⬡ Graph
+              </button>
+            )}
             {!isEditing && onUpdateNode && (
               <button className="ar-edit-btn" onClick={handleEditStart}>Edit</button>
             )}
@@ -1026,6 +1081,8 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
             selectedId={selectedSecondaryId}
             onSelect={setSelectedSecondaryId}
             label={secondaryPanelLabel}
+            onAccept={pendingProposals ? handleAcceptProposals : undefined}
+            onDiscard={pendingProposals ? handleDiscardProposals : undefined}
           />
         </div>
 

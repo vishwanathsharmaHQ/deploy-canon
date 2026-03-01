@@ -256,7 +256,8 @@
 }
 
 .add-node-button,
-.read-article-btn {
+.read-article-btn,
+.open-in-article-button {
   background: #00ff9d;
   color: #1a1a1a;
   border: none;
@@ -269,7 +270,8 @@
 }
 
 .add-node-button:hover,
-.read-article-btn:hover {
+.read-article-btn:hover,
+.open-in-article-button:hover {
   background: #00cc7d;
   transform: translateY(-1px);
 }

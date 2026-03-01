@@ -11,10 +11,23 @@ const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, no
   const historyEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Fetch the opening question on mount
+  // Load persisted history on mount, then fetch next question
   useEffect(() => {
-    fetchNextQuestion('', []);
-  }, []);
+    const init = async () => {
+      try {
+        const { history: stored } = await api.getSocraticHistory(thread.id);
+        if (stored && stored.length > 0) {
+          setHistory(stored);
+          fetchNextQuestion('', stored);
+        } else {
+          fetchNextQuestion('', []);
+        }
+      } catch {
+        fetchNextQuestion('', []);
+      }
+    };
+    init();
+  }, [thread.id]);
 
   // Scroll history to bottom when it grows
   useEffect(() => {
@@ -49,6 +62,8 @@ const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, no
     const newHistory = [...history, { question: currentQuestion, answer }];
     setHistory(newHistory);
     setCurrentAnswer('');
+    // Persist history after each exchange (fire-and-forget)
+    api.saveSocraticHistory(thread.id, newHistory).catch(console.error);
     await fetchNextQuestion(answer, newHistory);
   };
 
@@ -77,6 +92,7 @@ const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, no
     setHistory([]);
     setCaptures([]);
     setCurrentAnswer('');
+    api.saveSocraticHistory(thread.id, []).catch(console.error);
     fetchNextQuestion('', []);
   };
 

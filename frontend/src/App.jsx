@@ -1024,6 +1024,7 @@ function App() {
               await loadOffChainThreads();
               setSelectedThreadId(tid);
             }}
+            onViewInGraph={(nodeId) => { setGraphSelectedNodeId(nodeId); setView('graph'); }}
           />
         ) : null}
 
@@ -1130,6 +1131,7 @@ function App() {
                 onAddNode={handleAddNode}
                 onOpenEditor={(node) => requireLogin(() => { setEditorNode(node); setView('editor'); })}
                 onSelectedNodeChange={setGraphSelectedNodeId}
+                onOpenInArticle={(nodeId) => { setGraphSelectedNodeId(nodeId); setView('article'); }}
                 loading={loading}
               />
             </ReactFlowProvider>

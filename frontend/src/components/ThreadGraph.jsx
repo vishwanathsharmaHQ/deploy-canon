@@ -67,7 +67,7 @@ function GraphNode({ data }) {
 
 const nodeTypes = { graphNode: GraphNode };
 
-const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onSelectedNodeChange, loading: parentLoading }) => {
+const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onSelectedNodeChange, onOpenInArticle, loading: parentLoading }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
@@ -317,6 +317,13 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     handleNodeClick(rfNode.data.originalData);
   }, [handleNodeClick]);
 
+  const onNodeDoubleClickHandler = useCallback((event, rfNode) => {
+    const node = rfNode.data.originalData;
+    if (node?.type !== 'thread' && onOpenInArticle) {
+      onOpenInArticle(node.id);
+    }
+  }, [onOpenInArticle]);
+
   const closeContentSidebar = () => {
     setSelectedNode(null);
     if (onSelectedNodeChange) onSelectedNodeChange(null);
@@ -493,6 +500,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClickHandler}
+          onNodeDoubleClick={onNodeDoubleClickHandler}
           onNodeDragStop={handleNodeDragStop}
           onNodeMouseEnter={(_, node) => {
             if (!showAllSecondary && node.data.isRoot) setHoveredRootId(node.id);
@@ -589,6 +597,15 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
                   : (selectedNode.metadata?.title || selectedNode.title || `Node ${selectedNode.id}`)}
               </h2>
               <div className="header-actions">
+                {selectedNode.type !== 'thread' && onOpenInArticle && (
+                  <button
+                    className="open-in-article-button"
+                    onClick={() => onOpenInArticle(selectedNode.id)}
+                    title="Read this node in Article view"
+                  >
+                    Read →
+                  </button>
+                )}
                 <button
                   className="add-node-button"
                   onClick={() => onOpenEditor && onOpenEditor(selectedNode)}

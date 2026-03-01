@@ -308,6 +308,32 @@ export const api = {
     return response.json();
   },
 
+  async getSocraticHistory(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/socratic-history`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to load socratic history');
+    return response.json();
+  },
+
+  async saveSocraticHistory(threadId, history) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/socratic-history`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ history }),
+    });
+    if (!response.ok) throw new Error('Failed to save socratic history');
+    return response.json();
+  },
+
+  async createNodesBatch(threadId, nodes) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/batch`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ nodes }),
+    });
+    if (!response.ok) throw new Error('Batch node create failed');
+    return response.json();
+  },
+
   async analyzeThread(threadId) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/analyze`, {
       method: 'POST',
