@@ -255,19 +255,23 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
       const rootNode = proposedNodes.find(n => n.type === 'ROOT');
       const secondaryNodes = proposedNodes.filter(n => n.type !== 'ROOT');
       let rootNodeId = null;
+      let allDuplicateSkipped = [];
 
       if (rootNode) {
         const created = await api.createNode({ threadId, title: rootNode.title, content: rootNode.content, nodeType: 'ROOT', parentId: null });
         rootNodeId = created.id;
       }
       if (secondaryNodes.length > 0) {
-        await api.createNodesBatch(threadId, secondaryNodes.map(n => ({
+        const batchResult = await api.createNodesBatch(threadId, secondaryNodes.map(n => ({
           title: n.title, content: n.content, nodeType: n.type, parentId: rootNodeId,
         })));
+        if (batchResult.duplicateSkipped?.length > 0) {
+          allDuplicateSkipped = batchResult.duplicateSkipped;
+        }
       }
 
       setMessages(prev => prev.map((m, i) =>
-        i === msgIndex ? { ...m, proposedNodes: null, nodesAccepted: true } : m
+        i === msgIndex ? { ...m, proposedNodes: null, nodesAccepted: true, duplicateSkipped: allDuplicateSkipped.length > 0 ? allDuplicateSkipped : null } : m
       ));
       onNodesCreated?.(threadId);
     } catch (err) {
@@ -386,13 +390,18 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                         </div>
                       )}
 
-                      {(msg.newThread) && (
+                      {(msg.newThread || msg.nodesAccepted) && (
                         <div className="cp-nodes-created">
                           {msg.newThread && (
                             <span className="cp-new-thread">↗ New thread: {msg.newThread.title}</span>
                           )}
                           {msg.nodesAccepted && (
                             <span className="cp-nodes-saved">✓ Nodes saved</span>
+                          )}
+                          {msg.duplicateSkipped?.length > 0 && (
+                            <span className="cp-duplicates-skipped">
+                              Skipped {msg.duplicateSkipped.length} duplicate{msg.duplicateSkipped.length !== 1 ? 's' : ''}: {msg.duplicateSkipped.join(', ')}
+                            </span>
                           )}
                           {msg.proposedNodes?.map((n, ni) => (
                             <span key={ni} className="cp-node-chip"

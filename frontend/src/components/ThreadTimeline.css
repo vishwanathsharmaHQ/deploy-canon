@@ -1,0 +1,106 @@
+.thread-timeline {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  padding: 20px;
+  overflow-y: auto;
+}
+.tt-loading { color: #888; text-align: center; padding: 48px; }
+.tt-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tt-filters { display: flex; gap: 4px; }
+.tt-filters button {
+  padding: 4px 10px;
+  background: transparent;
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.tt-filters button.active {
+  background: #00ff9d11;
+  color: #00ff9d;
+  border-color: #00ff9d44;
+}
+.tt-actions { display: flex; gap: 8px; }
+.tt-snapshot-btn, .tt-export-btn {
+  padding: 4px 12px;
+  background: transparent;
+  color: #aaa;
+  border: 1px solid #444;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.tt-snapshot-btn:hover { border-color: #ccc; color: #ccc; }
+.tt-export-btn:hover { border-color: #ccc; color: #ccc; }
+.tt-diff-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #888;
+}
+.tt-diff-select select {
+  padding: 4px 8px;
+  background: #111;
+  color: #aaa;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.tt-events { position: relative; }
+.tt-event {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 0;
+  padding-bottom: 16px;
+}
+.tt-event-line {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 28px;
+}
+.tt-event-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #111;
+  flex-shrink: 0;
+}
+.tt-event-line::after {
+  content: '';
+  flex: 1;
+  width: 2px;
+  background: #333;
+  margin-top: 4px;
+}
+.tt-event:last-child .tt-event-line::after { display: none; }
+.tt-event-content { flex: 1; padding-top: 4px; }
+.tt-event-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.tt-event-type { font-size: 11px; color: #888; text-transform: uppercase; }
+.tt-event-time { font-size: 11px; color: #666; }
+.tt-event-body { font-size: 13px; line-height: 1.5; }
+.tt-verdict { color: #888; }
+.tt-empty { color: #666; text-align: center; padding: 24px; }

@@ -1,0 +1,110 @@
+.ingest-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  padding: 20px;
+  overflow-y: auto;
+}
+.ingest-panel h3 { margin: 0 0 16px; }
+.ip-input-section { margin-bottom: 16px; }
+.ip-url-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ip-url-row input {
+  flex: 1;
+  padding: 10px 14px;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 14px;
+}
+.ip-url-row button {
+  padding: 10px 20px;
+  background: #00ff9d22;
+  color: #00ff9d;
+  border: 1px solid #00ff9d44;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.ip-bookmark-btn {
+  padding: 10px 14px !important;
+  background: transparent !important;
+  color: #888 !important;
+  border: 1px solid #444 !important;
+}
+.ip-pdf-zone {
+  border: 2px dashed #333;
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.ip-pdf-zone:hover { border-color: #00ff9d44; }
+.ip-pdf-zone p { color: #666; margin: 0; }
+.ip-error {
+  background: #ef535022;
+  border: 1px solid #ef535044;
+  color: #ef5350;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.ip-loading { color: #888; text-align: center; padding: 24px; }
+.ip-results { margin-top: 8px; }
+.ip-result-header { margin-bottom: 16px; }
+.ip-result-header h4 { margin: 0 0 4px; color: #00ff9d; }
+.ip-summary { color: #aaa; font-size: 13px; margin: 0; }
+.ip-warning { color: #ff8a65; font-size: 12px; margin-top: 4px; }
+.ip-proposed-nodes { margin-bottom: 12px; }
+.ip-nodes-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #888;
+}
+.ip-actions { display: flex; gap: 8px; }
+.ip-accept-all, .ip-accept-selected {
+  padding: 4px 12px;
+  background: #00ff9d22;
+  color: #00ff9d;
+  border: 1px solid #00ff9d44;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.ip-accept-selected { background: #4fc3f722; color: #4fc3f7; border-color: #4fc3f744; }
+.ip-node-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.ip-node-card:hover { border-color: #444; }
+.ip-node-card.selected { border-color: #00ff9d; background: #00ff9d08; }
+.ip-node-type { font-size: 11px; font-weight: 600; min-width: 90px; }
+.ip-node-title { font-size: 13px; flex: 1; }
+.ip-discard {
+  padding: 8px 16px;
+  background: transparent;
+  color: #666;
+  border: 1px solid #333;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}

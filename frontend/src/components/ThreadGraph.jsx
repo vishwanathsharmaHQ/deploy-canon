@@ -9,8 +9,31 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import ReactMarkdown from 'react-markdown';
 import './ThreadGraph.css';
 import { api } from '../services/api';
+import CrossThreadLinkPanel from './CrossThreadLinkPanel';
+
+const YT_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
+
+const mdComponents = {
+  a: ({ href, children }) => {
+    const yt = href?.match(YT_REGEX);
+    if (yt) {
+      return (
+        <div className="sidebar-youtube">
+          <iframe
+            src={`https://www.youtube.com/embed/${yt[1]}`}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            title={`yt-${yt[1]}`}
+          />
+        </div>
+      );
+    }
+    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+  },
+};
 
 const NODE_TYPE_LABELS = [
   'ROOT', 'EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'
@@ -27,17 +50,23 @@ const NODE_COLORS = {
   thread: '#00ff9d'
 };
 
-// Custom node component
+// Custom node component with decay visualization
 function GraphNode({ data }) {
   const color = data.nodeColor || '#666';
   const isThread = data.isThread;
   const radius = isThread ? 25 : 15;
   const matteClass = data.isMatteMode ? 'matte' : '';
+  const decay = data.decayPercent;
+  const hasLinks = data.crossLinkCount > 0;
+
+  // Decay: reduce opacity, add colored ring
+  const decayOpacity = decay != null ? Math.max(0.3, 1 - (decay / 150)) : 1;
+  const ringColor = decay == null ? 'transparent' : decay > 80 ? '#ef5350' : decay > 40 ? '#fdd835' : '#00ff9d';
 
   return (
     <div
       className={`graph-node ${matteClass} ${isThread ? 'thread-node' : ''}`}
-      style={{ position: 'relative', width: radius * 2, height: radius * 2 }}
+      style={{ position: 'relative', width: radius * 2, height: radius * 2, opacity: decayOpacity }}
     >
       <Handle type="target" position={Position.Top} id="t-top" style={{ opacity: 0, pointerEvents: 'none' }} />
       <Handle type="target" position={Position.Bottom} id="t-bottom" style={{ opacity: 0, pointerEvents: 'none' }} />
@@ -47,6 +76,12 @@ function GraphNode({ data }) {
       <Handle type="source" position={Position.Bottom} id="s-bottom" style={{ opacity: 0, pointerEvents: 'none' }} />
       <Handle type="source" position={Position.Left} id="s-left" style={{ opacity: 0, pointerEvents: 'none' }} />
       <Handle type="source" position={Position.Right} id="s-right" style={{ opacity: 0, pointerEvents: 'none' }} />
+      {decay != null && (
+        <div style={{
+          position: 'absolute', top: -3, left: -3, width: radius * 2 + 6, height: radius * 2 + 6,
+          borderRadius: '50%', border: `2px solid ${ringColor}`, pointerEvents: 'none',
+        }} />
+      )}
       <div
         className="graph-node-circle"
         style={{
@@ -58,6 +93,15 @@ function GraphNode({ data }) {
           cursor: 'pointer',
         }}
       />
+      {hasLinks && (
+        <div style={{
+          position: 'absolute', top: -6, right: -6, width: 12, height: 12,
+          borderRadius: '50%', background: '#555', border: '1px solid #1d1d1d',
+          fontSize: '7px', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          L
+        </div>
+      )}
       <div className="graph-node-label">
         {data.label}
       </div>
@@ -67,7 +111,7 @@ function GraphNode({ data }) {
 
 const nodeTypes = { graphNode: GraphNode };
 
-const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onSelectedNodeChange, onOpenInArticle, loading: parentLoading }) => {
+const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onSelectedNodeChange, onOpenInArticle, onNavigateToThread, loading: parentLoading }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
@@ -77,6 +121,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
   const [layoutLoading, setLayoutLoading] = useState(false);
   const [showAllSecondary, setShowAllSecondary] = useState(false);
   const [hoveredRootId, setHoveredRootId] = useState(null);
+  const [decayMap, setDecayMap] = useState({});
+  const [linkCountMap, setLinkCountMap] = useState({});
   const { fitView } = useReactFlow();
 
   useEffect(() => {
@@ -84,6 +130,26 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
       setLoading(parentLoading);
     }
   }, [parentLoading]);
+
+  // Load decay data and cross-thread link counts
+  useEffect(() => {
+    if (!threads || threads.length === 0) return;
+    const threadId = threads[0].id;
+    api.getDecayData(threadId).then(data => {
+      const map = {};
+      (data || []).forEach(d => { map[d.nodeId] = d.decayPercent; });
+      setDecayMap(map);
+    }).catch(() => {});
+    // Load cross-thread link counts for all nodes
+    const nodeIds = (threads[0].nodes || []).map(n => n.id);
+    const counts = {};
+    Promise.all(nodeIds.slice(0, 30).map(async (nid) => {
+      try {
+        const links = await api.getNodeLinks(nid);
+        if (links.length > 0) counts[nid] = links.length;
+      } catch (e) {}
+    })).then(() => setLinkCountMap(counts));
+  }, [threads]);
 
   // Pick best handle pair based on relative positions of source & target
   function getBestHandles(srcPos, tgtPos) {
@@ -230,6 +296,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
             parentRfId,
             nodeColor: color,
             isMatteMode,
+            decayPercent: decayMap[node.id] ?? null,
+            crossLinkCount: linkCountMap[node.id] || 0,
             originalData: { ...node, type: nodeType, content: parsedContent }
           },
           draggable: true,
@@ -268,7 +336,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     setNodes(rfNodes);
     setEdges(rfEdges);
     setLoading(false);
-  }, [nodes, isMatteMode]);
+  }, [nodes, isMatteMode, decayMap, linkCountMap]);
 
   // When threads change but we already have a saved layout, rebuild immediately
   useEffect(() => {
@@ -413,14 +481,14 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     }
   };
 
-  // Render a string that may contain HTML tags
+  // Render a string that may contain HTML tags or markdown
   const renderText = (text) => {
     if (!text) return null;
     const str = String(text);
     if (/<[a-z][\s\S]*>/i.test(str)) {
       return <span dangerouslySetInnerHTML={{ __html: str }} />;
     }
-    return str;
+    return <ReactMarkdown components={mdComponents}>{str}</ReactMarkdown>;
   };
 
   const formatContent = (content, nodeType) => {
@@ -452,13 +520,31 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
                   )}
                 </div>
               );
-            case 'EVIDENCE':
+            case 'EVIDENCE': {
+              const srcUrl = jsonContent.source || '';
+              const ytMatch = srcUrl.match?.(YT_REGEX);
               return (
                 <div className="evidence-content">
                   <div className="evidence-point">{renderText(jsonContent.point)}</div>
-                  <p className="evidence-source"><em>Source: {renderText(jsonContent.source)}</em></p>
+                  {ytMatch ? (
+                    <div className="sidebar-youtube">
+                      <iframe
+                        src={`https://www.youtube.com/embed/${ytMatch[1]}`}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        title={`yt-${ytMatch[1]}`}
+                      />
+                    </div>
+                  ) : (
+                    <p className="evidence-source"><em>Source: {
+                      /^https?:\/\//.test(srcUrl)
+                        ? <a href={srcUrl} target="_blank" rel="noopener noreferrer">{srcUrl}</a>
+                        : renderText(srcUrl)
+                    }</em></p>
+                  )}
                 </div>
               );
+            }
             case 'EXAMPLE':
               return (
                 <div className="example-content">
@@ -483,9 +569,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
       if (/<[a-z][\s\S]*>/i.test(textContent)) {
         return <div dangerouslySetInnerHTML={{ __html: textContent }} />;
       }
-      return textContent.split('\n').map((paragraph, index) => (
-        <p key={index} className="content-paragraph">{paragraph}</p>
-      ));
+      return <ReactMarkdown components={mdComponents}>{textContent}</ReactMarkdown>;
     } catch (e) {
       return 'Error displaying content';
     }
@@ -493,7 +577,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
 
   return (
     <div className={`thread-graph ${isMatteMode ? 'matte' : ''}`}>
-      <div className={`graph-container ${selectedNode ? 'with-sidebar' : ''}`}>
+      <div className="graph-container">
         <ReactFlow
           nodes={visibleNodes}
           edges={visibleEdges}
@@ -665,6 +749,14 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
               <div className="content-sidebar-content">
                 {formatContent(selectedNode.content, selectedNode.type === 'thread' ? 'thread' : NODE_TYPE_LABELS[selectedNode.type])}
               </div>
+
+              {selectedNode.type !== 'thread' && threads.length > 0 && (
+                <CrossThreadLinkPanel
+                  nodeId={selectedNode.id}
+                  threadId={threads[0].id}
+                  onNavigateToThread={onNavigateToThread}
+                />
+              )}
             </div>
           </>
         )}

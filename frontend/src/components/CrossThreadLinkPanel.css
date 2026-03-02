@@ -1,0 +1,63 @@
+.cross-thread-link-panel {
+  margin-top: 16px;
+  border-top: 1px solid #333;
+  padding-top: 12px;
+}
+.ctlp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.ctlp-header h4 { margin: 0; font-size: 13px; color: #aaa; }
+.ctlp-suggest-btn {
+  padding: 3px 10px;
+  background: #00ff9d11;
+  color: #00ff9d;
+  border: 1px solid #00ff9d33;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.ctlp-loading, .ctlp-empty { color: #666; font-size: 13px; }
+.ctlp-links { margin-bottom: 8px; }
+.ctlp-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.ctlp-link:hover { background: #ffffff05; }
+.ctlp-link-info { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.ctlp-link-direction { color: #666; }
+.ctlp-link-node { cursor: pointer; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctlp-link-node:hover { text-decoration: underline; }
+.ctlp-link-thread { color: #666; font-size: 11px; white-space: nowrap; }
+.ctlp-delete { background: none; border: none; color: #666; cursor: pointer; font-size: 14px; }
+.ctlp-suggestions { margin-top: 12px; }
+.ctlp-suggestions h5 { margin: 0 0 6px; font-size: 12px; color: #888; }
+.ctlp-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  gap: 6px;
+}
+.ctlp-suggestion:hover { background: #ffffff05; }
+.ctlp-suggestion-info { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.ctlp-suggestion-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctlp-suggestion-thread { color: #666; font-size: 11px; }
+.ctlp-similarity { color: #00ff9d; font-size: 11px; font-weight: 600; }
+.ctlp-accept {
+  padding: 2px 8px;
+  background: #00ff9d22;
+  color: #00ff9d;
+  border: 1px solid #00ff9d44;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+}

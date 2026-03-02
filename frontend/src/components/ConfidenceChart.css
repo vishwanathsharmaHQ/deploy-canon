@@ -1,0 +1,12 @@
+.confidence-chart {
+  margin-bottom: 16px;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 12px;
+}
+.confidence-chart h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #888;
+}

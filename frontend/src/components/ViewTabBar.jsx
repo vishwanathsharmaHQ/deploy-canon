@@ -3,10 +3,14 @@ import './ViewTabBar.css';
 
 const TABS = [
   { key: 'graph', label: 'Graph' },
+  { key: 'global', label: 'Global' },
   { key: 'article', label: 'Article' },
   { key: 'sequence', label: 'Sequence' },
   { key: 'canvas', label: 'Canvas' },
   { key: 'chat', label: 'Chat' },
+  { key: 'review', label: 'Review' },
+  { key: 'ingest', label: 'Ingest' },
+  { key: 'timeline', label: 'Timeline' },
 ];
 
 const ViewTabBar = ({

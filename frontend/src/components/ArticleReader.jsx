@@ -13,6 +13,25 @@ import './ArticleReader.css';
 
 const NODE_TYPES = ['ROOT', 'EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'];
 
+// Convert YouTube <a> links and bare markdown-style URLs into TipTap YouTube embed markup
+function embedYouTubeLinks(html) {
+  if (!html) return html;
+  const ytPattern = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
+  // Replace <a> tags wrapping YouTube URLs
+  let result = html.replace(/<a[^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/gi, (match, href) => {
+    const yt = href.match(ytPattern);
+    if (yt) {
+      return `<div data-youtube-video><iframe src="https://www.youtube.com/embed/${yt[1]}" allowfullscreen></iframe></div>`;
+    }
+    return match;
+  });
+  // Replace bare YouTube URLs (markdown [text](url) converted to text only, or raw URLs on their own line)
+  result = result.replace(/(^|>|\s)(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})[^\s<]*)/gm, (match, prefix, url, id) => {
+    return `${prefix}<div data-youtube-video><iframe src="https://www.youtube.com/embed/${id}" allowfullscreen></iframe></div>`;
+  });
+  return result;
+}
+
 const NODE_TYPE_COLORS = {
   ROOT: '#888',
   EVIDENCE: '#4fc3f7',
@@ -287,7 +306,28 @@ const ConfidenceMeter = ({ threadId }) => {
     <div className="cm-card">
       <div className="cm-header">
         <span className="cm-title">Claim Analysis</span>
-        <button className="cm-refresh" onClick={fetchAnalysis} title="Re-analyse" disabled={loading}>↻</button>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {!loading && data && (
+            <button
+              className="cm-refresh"
+              onClick={async () => {
+                try {
+                  await api.recordConfidence(threadId, {
+                    score: data.score,
+                    breakdown: data.breakdown,
+                    verdict: data.verdict,
+                    node_count: data.nodeCount || 0,
+                  });
+                  alert('Confidence recorded to timeline');
+                } catch (e) { console.error('Failed to record confidence:', e); }
+              }}
+              title="Save current confidence score to timeline"
+            >
+              ⏱
+            </button>
+          )}
+          <button className="cm-refresh" onClick={fetchAnalysis} title="Re-analyse" disabled={loading}>↻</button>
+        </div>
       </div>
 
       {loading && <div className="cm-loading">Analysing argument strength…</div>}
@@ -528,14 +568,14 @@ const ThreadContentEditor = ({ thread, onContentChange, currentUser, onAuthRequi
       Youtube.configure({ width: 640, height: 360 }),
       Placeholder.configure({ placeholder: 'Write your thread notes here...' }),
     ],
-    content: thread.content || '',
+    content: embedYouTubeLinks(thread.content || ''),
     editable: false,
   });
 
   // Keep editor content in sync when thread changes (e.g. different thread selected)
   useEffect(() => {
     if (editor) {
-      editor.commands.setContent(thread.content || '');
+      editor.commands.setContent(embedYouTubeLinks(thread.content || ''));
       editor.setEditable(false);
       setIsEditing(false);
     }
@@ -564,7 +604,7 @@ const ThreadContentEditor = ({ thread, onContentChange, currentUser, onAuthRequi
   };
 
   const handleCancel = () => {
-    editor?.commands.setContent(thread.content || '');
+    editor?.commands.setContent(embedYouTubeLinks(thread.content || ''));
     editor?.setEditable(false);
     setIsEditing(false);
   };
@@ -910,7 +950,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
       const { title, html, keywords } = getEditableContent(node);
       setEditTitle(title);
       setEditKeywords(keywords || '');
-      nodeEditEditor?.commands.setContent(html || '');
+      nodeEditEditor?.commands.setContent(embedYouTubeLinks(html || ''));
       setIsEditing(true);
     };
 
@@ -1032,6 +1072,28 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
               {isReactElement ? nodeRendered : renderContent(nodeRendered)}
             </div>
             {nodeType === 'ROOT' && <ConfidenceMeter threadId={thread.id} />}
+            {nodeType === 'ROOT' && (
+              <div className="ar-export-bar" style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+                <button
+                  className="ar-action-btn"
+                  onClick={async () => {
+                    try {
+                      const result = await api.exportThread(thread.id, 'markdown');
+                      const blob = new Blob([result.content], { type: 'text/markdown' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${thread.metadata?.title || 'thread'}.md`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (e) { console.error('Export failed:', e); }
+                  }}
+                  title="Export thread as Markdown"
+                >
+                  ↓ Export
+                </button>
+              </div>
+            )}
           </>
         )}
       </article>

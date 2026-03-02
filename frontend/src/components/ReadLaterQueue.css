@@ -1,0 +1,75 @@
+.read-later-queue {
+  margin-top: 16px;
+  border-top: 1px solid #333;
+  padding-top: 16px;
+}
+.rlq-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.rlq-header h4 { margin: 0; font-size: 14px; color: #aaa; }
+.rlq-filters { display: flex; gap: 4px; }
+.rlq-filters button {
+  padding: 3px 8px;
+  background: transparent;
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.rlq-filters button.active {
+  background: #00ff9d11;
+  color: #00ff9d;
+  border-color: #00ff9d44;
+}
+.rlq-list { max-height: 300px; overflow-y: auto; }
+.rlq-empty { color: #666; text-align: center; padding: 16px; font-size: 13px; }
+.rlq-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+.rlq-item:hover { background: #ffffff05; }
+.rlq-item-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.rlq-status { font-size: 10px; font-weight: 600; min-width: 55px; }
+.rlq-title {
+  color: #ccc;
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rlq-title:hover { color: #00ff9d; }
+.rlq-item-actions { display: flex; align-items: center; gap: 4px; }
+.rlq-ingest {
+  padding: 2px 8px;
+  background: #00ff9d22;
+  color: #00ff9d;
+  border: 1px solid #00ff9d44;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.rlq-item-actions select {
+  padding: 2px 4px;
+  background: #111;
+  color: #aaa;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.rlq-delete {
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}

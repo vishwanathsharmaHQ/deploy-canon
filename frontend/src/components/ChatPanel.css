@@ -701,6 +701,13 @@
   font-weight: 600;
 }
 
+.cp-duplicates-skipped {
+  font-size: 0.8rem;
+  color: #fbbf24;
+  font-style: italic;
+  width: 100%;
+}
+
 .cp-auth-gate {
   display: flex;
   flex-direction: column;

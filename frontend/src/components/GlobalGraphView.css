@@ -1,0 +1,63 @@
+.global-graph-view {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+.gg-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #888;
+  z-index: 10;
+}
+.gg-thread-node {
+  position: relative;
+  cursor: pointer;
+}
+.gg-thread-circle {
+  border-radius: 50%;
+  border: 2px solid #fff;
+  transition: transform 0.2s;
+}
+.gg-thread-node:hover .gg-thread-circle {
+  transform: scale(1.1);
+}
+.gg-thread-label {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: #ccc;
+  white-space: nowrap;
+  text-align: center;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gg-thread-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #333;
+  color: #00ff9d;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.gg-legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #888;
+  background: #1a1a1acc;
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+.gg-legend-item { display: flex; align-items: center; gap: 4px; }
+.gg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }

@@ -13,6 +13,12 @@ import ViewTabBar from './components/ViewTabBar'
 import NodeEditor from './components/NodeEditor'
 import ChatPanel from './components/ChatPanel'
 import AuthModal from './components/AuthModal'
+import GlobalGraphView from './components/GlobalGraphView'
+import SemanticSearchPanel from './components/SemanticSearchPanel'
+import ReviewMode from './components/ReviewMode'
+import IngestPanel from './components/IngestPanel'
+import ReadLaterQueue from './components/ReadLaterQueue'
+import ThreadTimeline from './components/ThreadTimeline'
 import { api } from './services/api'
 import './App.css'
 
@@ -42,7 +48,8 @@ function App() {
   const [isIPFSConnected, setIsIPFSConnected] = useState(false);
   const dropdownRef = useRef(null);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
-  const [view, setView] = useState('graph'); // 'graph' | 'article' | 'sequence' | 'editor' | 'canvas'
+  const [view, setView] = useState('graph'); // 'graph' | 'article' | 'sequence' | 'editor' | 'canvas' | 'global' | 'review' | 'ingest' | 'timeline'
+  const [showSemanticSearch, setShowSemanticSearch] = useState(false);
   const [editorNode, setEditorNode] = useState(null);
   const [graphSelectedNodeId, setGraphSelectedNodeId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
@@ -774,6 +781,14 @@ function App() {
   const threadToShow = displayThreads.find(t => t.id === selectedThreadId);
   const graphData = threadToShow ? [threadToShow] : [];
 
+  // Build context from graph-selected node so chat tab is aware of it
+  const graphChatContext = useMemo(() => {
+    if (!graphSelectedNodeId || !threadToShow) return null;
+    const node = (threadToShow.nodes || []).find(n => n.id === graphSelectedNodeId);
+    if (!node) return null;
+    return { nodeId: node.id, nodeType: node.node_type, title: node.title || node.metadata?.title, content: typeof node.content === 'string' ? node.content.substring(0, 600) : '' };
+  }, [graphSelectedNodeId, threadToShow]);
+
   const currentThreadIndex = displayThreads.findIndex(t => t.id === selectedThreadId);
   const hasPrevThread = currentThreadIndex > 0;
   const hasNextThread = currentThreadIndex >= 0 && currentThreadIndex < displayThreads.length - 1;
@@ -909,20 +924,46 @@ function App() {
   const handleSearchSubmit = async (e) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
       e.preventDefault();
+      const wordCount = searchQuery.trim().split(/\s+/).length;
       try {
         setIsSearchLoading(true);
+
+        // Natural language queries (>3 words) use semantic search
+        if (wordCount > 3) {
+          try {
+            const semanticResults = await api.semanticSearch(searchQuery, 10);
+            if (semanticResults.threads?.length > 0 || semanticResults.nodes?.length > 0) {
+              // Merge semantic thread results
+              const threadResults = semanticResults.threads || [];
+              if (threadResults.length > 0) {
+                setOffChainThreads(prev => {
+                  const existingIds = new Set(prev.map(t => t.id));
+                  const newThreads = threadResults.filter(t => !existingIds.has(t.id));
+                  return [...prev, ...newThreads];
+                });
+              }
+              setShowSearchResults(true);
+              setIsSearchLoading(false);
+              return;
+            }
+          } catch (semErr) {
+            // Fall through to substring search if semantic fails
+            console.warn('Semantic search failed, falling back:', semErr.message);
+          }
+        }
+
+        // Substring search fallback
         const results = await api.searchThreads(searchQuery);
-        
+
         // If no exact matches found, generate new thread
         if (results.length === 0) {
           if (!currentUser) { setShowAuthModal(true); return; }
           const newThread = await api.generateThread(searchQuery);
           setSelectedThreadId(newThread.id);
-          await loadOffChainThreads(); // Reload threads to get the new one
+          await loadOffChainThreads();
           setSearchQuery('');
           setShowSearchResults(false);
         } else {
-          // Merge search results into offChainThreads, then show
           setOffChainThreads(prev => {
             const existingIds = new Set(prev.map(t => t.id));
             const newThreads = results.filter(t => !existingIds.has(t.id));
@@ -971,11 +1012,11 @@ function App() {
       </div>
 
       <div className="main-content">
-        {(threadToShow || view === 'chat') && (
+        {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest') && (
           <ViewTabBar
             view={view}
             onChangeView={(newView) => {
-              if (newView === 'sequence' || newView === 'editor' || newView === 'canvas') {
+              if (['sequence', 'editor', 'canvas', 'review', 'ingest', 'timeline'].includes(newView)) {
                 requireLogin(() => setView(newView));
               } else {
                 setView(newView);
@@ -1003,6 +1044,49 @@ function App() {
         ) : view === 'canvas' && threadToShow ? (
           <ThreadCanvas
             thread={threadToShow}
+          />
+        ) : view === 'global' ? (
+          <ReactFlowProvider>
+            <GlobalGraphView
+              onSelectThread={(tid) => { setSelectedThreadId(tid); setView('graph'); }}
+            />
+          </ReactFlowProvider>
+        ) : view === 'review' && threadToShow ? (
+          <ReviewMode
+            threadId={threadToShow.id}
+            onClose={() => setView('graph')}
+          />
+        ) : view === 'ingest' ? (
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            <IngestPanel
+              threadId={threadToShow?.id}
+              currentUser={currentUser}
+              onAuthRequired={() => setShowAuthModal(true)}
+              onNodesCreated={async (tid) => {
+                await loadOffChainThreads();
+                setSelectedThreadId(tid);
+                setView('graph');
+              }}
+              onThreadCreated={async (tid) => {
+                await loadOffChainThreads();
+                setSelectedThreadId(tid);
+                setView('graph');
+              }}
+            />
+            <div style={{ padding: '0 20px 20px' }}>
+              <ReadLaterQueue
+                currentUser={currentUser}
+                onAuthRequired={() => setShowAuthModal(true)}
+                onIngestUrl={(url) => {
+                  // Switch to ingest panel with the URL - handled by the IngestPanel
+                }}
+              />
+            </div>
+          </div>
+        ) : view === 'timeline' && threadToShow ? (
+          <ThreadTimeline
+            threadId={threadToShow.id}
+            threadTitle={threadToShow?.metadata?.title || threadToShow?.title}
           />
         ) : view === 'article' && threadToShow ? (
           <ArticleReader
@@ -1032,6 +1116,7 @@ function App() {
         <div style={{ display: view === 'chat' ? undefined : 'none', flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <ChatPanel
             selectedThreadId={selectedThreadId}
+            articleContext={graphChatContext}
             currentUser={currentUser}
             onAuthRequired={() => setShowAuthModal(true)}
             onNodesCreated={async (tid) => {
@@ -1088,12 +1173,30 @@ function App() {
               <input
                 type="text"
                 className="search-input"
-                placeholder="Search threads..."
+                placeholder="Search threads... (3+ words for semantic)"
                 value={searchQuery}
                 onChange={handleSearchInputChange}
                 onKeyDown={handleSearchSubmit}
                 onFocus={() => setShowSearchResults(true)}
               />
+              <button
+                className="semantic-search-toggle"
+                onClick={() => setShowSemanticSearch(!showSemanticSearch)}
+                title="Advanced semantic search"
+                style={{
+                  background: showSemanticSearch ? '#00ff9d22' : 'transparent',
+                  border: `1px solid ${showSemanticSearch ? '#00ff9d' : '#444'}`,
+                  color: showSemanticSearch ? '#00ff9d' : '#888',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  marginLeft: '4px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                AI
+              </button>
               {showSearchResults && searchQuery && (
                 <div className="search-results">
                   {isSearchLoading ? (
@@ -1122,6 +1225,16 @@ function App() {
               )}
             </div>
           </div>
+
+          {showSemanticSearch && (
+            <div style={{ position: 'absolute', top: '50px', left: 0, right: 0, bottom: 0, zIndex: 20, background: '#1a1a2e' }}>
+              <SemanticSearchPanel
+                onSelectThread={(tid) => { setSelectedThreadId(tid); setShowSemanticSearch(false); setView('graph'); }}
+                onSelectNode={(nodeId, tid) => { setSelectedThreadId(tid); setGraphSelectedNodeId(nodeId); setShowSemanticSearch(false); setView('article'); }}
+                onClose={() => setShowSemanticSearch(false)}
+              />
+            </div>
+          )}
 
           {selectedThreadId ? (
             <ReactFlowProvider>

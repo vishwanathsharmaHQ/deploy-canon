@@ -408,4 +408,203 @@ export const api = {
   logout() {
     setAuthToken(null);
   },
+
+  // ── Phase 1: Admin / Embedding ──────────────────────────────────────────────
+  async setupIndexes() {
+    const response = await fetch(`${API_BASE_URL}/admin/setup-indexes`, { method: 'POST', headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to setup indexes');
+    return response.json();
+  },
+  async migrateEmbeddings() {
+    const response = await fetch(`${API_BASE_URL}/admin/migrate-embeddings`, { method: 'POST', headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to migrate embeddings');
+    return response.json();
+  },
+
+  // ── Phase 2: Semantic Search ────────────────────────────────────────────────
+  async semanticSearch(query, limit = 20) {
+    const response = await fetch(`${API_BASE_URL}/search/semantic?q=${encodeURIComponent(query)}&limit=${limit}`);
+    if (!response.ok) throw new Error('Semantic search failed');
+    return response.json();
+  },
+  async searchAnswer(question) {
+    const response = await fetch(`${API_BASE_URL}/search/answer`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ question }) });
+    if (!response.ok) throw new Error('Q&A synthesis failed');
+    return response.json();
+  },
+  async getRelatedThreads(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/related`);
+    if (!response.ok) return [];
+    return response.json();
+  },
+  async getRandomThread() {
+    const response = await fetch(`${API_BASE_URL}/threads/random`);
+    if (!response.ok) throw new Error('No threads found');
+    return response.json();
+  },
+  async findContradictions(threadId) {
+    const response = await fetch(`${API_BASE_URL}/search/contradictions`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ threadId }) });
+    if (!response.ok) throw new Error('Contradiction search failed');
+    return response.json();
+  },
+
+  // ── Phase 3: Cross-Thread Links ─────────────────────────────────────────────
+  async createLink({ sourceNodeId, targetNodeId, type, description, confidence, status }) {
+    const response = await fetch(`${API_BASE_URL}/links`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ sourceNodeId, targetNodeId, type, description, confidence, status }) });
+    if (!response.ok) throw new Error('Failed to create link');
+    return response.json();
+  },
+  async getNodeLinks(nodeId) {
+    const response = await fetch(`${API_BASE_URL}/nodes/${nodeId}/links`);
+    if (!response.ok) return [];
+    return response.json();
+  },
+  async deleteLink(linkId) {
+    const response = await fetch(`${API_BASE_URL}/links/${linkId}`, { method: 'DELETE', headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to delete link');
+    return response.json();
+  },
+  async updateLinkStatus(linkId, status) {
+    const response = await fetch(`${API_BASE_URL}/links/${linkId}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ status }) });
+    if (!response.ok) throw new Error('Failed to update link');
+    return response.json();
+  },
+  async suggestLinks(threadId) {
+    const response = await fetch(`${API_BASE_URL}/links/suggest`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ threadId }) });
+    if (!response.ok) throw new Error('Link suggestion failed');
+    return response.json();
+  },
+  async getGlobalGraphSummary() {
+    const response = await fetch(`${API_BASE_URL}/graph/global/summary`);
+    if (!response.ok) throw new Error('Failed to fetch global graph');
+    return response.json();
+  },
+  async getConcepts() {
+    const response = await fetch(`${API_BASE_URL}/concepts`);
+    if (!response.ok) throw new Error('Failed to fetch concepts');
+    return response.json();
+  },
+  async getConceptNodes(conceptId) {
+    const response = await fetch(`${API_BASE_URL}/concepts/${conceptId}/nodes`);
+    if (!response.ok) throw new Error('Failed to fetch concept nodes');
+    return response.json();
+  },
+  async extractConcepts(nodeId) {
+    const response = await fetch(`${API_BASE_URL}/concepts/extract`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ nodeId }) });
+    if (!response.ok) throw new Error('Concept extraction failed');
+    return response.json();
+  },
+
+  // ── Phase 4: Spaced Repetition ──────────────────────────────────────────────
+  async initReview(threadId) {
+    const response = await fetch(`${API_BASE_URL}/review/init`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ threadId }) });
+    if (!response.ok) throw new Error('Review init failed');
+    return response.json();
+  },
+  async getDueReviews(threadId) {
+    const url = threadId ? `${API_BASE_URL}/review/due?threadId=${threadId}` : `${API_BASE_URL}/review/due`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch due reviews');
+    return response.json();
+  },
+  async submitReview(nodeId, quality) {
+    const response = await fetch(`${API_BASE_URL}/review/submit`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ nodeId, quality }) });
+    if (!response.ok) throw new Error('Review submit failed');
+    return response.json();
+  },
+  async getReviewStats(threadId) {
+    const url = threadId ? `${API_BASE_URL}/review/stats?threadId=${threadId}` : `${API_BASE_URL}/review/stats`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch review stats');
+    return response.json();
+  },
+  async getDecayData(threadId) {
+    const response = await fetch(`${API_BASE_URL}/review/decay?threadId=${threadId}`);
+    if (!response.ok) return [];
+    return response.json();
+  },
+  async generateQuiz(nodeId, quizType) {
+    const response = await fetch(`${API_BASE_URL}/review/quiz`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ nodeId, quizType }) });
+    if (!response.ok) throw new Error('Quiz generation failed');
+    return response.json();
+  },
+
+  // ── Phase 5: Ingestion ──────────────────────────────────────────────────────
+  async ingestUrl(url, threadId) {
+    const response = await fetch(`${API_BASE_URL}/ingest/url`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ url, threadId }) });
+    if (!response.ok) throw new Error('URL ingestion failed');
+    return response.json();
+  },
+  async ingestPdf(pdfBase64, filename, threadId) {
+    const response = await fetch(`${API_BASE_URL}/ingest/pdf`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ pdfBase64, filename, threadId }) });
+    if (!response.ok) throw new Error('PDF ingestion failed');
+    return response.json();
+  },
+  async getBookmarks() {
+    const response = await fetch(`${API_BASE_URL}/bookmarks`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to fetch bookmarks');
+    return response.json();
+  },
+  async createBookmark({ url, title, notes, source_type }) {
+    const response = await fetch(`${API_BASE_URL}/bookmarks`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ url, title, notes, source_type }) });
+    if (!response.ok) throw new Error('Failed to create bookmark');
+    return response.json();
+  },
+  async updateBookmark(id, updates) {
+    const response = await fetch(`${API_BASE_URL}/bookmarks/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(updates) });
+    if (!response.ok) throw new Error('Failed to update bookmark');
+    return response.json();
+  },
+  async deleteBookmark(id) {
+    const response = await fetch(`${API_BASE_URL}/bookmarks/${id}`, { method: 'DELETE', headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to delete bookmark');
+    return response.json();
+  },
+  async generateBibliography(threadId, format) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/bibliography`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ format }) });
+    if (!response.ok) throw new Error('Bibliography generation failed');
+    return response.json();
+  },
+
+  // ── Phase 6: Confidence History & Timeline ──────────────────────────────────
+  async createSnapshot(threadId, trigger, triggerDetail) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/snapshots`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ trigger, triggerDetail }) });
+    if (!response.ok) throw new Error('Snapshot creation failed');
+    return response.json();
+  },
+  async getSnapshots(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/snapshots`);
+    if (!response.ok) throw new Error('Failed to fetch snapshots');
+    return response.json();
+  },
+  async getSnapshotDiff(threadId, v1, v2) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/snapshots/diff?v1=${v1}&v2=${v2}`);
+    if (!response.ok) throw new Error('Failed to compute diff');
+    return response.json();
+  },
+  async recordConfidence(threadId, { score, breakdown, verdict }) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/confidence`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ score, breakdown, verdict }) });
+    if (!response.ok) throw new Error('Failed to record confidence');
+    return response.json();
+  },
+  async getConfidenceHistory(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/confidence`);
+    if (!response.ok) throw new Error('Failed to fetch confidence history');
+    return response.json();
+  },
+  async getTimeline(threadId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/timeline`);
+    if (!response.ok) throw new Error('Failed to fetch timeline');
+    return response.json();
+  },
+  async getNodeHistory(threadId, nodeId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}/history`);
+    if (!response.ok) throw new Error('Failed to fetch node history');
+    return response.json();
+  },
+  async exportThread(threadId, format) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format }) });
+    if (!response.ok) throw new Error('Export failed');
+    return response.json();
+  },
 };

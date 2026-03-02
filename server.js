@@ -96,6 +96,52 @@ function toNum(val) {
   return val;
 }
 
+// ── Vector query helper (graceful fallback when indexes don't exist) ──────────
+async function vectorQuery(session, indexName, k, embedding) {
+  try {
+    return await session.run(
+      `CALL db.index.vector.queryNodes($indexName, $k, $embedding) YIELD node, score RETURN node, score ORDER BY score DESC`,
+      { indexName, k: getNeo4j().int(k), embedding }
+    );
+  } catch (err) {
+    if (err.message && (
+      err.message.includes('no such vector schema index') ||
+      err.message.includes('There is no such index') ||
+      err.message.includes('IndexNotFoundError')
+    ) || err.code === 'Neo.ClientError.Procedure.ProcedureCallFailed') {
+      return { records: [] };
+    }
+    throw err;
+  }
+}
+
+// ── Embedding helpers ──────────────────────────────────────────────────────────
+async function generateEmbedding(text) {
+  if (!text || !text.trim()) return null;
+  const openai = getOpenAI();
+  const response = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: text.substring(0, 8000),
+  });
+  return response.data[0].embedding;
+}
+
+function getEmbeddingText(entity, type) {
+  if (type === 'thread') {
+    return [entity.title, entity.description, entity.content].filter(Boolean).join('\n').substring(0, 8000);
+  }
+  // type === 'node'
+  let contentText = entity.content || '';
+  if (typeof contentText === 'string' && (contentText.startsWith('{') || contentText.startsWith('['))) {
+    try {
+      const parsed = JSON.parse(contentText);
+      contentText = parsed.description || parsed.point || parsed.explanation || parsed.argument || parsed.content || contentText;
+    } catch (e) { /* keep raw */ }
+  }
+  contentText = String(contentText).replace(/<[^>]+>/g, ' ');
+  return [entity.title, `[${entity.node_type || ''}]`, contentText].filter(Boolean).join('\n').substring(0, 8000);
+}
+
 // Helper: format thread record for API response
 function formatThread(props) {
   return {
@@ -221,6 +267,19 @@ app.post('/api/threads', requireAuth, async (req, res) => {
     );
 
     const thread = formatThread(result.records[0].get('t').properties);
+
+    // Generate embedding asynchronously (don't block response)
+    const embText = getEmbeddingText({ title, description, content }, 'thread');
+    if (embText.trim()) {
+      generateEmbedding(embText).then(embedding => {
+        if (embedding) {
+          const s = getDriver().session({ database: process.env.NEO4J_DATABASE });
+          s.run('MATCH (t:Thread {id: $id}) SET t.embedding = $embedding, t.embedding_text = $text', { id: getNeo4j().int(id), embedding, text: embText })
+            .finally(() => s.close());
+        }
+      }).catch(e => console.warn('Thread embedding failed:', e.message));
+    }
+
     res.json(thread);
   } catch (err) {
     console.error('Error creating thread:', err);
@@ -321,6 +380,19 @@ app.post('/api/threads/:threadId/nodes', requireAuth, async (req, res) => {
     await tx.commit();
 
     const node = formatNode(nodeResult.records[0].get('n').properties, resolvedParentId);
+
+    // Generate embedding asynchronously
+    const embText = getEmbeddingText({ title, content, node_type: normalizedNodeType }, 'node');
+    if (embText.trim()) {
+      generateEmbedding(embText).then(embedding => {
+        if (embedding) {
+          const s = getDriver().session({ database: process.env.NEO4J_DATABASE });
+          s.run('MATCH (n:Node {id: $id}) SET n.embedding = $embedding, n.embedding_text = $text', { id: getNeo4j().int(id), embedding, text: embText })
+            .finally(() => s.close());
+        }
+      }).catch(e => console.warn('Node embedding failed:', e.message));
+    }
+
     res.json(node);
   } catch (err) {
     await tx.rollback();
@@ -338,18 +410,51 @@ app.post('/api/threads/:threadId/nodes/batch', requireAuth, async (req, res) => 
   if (!Array.isArray(nodes) || nodes.length === 0) return res.status(400).json({ error: 'nodes array required' });
 
   const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+
+  // Fetch existing node titles for duplicate detection (before starting tx)
+  let existingTitles = [];
+  try {
+    const existingResult = await session.run(
+      'MATCH (t:Thread {id: $tid})-[:HAS_NODE]->(n:Node) RETURN n.title AS title',
+      { tid: getNeo4j().int(threadId) }
+    );
+    existingTitles = existingResult.records.map(r => (r.get('title') || '').toLowerCase().trim());
+  } catch (e) { /* ignore — proceed without dedup */ }
+
   const tx = session.beginTransaction();
   try {
+
     const createdNodes = [];
+    const duplicateSkipped = [];
     const now = new Date().toISOString();
     for (const n of nodes) {
+      // Duplicate detection: skip if title matches or is substring of existing
+      const candidateTitle = (n.title || '').toLowerCase().trim();
+      if (candidateTitle && existingTitles.some(et => et === candidateTitle || et.includes(candidateTitle) || candidateTitle.includes(et))) {
+        duplicateSkipped.push(n.title);
+        continue;
+      }
+      existingTitles.push(candidateTitle); // prevent intra-batch duplicates too
+
+      // Sanitize EVIDENCE source URLs
+      let content = n.content || '';
+      if (typeof content === 'string' && content.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(content);
+          if (parsed.source && typeof parsed.source === 'string') {
+            parsed.source = parsed.source.trim().replace(/[)\]}>]+$/, '');
+          }
+          content = JSON.stringify(parsed);
+        } catch (e) { /* keep as-is */ }
+      }
+
       const nodeType = typeof n.nodeType === 'number'
         ? ['ROOT','EVIDENCE','REFERENCE','CONTEXT','EXAMPLE','COUNTERPOINT','SYNTHESIS'][n.nodeType]
         : n.nodeType;
       const nid = await getNextId('node', tx);
       await tx.run(
         `CREATE (nd:Node { id:$id, title:$title, content:$content, node_type:$type, metadata:$meta, created_at:$now, updated_at:$now })`,
-        { id: getNeo4j().int(nid), title: n.title, content: n.content || '', type: nodeType, meta: JSON.stringify({ title: n.title }), now }
+        { id: getNeo4j().int(nid), title: n.title, content: content, type: nodeType, meta: JSON.stringify({ title: n.title }), now }
       );
       await tx.run(
         `MATCH (t:Thread {id:$tid}),(nd:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(nd)`,
@@ -361,12 +466,27 @@ app.post('/api/threads/:threadId/nodes/batch', requireAuth, async (req, res) => 
           { pid: getNeo4j().int(n.parentId), nid: getNeo4j().int(nid) }
         );
       }
-      createdNodes.push(formatNode({ id: nid, title: n.title, content: n.content || '', node_type: nodeType, created_at: now, updated_at: now, metadata: '{}' }, n.parentId || null));
+      createdNodes.push(formatNode({ id: nid, title: n.title, content: content, node_type: nodeType, created_at: now, updated_at: now, metadata: '{}' }, n.parentId || null));
     }
     await tx.commit();
-    res.json({ createdNodes });
+
+    // Generate embeddings asynchronously for all created nodes
+    for (const cn of createdNodes) {
+      const embText = getEmbeddingText({ title: cn.title, content: cn.content, node_type: cn.node_type }, 'node');
+      if (embText.trim()) {
+        generateEmbedding(embText).then(embedding => {
+          if (embedding) {
+            const s = getDriver().session({ database: process.env.NEO4J_DATABASE });
+            s.run('MATCH (n:Node {id: $id}) SET n.embedding = $embedding, n.embedding_text = $text', { id: getNeo4j().int(cn.id), embedding, text: embText })
+              .finally(() => s.close());
+          }
+        }).catch(e => console.warn('Batch node embedding failed:', e.message));
+      }
+    }
+
+    res.json({ createdNodes, duplicateSkipped });
   } catch (err) {
-    await tx.rollback();
+    try { await tx.rollback(); } catch (_) { /* connection may already be dead */ }
     console.error('Batch create error:', err);
     res.status(500).json({ error: err.message });
   } finally {
@@ -392,7 +512,21 @@ app.put('/api/threads/:threadId/nodes/:nodeId', requireAuth, async (req, res) =>
       { nodeId: getNeo4j().int(nodeId), title, content: content || '', metadata: metaStr, now }
     );
     if (!result.records.length) return res.status(404).json({ error: 'Node not found' });
-    const node = formatNode(result.records[0].get('n').properties, null);
+    const nodeProps = result.records[0].get('n').properties;
+    const node = formatNode(nodeProps, null);
+
+    // Regenerate embedding asynchronously
+    const embText = getEmbeddingText({ title, content, node_type: nodeProps.node_type }, 'node');
+    if (embText.trim()) {
+      generateEmbedding(embText).then(embedding => {
+        if (embedding) {
+          const s = getDriver().session({ database: process.env.NEO4J_DATABASE });
+          s.run('MATCH (n:Node {id: $id}) SET n.embedding = $embedding, n.embedding_text = $text', { id: getNeo4j().int(nodeId), embedding, text: embText })
+            .finally(() => s.close());
+        }
+      }).catch(e => console.warn('Node re-embedding failed:', e.message));
+    }
+
     res.json(node);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -627,6 +761,96 @@ app.get('/api/threads/search', async (req, res) => {
   }
 });
 
+// ── Admin: setup vector indexes ────────────────────────────────────────────────
+app.post('/api/admin/setup-indexes', requireAuth, async (req, res) => {
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run(`
+      CREATE VECTOR INDEX thread_embedding IF NOT EXISTS
+      FOR (t:Thread) ON (t.embedding)
+      OPTIONS {indexConfig: {
+        \`vector.dimensions\`: 1536,
+        \`vector.similarity_function\`: 'cosine'
+      }}
+    `);
+    await session.run(`
+      CREATE VECTOR INDEX node_embedding IF NOT EXISTS
+      FOR (n:Node) ON (n.embedding)
+      OPTIONS {indexConfig: {
+        \`vector.dimensions\`: 1536,
+        \`vector.similarity_function\`: 'cosine'
+      }}
+    `);
+    res.json({ ok: true, message: 'Vector indexes created' });
+  } catch (err) {
+    console.error('Setup indexes error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ── Admin: migrate existing content to embeddings (batch of 20) ────────────────
+app.post('/api/admin/migrate-embeddings', requireAuth, async (req, res) => {
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    // Find threads without embeddings
+    const threadResult = await session.run(
+      `MATCH (t:Thread) WHERE t.embedding IS NULL RETURN t LIMIT 20`
+    );
+    let threadCount = 0;
+    for (const record of threadResult.records) {
+      const props = record.get('t').properties;
+      const text = getEmbeddingText({ title: props.title, description: props.description, content: props.content }, 'thread');
+      if (!text.trim()) continue;
+      try {
+        const embedding = await generateEmbedding(text);
+        if (embedding) {
+          await session.run(
+            `MATCH (t:Thread {id: $id}) SET t.embedding = $embedding, t.embedding_text = $text`,
+            { id: props.id, embedding, text }
+          );
+          threadCount++;
+        }
+      } catch (e) { console.warn('Embedding failed for thread', toNum(props.id), e.message); }
+    }
+
+    // Find nodes without embeddings
+    const nodeResult = await session.run(
+      `MATCH (n:Node) WHERE n.embedding IS NULL RETURN n LIMIT 20`
+    );
+    let nodeCount = 0;
+    for (const record of nodeResult.records) {
+      const props = record.get('n').properties;
+      const text = getEmbeddingText({ title: props.title, content: props.content, node_type: props.node_type }, 'node');
+      if (!text.trim()) continue;
+      try {
+        const embedding = await generateEmbedding(text);
+        if (embedding) {
+          await session.run(
+            `MATCH (n:Node {id: $id}) SET n.embedding = $embedding, n.embedding_text = $text`,
+            { id: props.id, embedding, text }
+          );
+          nodeCount++;
+        }
+      } catch (e) { console.warn('Embedding failed for node', toNum(props.id), e.message); }
+    }
+
+    // Check remaining
+    const remaining = await session.run(
+      `MATCH (x) WHERE (x:Thread OR x:Node) AND x.embedding IS NULL RETURN count(x) AS remaining`
+    );
+    const remainingCount = toNum(remaining.records[0].get('remaining'));
+
+    res.json({ ok: true, threadsProcessed: threadCount, nodesProcessed: nodeCount, remaining: remainingCount });
+  } catch (err) {
+    console.error('Migrate embeddings error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
 // Create thread with GPT endpoint
 app.post('/api/threads/generate', requireAuth, async (req, res) => {
   const { topic } = req.body;
@@ -852,7 +1076,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 
     const systemMsg = {
       role: 'system',
-      content: `You are a research assistant helping build a knowledge graph. Be thorough and cite web sources for factual claims. Use markdown for structure. Highlight key evidence, concrete examples, and opposing viewpoints. Never open with conversational filler like "Certainly!", "Sure!", "Of course!", "I'd be happy to", or "Here is a...". Start immediately with the substantive content.${nodeContextText}`
+      content: `You are a research assistant helping build a knowledge graph. You have web search — USE IT proactively for every request. Be thorough and cite web sources for factual claims. Use markdown for structure with clickable [title](url) links for every source. Highlight key evidence, concrete examples, and opposing viewpoints. When asked for videos, search the web and return real URLs from search results — never guess or make up a URL. Never ask clarifying questions — just do the research immediately. Never open with conversational filler like "Certainly!", "Sure!", "Of course!", "I'd be happy to", or "Here is a...". Start immediately with the substantive content.${nodeContextText}`
     };
     const inputMsgs = [
       systemMsg,
@@ -918,6 +1142,21 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       }
     }
 
+    // Extract non-YouTube URLs from the reply text that aren't already in citations.
+    // YouTube URLs from reply text are skipped — LLMs fabricate video IDs.
+    // Only YouTube URLs from actual web search citations (url_citation) are trusted.
+    const urlRegex = /https?:\/\/[^\s)<>\]"']+/g;
+    const ytHostRegex = /^https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\//;
+    const citedUrls = new Set(citations.map(c => c.url));
+    const replyUrls = reply.match(urlRegex) || [];
+    for (const url of replyUrls) {
+      const clean = url.replace(/[.,;:!?)]+$/, '');
+      if (!citedUrls.has(clean) && !ytHostRegex.test(clean)) {
+        citedUrls.add(clean);
+        citations.push({ url: clean, title: clean });
+      }
+    }
+
     // Streaming complete — send reply + citations so client can call /api/chat/extract
     send({ type: 'done', reply, citations });
     closeStream();
@@ -938,18 +1177,27 @@ app.post('/api/chat/extract', requireAuth, async (req, res) => {
   if (!message || !reply) return res.status(400).json({ error: 'message and reply are required' });
 
   const OpenAI = require('openai');
-  const userOpenAI = new OpenAI({ apiKey: resolvedKey, timeout: 55000 });
+  const userOpenAI = new OpenAI({ apiKey: resolvedKey, timeout: 45000 });
   const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
 
   try {
-    // ── Step 1: Fetch current thread title ───────────────────────────────
+    // ── Step 1: Fetch thread title + existing node titles in one query ───
     let currentThreadTitle = '';
+    let existingNodeTitles = [];
     if (threadId) {
-      const tr = await session.run(
-        'MATCH (t:Thread {id: $id}) RETURN t.title AS title',
-        { id: getNeo4j().int(parseInt(threadId)) }
-      );
-      currentThreadTitle = tr.records[0]?.get('title') || '';
+      try {
+        const combinedResult = await session.run(
+          `MATCH (t:Thread {id: $tid})
+           OPTIONAL MATCH (t)-[:HAS_NODE]->(n:Node)
+           RETURN t.title AS threadTitle, collect(n.title) AS nodeTitles`,
+          { tid: getNeo4j().int(parseInt(threadId)) }
+        );
+        const rec = combinedResult.records[0];
+        if (rec) {
+          currentThreadTitle = rec.get('threadTitle') || '';
+          existingNodeTitles = (rec.get('nodeTitles') || []).filter(Boolean).slice(0, 50);
+        }
+      } catch (e) { /* ignore — proceed without */ }
     }
 
     // ── Step 2: Structure extraction ─────────────────────────────────────
@@ -984,21 +1232,22 @@ app.post('/api/chat/extract', requireAuth, async (req, res) => {
   ],
   "proposedUpdate": {
     "title": "improved node title (keep original if fine)",
-    "description": "Convert the COMPLETE Assistant response to HTML — preserve every heading, bullet point, bold term, and paragraph. Use <h3> for headings, <ul><li> for lists, <strong> for bold, <p> for paragraphs. Include ALL detail, do NOT shorten or omit anything."
+    "shouldUpdate": true
   } | null
 }
 Rules:
 - ALWAYS output exactly ONE ROOT node first — it represents the main idea of this exchange.
 - Create ONE EVIDENCE node for EVERY web citation provided — each citation must become its own EVIDENCE node with its URL as sourceUrl and the key fact it supports as content.
+- If YouTube URLs appear in the assistant response, preserve them as sourceUrl in EVIDENCE nodes.
 - Additionally create 0-2 higher-level nodes (CONTEXT, EXAMPLE, COUNTERPOINT, or SYNTHESIS) to capture broader insights.
 - All non-ROOT nodes are children of the ROOT node.
 - topicShift=true only when the user clearly switches to a completely different subject.
 - Do not skip citations — every URL must appear as a sourceUrl in some EVIDENCE node.
-- proposedUpdate: If a currentNode was provided, generate a proposedUpdate whenever the response adds useful information about the node's topic — for follow-up questions, integrate the new details with the existingContent into a richer unified article. Only omit if the response is completely unrelated to the node. Description MUST be HTML, not markdown.`
+- proposedUpdate: If a currentNode was provided, set shouldUpdate=true whenever the response adds useful information about the node's topic. Only omit if the response is completely unrelated to the node. Do NOT include a description field — just title and shouldUpdate.${existingNodeTitles.length > 0 ? `\n- EXISTING nodes (DO NOT duplicate): ${JSON.stringify(existingNodeTitles)}` : ''}`
           },
           {
             role: 'user',
-            content: `${currentThreadTitle ? `Thread: "${currentThreadTitle}"\n` : ''}User: ${message}\nAssistant: ${reply.substring(0, 8000)}\nCitations (ALL must become EVIDENCE nodes): ${JSON.stringify(incomingCitations)}${nodeContext ? `\ncurrentNode: ${JSON.stringify({ title: nodeContext.title, type: nodeContext.nodeType, existingContent: (nodeContext.content || '').substring(0, 600) })}` : ''}`
+            content: `${currentThreadTitle ? `Thread: "${currentThreadTitle}"\n` : ''}User: ${message}\nAssistant: ${reply.substring(0, 4000)}\nCitations (ALL must become EVIDENCE nodes): ${JSON.stringify(incomingCitations)}${nodeContext ? `\ncurrentNode: ${JSON.stringify({ title: nodeContext.title, type: nodeContext.nodeType, existingContent: (nodeContext.content || '').substring(0, 400) })}` : ''}`
           }
         ],
         response_format: { type: 'json_object' },
@@ -1008,6 +1257,23 @@ Rules:
       if (parsed && Array.isArray(parsed.nodes)) structure = parsed;
     } catch (e) {
       console.warn('Structure extraction failed:', e.message);
+    }
+
+    // Build proposedUpdate description locally from raw reply (instant, no LLM needed)
+    if (structure.proposedUpdate?.shouldUpdate && nodeContext) {
+      const htmlDesc = reply
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/^- (.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ul>${m}</ul>`)
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/^(?!<[hulo])(.+)$/gm, '<p>$1</p>');
+      structure.proposedUpdate.description = htmlDesc;
+    } else if (structure.proposedUpdate && !nodeContext) {
+      structure.proposedUpdate = null;
     }
 
     // ── Step 3: Create thread if needed, return nodes as proposals ───────
@@ -1051,7 +1317,7 @@ Rules:
       proposedNodes.push({ title: n.title, type: n.type, content: nodeContent });
     }
 
-    const proposedUpdate = (nodeContext && structure.proposedUpdate?.description)
+    const proposedUpdate = (nodeContext && structure.proposedUpdate?.description && structure.proposedUpdate?.shouldUpdate)
       ? { nodeId: nodeContext.nodeId, nodeType: nodeContext.nodeType, title: structure.proposedUpdate.title || nodeContext.title, description: structure.proposedUpdate.description }
       : null;
 
@@ -1596,6 +1862,1278 @@ app.put('/api/chats/:chatId', requireAuth, async (req, res) => {
     if (!result.records.length) return res.status(404).json({ error: 'Chat not found' });
     const p = result.records[0].get('c').properties;
     res.json({ id: toNum(p.id), title: p.title, updated_at: p.updated_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 2: Semantic Search
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Semantic search across threads and nodes
+app.get('/api/search/semantic', async (req, res) => {
+  const { q, limit = 20 } = req.query;
+  if (!q) return res.status(400).json({ error: 'Query required' });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const k = Math.min(parseInt(limit), 50);
+    let threads = [];
+    let nodes = [];
+
+    // Try vector search first
+    const queryEmbedding = await generateEmbedding(q).catch(() => null);
+    if (queryEmbedding) {
+      const threadResults = await vectorQuery(session, 'thread_embedding', k, queryEmbedding);
+      threads = threadResults.records.map(r => ({
+        ...formatThread(r.get('node').properties),
+        relevance: r.get('score'),
+      }));
+
+      const nodeVectorResults = await vectorQuery(session, 'node_embedding', k, queryEmbedding);
+      if (nodeVectorResults.records.length > 0) {
+        const nodeIds = nodeVectorResults.records.map(r => r.get('node').properties.id);
+        const scoreMap = {};
+        nodeVectorResults.records.forEach(r => { scoreMap[String(r.get('node').properties.id)] = r.get('score'); });
+        const nodeResults = await session.run(
+          `MATCH (t:Thread)-[:HAS_NODE]->(n:Node) WHERE n.id IN $ids RETURN n, t.id AS threadId, t.title AS threadTitle`,
+          { ids: nodeIds }
+        );
+        nodes = nodeResults.records.map(r => ({
+          ...formatNode(r.get('n').properties, null),
+          relevance: scoreMap[String(r.get('n').properties.id)] || 0,
+          threadId: toNum(r.get('threadId')),
+          threadTitle: r.get('threadTitle'),
+        }));
+        nodes.sort((a, b) => b.relevance - a.relevance);
+      }
+    }
+
+    // Fallback: text-based search when vector returns nothing
+    if (threads.length === 0 && nodes.length === 0) {
+      const words = q.split(/\s+/).filter(w => w.length > 2);
+      const pattern = `(?i).*${words.join('.*')}.*`;
+      const textThreads = await session.run(
+        `MATCH (t:Thread) WHERE t.title =~ $pat OR t.description =~ $pat OR t.content =~ $pat RETURN t LIMIT $k`,
+        { pat: pattern, k: getNeo4j().int(k) }
+      );
+      threads = textThreads.records.map(r => ({
+        ...formatThread(r.get('t').properties),
+        relevance: 0.5,
+      }));
+      const textNodes = await session.run(
+        `MATCH (t:Thread)-[:HAS_NODE]->(n:Node) WHERE n.title =~ $pat OR n.content =~ $pat OR n.embedding_text =~ $pat RETURN n, t.id AS threadId, t.title AS threadTitle LIMIT $k`,
+        { pat: pattern, k: getNeo4j().int(k) }
+      );
+      nodes = textNodes.records.map(r => ({
+        ...formatNode(r.get('n').properties, null),
+        relevance: 0.5,
+        threadId: toNum(r.get('threadId')),
+        threadTitle: r.get('threadTitle'),
+      }));
+    }
+
+    res.json({ threads, nodes });
+  } catch (err) {
+    console.error('Semantic search error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Q&A synthesis — find relevant nodes and synthesize an answer
+app.post('/api/search/answer', requireAuth, aiTimeout, async (req, res) => {
+  const { question } = req.body;
+  if (!question) return res.status(400).json({ error: 'Question required' });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const queryEmbedding = await generateEmbedding(question);
+    if (!queryEmbedding) return res.json({ answer: 'No embeddings available yet.', sources: [] });
+
+    const vectorResults = await vectorQuery(session, 'node_embedding', 10, queryEmbedding);
+    if (!vectorResults.records.length) return res.json({ answer: 'No relevant knowledge found in your threads.', sources: [] });
+
+    // Filter by score > 0.3 and join with thread
+    const goodNodeIds = vectorResults.records.filter(r => r.get('score') > 0.3).map(r => r.get('node').properties.id);
+    if (!goodNodeIds.length) return res.json({ answer: 'No relevant knowledge found in your threads.', sources: [] });
+    const scoreMap = {};
+    vectorResults.records.forEach(r => { scoreMap[String(r.get('node').properties.id)] = r.get('score'); });
+
+    const results = await session.run(
+      `MATCH (t:Thread)-[:HAS_NODE]->(node:Node) WHERE node.id IN $ids RETURN node, t.id AS threadId, t.title AS threadTitle`,
+      { ids: goodNodeIds }
+    );
+
+    if (!results.records.length) return res.json({ answer: 'No relevant knowledge found in your threads.', sources: [] });
+
+    const context = results.records.map(r => {
+      const p = r.get('node').properties;
+      let c = String(p.content || '');
+      try { const parsed = JSON.parse(c); c = parsed.description || parsed.point || parsed.explanation || c; } catch (e) {}
+      c = c.replace(/<[^>]+>/g, ' ').substring(0, 500);
+      return `[${p.node_type}] "${p.title}" (Thread: ${r.get('threadTitle')}): ${c}`;
+    }).join('\n\n');
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: 'Answer the question using ONLY the provided knowledge base excerpts. Cite sources by thread name. If the knowledge base doesn\'t contain enough information, say so.' },
+        { role: 'user', content: `Question: ${question}\n\nKnowledge base:\n${context}` }
+      ],
+    });
+
+    const sources = results.records.map(r => ({
+      nodeId: toNum(r.get('node').properties.id),
+      nodeTitle: r.get('node').properties.title,
+      threadId: toNum(r.get('threadId')),
+      threadTitle: r.get('threadTitle'),
+      relevance: scoreMap[String(r.get('node').properties.id)] || 0,
+    }));
+
+    res.json({ answer: completion.choices[0].message.content, sources });
+  } catch (err) {
+    console.error('Q&A synthesis error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Related threads by embedding similarity
+app.get('/api/threads/:threadId/related', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const threadResult = await session.run(
+      'MATCH (t:Thread {id: $id}) RETURN t.embedding AS embedding',
+      { id: getNeo4j().int(threadId) }
+    );
+    const embedding = threadResult.records[0]?.get('embedding');
+    if (!embedding) return res.json([]);
+
+    const results = await vectorQuery(session, 'thread_embedding', 6, embedding);
+    const related = results.records
+      .filter(r => toNum(r.get('node').properties.id) !== threadId)
+      .slice(0, 5)
+      .map(r => ({
+        ...formatThread(r.get('node').properties),
+        relevance: r.get('score'),
+      }));
+    res.json(related);
+  } catch (err) {
+    console.error('Related threads error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Random thread for "Surprise me"
+app.get('/api/threads/random', async (req, res) => {
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      'MATCH (t:Thread) WITH t, rand() AS r ORDER BY r LIMIT 1 RETURN t'
+    );
+    if (!result.records.length) return res.status(404).json({ error: 'No threads found' });
+    res.json(formatThread(result.records[0].get('t').properties));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Find contradictions across threads
+app.post('/api/search/contradictions', requireAuth, aiTimeout, async (req, res) => {
+  const { threadId } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    // Get thread's nodes with embeddings
+    const nodesResult = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+       WHERE n.embedding IS NOT NULL
+       RETURN n LIMIT 10`,
+      { threadId: getNeo4j().int(parseInt(threadId)) }
+    );
+
+    const contradictions = [];
+    for (const record of nodesResult.records) {
+      const nodeProps = record.get('n').properties;
+      const embedding = nodeProps.embedding;
+      if (!embedding) continue;
+
+      // Find similar nodes in OTHER threads
+      const vectorRes = await vectorQuery(session, 'node_embedding', 5, embedding);
+      const candidateIds = vectorRes.records
+        .filter(r => r.get('score') > 0.5 && String(r.get('node').properties.id) !== String(nodeProps.id))
+        .map(r => r.get('node').properties.id);
+      const simScoreMap = {};
+      vectorRes.records.forEach(r => { simScoreMap[String(r.get('node').properties.id)] = r.get('score'); });
+
+      let similarRecords = [];
+      if (candidateIds.length > 0) {
+        const similar = await session.run(
+          `MATCH (t:Thread)-[:HAS_NODE]->(node:Node) WHERE node.id IN $ids AND t.id <> $threadId RETURN node, t.id AS threadId, t.title AS threadTitle`,
+          { ids: candidateIds, threadId: getNeo4j().int(parseInt(threadId)) }
+        );
+        similarRecords = similar.records;
+      }
+
+      for (const r of similarRecords) {
+        contradictions.push({
+          sourceNode: { id: toNum(nodeProps.id), title: nodeProps.title, node_type: nodeProps.node_type },
+          similarNode: { id: toNum(r.get('node').properties.id), title: r.get('node').properties.title, node_type: r.get('node').properties.node_type },
+          threadId: toNum(r.get('threadId')),
+          threadTitle: r.get('threadTitle'),
+          similarity: simScoreMap[String(r.get('node').properties.id)] || 0,
+        });
+      }
+    }
+    res.json({ contradictions: contradictions.slice(0, 20) });
+  } catch (err) {
+    console.error('Contradictions error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 3: Cross-Thread Knowledge Web
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Create cross-thread link
+app.post('/api/links', requireAuth, async (req, res) => {
+  const { sourceNodeId, targetNodeId, type, description, confidence, status } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const id = await getNextId('link', session);
+    const now = new Date().toISOString();
+    await session.run(
+      `MATCH (a:Node {id: $src}), (b:Node {id: $tgt})
+       CREATE (a)-[:RELATED_TO {id: $id, type: $type, description: $desc, confidence: $conf, status: $status, created_at: $now, created_by: $user}]->(b)`,
+      {
+        src: getNeo4j().int(sourceNodeId), tgt: getNeo4j().int(targetNodeId),
+        id: getNeo4j().int(id), type: type || 'related', desc: description || '',
+        conf: confidence || 0.5, status: status || 'accepted', now, user: 'user'
+      }
+    );
+    res.json({ id, sourceNodeId, targetNodeId, type, description, confidence, status: status || 'accepted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Get cross-thread links for a node
+app.get('/api/nodes/:nodeId/links', async (req, res) => {
+  const nodeId = parseInt(req.params.nodeId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (n:Node {id: $nodeId})-[r:RELATED_TO]-(other:Node)
+       MATCH (t:Thread)-[:HAS_NODE]->(other)
+       RETURN r, other, t.id AS threadId, t.title AS threadTitle,
+              CASE WHEN startNode(r) = n THEN 'outgoing' ELSE 'incoming' END AS direction`,
+      { nodeId: getNeo4j().int(nodeId) }
+    );
+    const links = result.records.map(r => ({
+      id: toNum(r.get('r').properties.id),
+      type: r.get('r').properties.type,
+      description: r.get('r').properties.description,
+      confidence: r.get('r').properties.confidence,
+      status: r.get('r').properties.status,
+      direction: r.get('direction'),
+      otherNode: { id: toNum(r.get('other').properties.id), title: r.get('other').properties.title, node_type: r.get('other').properties.node_type },
+      threadId: toNum(r.get('threadId')),
+      threadTitle: r.get('threadTitle'),
+    }));
+    res.json(links);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Delete a cross-thread link
+app.delete('/api/links/:linkId', requireAuth, async (req, res) => {
+  const linkId = parseInt(req.params.linkId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run('MATCH ()-[r:RELATED_TO {id: $id}]-() DELETE r', { id: getNeo4j().int(linkId) });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Update link status (accept/reject AI suggestion)
+app.put('/api/links/:linkId', requireAuth, async (req, res) => {
+  const linkId = parseInt(req.params.linkId);
+  const { status } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run('MATCH ()-[r:RELATED_TO {id: $id}]-() SET r.status = $status', { id: getNeo4j().int(linkId), status });
+    res.json({ ok: true, status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// AI suggest cross-thread links
+app.post('/api/links/suggest', requireAuth, aiTimeout, async (req, res) => {
+  const { threadId } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const nodesResult = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) WHERE n.embedding IS NOT NULL RETURN n LIMIT 10`,
+      { threadId: getNeo4j().int(parseInt(threadId)) }
+    );
+
+    const suggestions = [];
+    for (const record of nodesResult.records) {
+      const nodeProps = record.get('n').properties;
+      const embedding = nodeProps.embedding;
+      if (!embedding) continue;
+
+      const vectorRes2 = await vectorQuery(session, 'node_embedding', 5, embedding);
+      const goodCandidates = vectorRes2.records
+        .filter(r => r.get('score') > 0.6 && String(r.get('node').properties.id) !== String(nodeProps.id))
+        .slice(0, 3);
+      const candidateIds2 = goodCandidates.map(r => r.get('node').properties.id);
+      const scoreMap2 = {};
+      goodCandidates.forEach(r => { scoreMap2[String(r.get('node').properties.id)] = r.get('score'); });
+
+      let linkCandidateRecords = [];
+      if (candidateIds2.length > 0) {
+        const similar = await session.run(
+          `MATCH (t:Thread)-[:HAS_NODE]->(node:Node)
+           WHERE node.id IN $ids AND t.id <> $threadId
+           OPTIONAL MATCH (n2:Node {id: $nodeId})-[existing:RELATED_TO]-(node)
+           WITH node, t, existing WHERE existing IS NULL
+           RETURN node, t.id AS threadId, t.title AS threadTitle`,
+          { ids: candidateIds2, nodeId: nodeProps.id, threadId: getNeo4j().int(parseInt(threadId)) }
+        );
+        linkCandidateRecords = similar.records;
+      }
+
+      for (const r of linkCandidateRecords) {
+        suggestions.push({
+          sourceNodeId: toNum(nodeProps.id),
+          sourceNodeTitle: nodeProps.title,
+          targetNodeId: toNum(r.get('node').properties.id),
+          targetNodeTitle: r.get('node').properties.title,
+          targetNodeType: r.get('node').properties.node_type,
+          threadId: toNum(r.get('threadId')),
+          threadTitle: r.get('threadTitle'),
+          similarity: scoreMap2[String(r.get('node').properties.id)] || 0,
+        });
+      }
+    }
+    res.json({ suggestions: suggestions.slice(0, 15) });
+  } catch (err) {
+    console.error('Link suggest error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Global graph summary
+app.get('/api/graph/global/summary', async (req, res) => {
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (t:Thread)
+       OPTIONAL MATCH (t)-[:HAS_NODE]->(n:Node)
+       OPTIONAL MATCH (n)-[r:RELATED_TO]->(other:Node)<-[:HAS_NODE]-(t2:Thread)
+       WHERE t2 <> t
+       WITH t, count(DISTINCT n) AS nodeCount, count(DISTINCT r) AS crossLinkCount,
+            collect(DISTINCT t2.id) AS linkedThreadIds
+       RETURN t, nodeCount, crossLinkCount, linkedThreadIds ORDER BY t.created_at DESC`
+    );
+    const threads = result.records.map(r => ({
+      ...formatThread(r.get('t').properties),
+      nodeCount: toNum(r.get('nodeCount')),
+      crossLinkCount: toNum(r.get('crossLinkCount')),
+      linkedThreadIds: r.get('linkedThreadIds').map(id => toNum(id)),
+    }));
+    res.json(threads);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Concept CRUD
+app.get('/api/concepts', async (req, res) => {
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (c:Concept) OPTIONAL MATCH (n:Node)-[:HAS_CONCEPT]->(c) RETURN c, count(n) AS usageCount ORDER BY usageCount DESC`
+    );
+    const concepts = result.records.map(r => ({
+      id: toNum(r.get('c').properties.id),
+      name: r.get('c').properties.name,
+      aliases: r.get('c').properties.aliases ? JSON.parse(r.get('c').properties.aliases) : [],
+      usageCount: toNum(r.get('usageCount')),
+    }));
+    res.json(concepts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get('/api/concepts/:id/nodes', async (req, res) => {
+  const conceptId = parseInt(req.params.id);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (n:Node)-[:HAS_CONCEPT]->(c:Concept {id: $id})
+       MATCH (t:Thread)-[:HAS_NODE]->(n)
+       RETURN n, t.id AS threadId, t.title AS threadTitle`,
+      { id: getNeo4j().int(conceptId) }
+    );
+    const nodes = result.records.map(r => ({
+      ...formatNode(r.get('n').properties, null),
+      threadId: toNum(r.get('threadId')),
+      threadTitle: r.get('threadTitle'),
+    }));
+    res.json(nodes);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Extract concepts from a node
+app.post('/api/concepts/extract', requireAuth, aiTimeout, async (req, res) => {
+  const { nodeId } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const nodeResult = await session.run('MATCH (n:Node {id: $id}) RETURN n', { id: getNeo4j().int(parseInt(nodeId)) });
+    if (!nodeResult.records.length) return res.status(404).json({ error: 'Node not found' });
+    const nodeProps = nodeResult.records[0].get('n').properties;
+
+    let contentText = String(nodeProps.content || '');
+    try { const p = JSON.parse(contentText); contentText = p.description || p.point || p.explanation || contentText; } catch (e) {}
+    contentText = contentText.replace(/<[^>]+>/g, ' ').substring(0, 2000);
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'Extract 2-5 key concept tags from the given content. Return JSON: { "concepts": ["concept1", "concept2", ...] }. Concepts should be general academic/domain terms (e.g., "machine learning", "cognitive bias"), not specific claims.' },
+        { role: 'user', content: `Title: "${nodeProps.title}"\nContent: ${contentText}` }
+      ],
+    });
+    const { concepts = [] } = JSON.parse(completion.choices[0].message.content);
+
+    const created = [];
+    for (const name of concepts.slice(0, 5)) {
+      const normalized = name.toLowerCase().trim();
+      if (!normalized) continue;
+      // MERGE concept and create relationship
+      await session.run(
+        `MERGE (c:Concept {name: $name})
+         ON CREATE SET c.id = randomUUID(), c.aliases = '[]', c.created_at = $now
+         WITH c
+         MATCH (n:Node {id: $nodeId})
+         MERGE (n)-[:HAS_CONCEPT]->(c)`,
+        { name: normalized, now: new Date().toISOString(), nodeId: getNeo4j().int(parseInt(nodeId)) }
+      );
+      created.push(normalized);
+    }
+    res.json({ concepts: created });
+  } catch (err) {
+    console.error('Concept extraction error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 4: Spaced Repetition & Active Recall
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function sm2(quality, repetitions, easiness, interval) {
+  let newEF = easiness + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+  if (newEF < 1.3) newEF = 1.3;
+  if (quality < 3) return { easiness: newEF, interval: 1, repetitions: 0 };
+  const newReps = repetitions + 1;
+  const newInterval = newReps === 1 ? 1 : newReps === 2 ? 6 : Math.round(interval * newEF);
+  return { easiness: newEF, interval: newInterval, repetitions: newReps };
+}
+
+// Initialize review for thread's nodes
+app.post('/api/review/init', requireAuth, async (req, res) => {
+  const { threadId } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const now = new Date().toISOString().split('T')[0];
+    await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+       WHERE n.review_due_date IS NULL
+       SET n.review_easiness = 2.5, n.review_interval = 0, n.review_repetitions = 0,
+           n.review_due_date = $now, n.review_last_date = null, n.review_quality = null`,
+      { threadId: getNeo4j().int(parseInt(threadId)), now }
+    );
+    const count = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) WHERE n.review_due_date IS NOT NULL RETURN count(n) AS c`,
+      { threadId: getNeo4j().int(parseInt(threadId)) }
+    );
+    res.json({ ok: true, reviewableNodes: toNum(count.records[0].get('c')) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Get nodes due for review
+app.get('/api/review/due', async (req, res) => {
+  const { threadId } = req.query;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    let query, params;
+    if (threadId) {
+      query = `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+               WHERE n.review_due_date IS NOT NULL AND n.review_due_date <= $today
+               RETURN n ORDER BY n.review_due_date ASC`;
+      params = { threadId: getNeo4j().int(parseInt(threadId)), today };
+    } else {
+      query = `MATCH (n:Node) WHERE n.review_due_date IS NOT NULL AND n.review_due_date <= $today
+               RETURN n ORDER BY n.review_due_date ASC LIMIT 50`;
+      params = { today };
+    }
+    const result = await session.run(query, params);
+    const nodes = result.records.map(r => formatNode(r.get('n').properties, null));
+    res.json(nodes);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Submit review quality rating
+app.post('/api/review/submit', requireAuth, async (req, res) => {
+  const { nodeId, quality } = req.body; // quality: 0-5
+  if (quality < 0 || quality > 5) return res.status(400).json({ error: 'Quality must be 0-5' });
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const nodeResult = await session.run('MATCH (n:Node {id: $id}) RETURN n', { id: getNeo4j().int(parseInt(nodeId)) });
+    if (!nodeResult.records.length) return res.status(404).json({ error: 'Node not found' });
+    const props = nodeResult.records[0].get('n').properties;
+
+    const currentEasiness = props.review_easiness || 2.5;
+    const currentInterval = props.review_interval ? toNum(props.review_interval) : 0;
+    const currentReps = props.review_repetitions ? toNum(props.review_repetitions) : 0;
+
+    const result = sm2(quality, currentReps, currentEasiness, currentInterval);
+    const today = new Date();
+    const dueDate = new Date(today);
+    dueDate.setDate(dueDate.getDate() + result.interval);
+
+    await session.run(
+      `MATCH (n:Node {id: $id})
+       SET n.review_easiness = $easiness, n.review_interval = $interval,
+           n.review_repetitions = $reps, n.review_due_date = $due,
+           n.review_last_date = $last, n.review_quality = $quality`,
+      {
+        id: getNeo4j().int(parseInt(nodeId)),
+        easiness: result.easiness, interval: getNeo4j().int(result.interval),
+        reps: getNeo4j().int(result.repetitions),
+        due: dueDate.toISOString().split('T')[0],
+        last: today.toISOString().split('T')[0],
+        quality: getNeo4j().int(quality),
+      }
+    );
+    res.json({ ...result, dueDate: dueDate.toISOString().split('T')[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Review stats
+app.get('/api/review/stats', async (req, res) => {
+  const { threadId } = req.query;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    let query, params;
+    if (threadId) {
+      query = `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+               WITH count(n) AS total,
+                    count(CASE WHEN n.review_due_date IS NOT NULL THEN 1 END) AS reviewable,
+                    count(CASE WHEN n.review_due_date <= $today AND n.review_due_date IS NOT NULL THEN 1 END) AS due,
+                    count(CASE WHEN n.review_repetitions >= 5 THEN 1 END) AS mastered,
+                    count(CASE WHEN n.review_last_date IS NOT NULL THEN 1 END) AS reviewed
+               RETURN total, reviewable, due, mastered, reviewed`;
+      params = { threadId: getNeo4j().int(parseInt(threadId)), today };
+    } else {
+      query = `MATCH (n:Node)
+               WITH count(n) AS total,
+                    count(CASE WHEN n.review_due_date IS NOT NULL THEN 1 END) AS reviewable,
+                    count(CASE WHEN n.review_due_date <= $today AND n.review_due_date IS NOT NULL THEN 1 END) AS due,
+                    count(CASE WHEN n.review_repetitions >= 5 THEN 1 END) AS mastered,
+                    count(CASE WHEN n.review_last_date IS NOT NULL THEN 1 END) AS reviewed
+               RETURN total, reviewable, due, mastered, reviewed`;
+      params = { today };
+    }
+    const result = await session.run(query, params);
+    const r = result.records[0];
+    res.json({
+      total: toNum(r.get('total')),
+      reviewable: toNum(r.get('reviewable')),
+      due: toNum(r.get('due')),
+      mastered: toNum(r.get('mastered')),
+      reviewed: toNum(r.get('reviewed')),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Knowledge decay percentages for graph visualization
+app.get('/api/review/decay', async (req, res) => {
+  const { threadId } = req.query;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+       WHERE n.review_due_date IS NOT NULL
+       RETURN n.id AS id, n.review_due_date AS due, n.review_interval AS interval, n.review_easiness AS easiness`,
+      { threadId: getNeo4j().int(parseInt(threadId)) }
+    );
+    const today = new Date();
+    const decay = result.records.map(r => {
+      const due = new Date(r.get('due'));
+      const interval = toNum(r.get('interval')) || 1;
+      const daysSinceDue = Math.max(0, (today - due) / (1000 * 60 * 60 * 24));
+      const decayPercent = Math.min(100, Math.round((daysSinceDue / Math.max(interval, 1)) * 100));
+      return { nodeId: toNum(r.get('id')), decayPercent, daysSinceDue: Math.round(daysSinceDue) };
+    });
+    res.json(decay);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// AI quiz generation
+app.post('/api/review/quiz', requireAuth, aiTimeout, async (req, res) => {
+  const { nodeId, quizType } = req.body; // quizType: 'recall' | 'steelman'
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const nodeResult = await session.run('MATCH (n:Node {id: $id}) RETURN n', { id: getNeo4j().int(parseInt(nodeId)) });
+    if (!nodeResult.records.length) return res.status(404).json({ error: 'Node not found' });
+    const props = nodeResult.records[0].get('n').properties;
+
+    let contentText = String(props.content || '');
+    try { const p = JSON.parse(contentText); contentText = p.description || p.point || p.explanation || p.argument || contentText; } catch (e) {}
+    contentText = contentText.replace(/<[^>]+>/g, ' ').substring(0, 1000);
+
+    const openai = getOpenAI();
+    const prompt = quizType === 'steelman'
+      ? `Create a steelman challenge for this COUNTERPOINT. Ask the user to rewrite it in its strongest form. Return JSON: { "question": "<challenge text>", "hint": "<what a strong version should include>", "idealAnswer": "<a model steelmanned version>" }`
+      : `Create a recall quiz question about this knowledge node. Return JSON: { "question": "<question testing recall of key facts>", "hint": "<a helpful hint>", "idealAnswer": "<the correct detailed answer>" }`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 0.6,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: `[${props.node_type}] "${props.title}": ${contentText}` }
+      ],
+    });
+    res.json(JSON.parse(completion.choices[0].message.content));
+  } catch (err) {
+    console.error('Quiz generation error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 5: PDF/Article Ingestion Pipeline
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// URL ingestion
+app.post('/api/ingest/url', requireAuth, aiTimeout, async (req, res) => {
+  const { url, threadId } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL required' });
+
+  try {
+    // Fetch and extract text from URL
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 10000);
+    const pageRes = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CanonThread/1.0)' },
+    });
+    clearTimeout(tid);
+    if (!pageRes.ok) return res.status(400).json({ error: `Failed to fetch URL: ${pageRes.status}` });
+
+    const html = await pageRes.text();
+    const text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 12000);
+
+    if (!text || text.length < 100) return res.status(400).json({ error: 'Could not extract meaningful text from URL' });
+
+    // Extract title from HTML
+    const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
+    const pageTitle = titleMatch ? titleMatch[1].trim() : url;
+
+    // Use GPT to extract structured nodes
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 0.3,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `Extract structured knowledge nodes from a web article. Return JSON:
+{
+  "title": "article title",
+  "summary": "2-3 sentence summary",
+  "nodes": [
+    { "type": "ROOT", "title": "main claim/topic", "content": "comprehensive summary" },
+    { "type": "EVIDENCE|EXAMPLE|CONTEXT|COUNTERPOINT|SYNTHESIS|REFERENCE", "title": "concise title", "content": "the insight or fact", "sourceUrl": "${url}" }
+  ]
+}
+Create 3-8 nodes. ROOT first, then supporting nodes.`
+        },
+        { role: 'user', content: `Extract knowledge from:\nURL: ${url}\nTitle: ${pageTitle}\n\nContent:\n${text}` }
+      ],
+    });
+    const extracted = JSON.parse(completion.choices[0].message.content);
+
+    // Build proposed nodes
+    const proposedNodes = (extracted.nodes || []).map(n => {
+      let nodeContent = n.content || '';
+      if (n.type === 'EVIDENCE' && n.sourceUrl) nodeContent = JSON.stringify({ point: n.content, source: n.sourceUrl });
+      else if (n.type === 'EXAMPLE') nodeContent = JSON.stringify({ title: n.title, description: n.content });
+      else if (n.type === 'COUNTERPOINT') nodeContent = JSON.stringify({ argument: n.title, explanation: n.content });
+      else if (n.type === 'ROOT') nodeContent = JSON.stringify({ title: n.title, description: n.content });
+      return { title: n.title, type: n.type, content: nodeContent };
+    });
+
+    res.json({
+      title: extracted.title || pageTitle,
+      summary: extracted.summary || '',
+      sourceUrl: url,
+      proposedNodes,
+      threadId: threadId || null,
+    });
+  } catch (err) {
+    console.error('URL ingestion error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PDF ingestion
+app.post('/api/ingest/pdf', requireAuth, aiTimeout, async (req, res) => {
+  try {
+    // Handle base64-encoded PDF from frontend
+    const { pdfBase64, filename, threadId } = req.body;
+    if (!pdfBase64) return res.status(400).json({ error: 'PDF data required' });
+
+    let PDFParse;
+    try {
+      const pdfParse = require('pdf-parse');
+      PDFParse = pdfParse.PDFParse || pdfParse.default?.PDFParse || pdfParse;
+    } catch (e) {
+      return res.status(500).json({ error: 'pdf-parse not installed. Run: npm install pdf-parse' });
+    }
+
+    const buffer = Buffer.from(pdfBase64, 'base64');
+    const parser = new PDFParse({ data: buffer });
+    let data;
+    try {
+      data = await parser.getText();
+    } finally {
+      await parser.destroy().catch(() => {});
+    }
+    const text = (data?.text || data || '').toString().substring(0, 12000);
+    const pageCount = data?.total || 0;
+
+    if (!text || text.length < 50) return res.status(400).json({ error: 'Could not extract text from PDF' });
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 0.3,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `Extract structured knowledge nodes from a PDF document. Return JSON:
+{
+  "title": "document title",
+  "summary": "2-3 sentence summary",
+  "nodes": [
+    { "type": "ROOT", "title": "main claim/topic", "content": "comprehensive summary" },
+    { "type": "EVIDENCE|EXAMPLE|CONTEXT|COUNTERPOINT|SYNTHESIS|REFERENCE", "title": "concise title", "content": "the insight or fact" }
+  ]
+}
+Create 3-8 nodes. ROOT first, then supporting nodes.`
+        },
+        { role: 'user', content: `Extract knowledge from PDF "${filename || 'document'}":\n\n${text}` }
+      ],
+    });
+    const extracted = JSON.parse(completion.choices[0].message.content);
+
+    const proposedNodes = (extracted.nodes || []).map(n => {
+      let nodeContent = n.content || '';
+      if (n.type === 'ROOT') nodeContent = JSON.stringify({ title: n.title, description: n.content });
+      else if (n.type === 'EXAMPLE') nodeContent = JSON.stringify({ title: n.title, description: n.content });
+      else if (n.type === 'COUNTERPOINT') nodeContent = JSON.stringify({ argument: n.title, explanation: n.content });
+      return { title: n.title, type: n.type, content: nodeContent };
+    });
+
+    res.json({
+      title: extracted.title || filename || 'PDF Document',
+      summary: extracted.summary || '',
+      proposedNodes,
+      threadId: threadId || null,
+      pageCount,
+      truncated: (data.text || '').length > 12000,
+    });
+  } catch (err) {
+    console.error('PDF ingestion error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bookmarks CRUD
+app.get('/api/bookmarks', requireAuth, async (req, res) => {
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (b:Bookmark) RETURN b ORDER BY b.created_at DESC`
+    );
+    const bookmarks = result.records.map(r => {
+      const p = r.get('b').properties;
+      return { id: toNum(p.id), url: p.url, title: p.title, notes: p.notes, status: p.status, source_type: p.source_type, created_at: p.created_at };
+    });
+    res.json(bookmarks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.post('/api/bookmarks', requireAuth, async (req, res) => {
+  const { url, title, notes, source_type } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const id = await getNextId('bookmark', session);
+    const now = new Date().toISOString();
+    await session.run(
+      `CREATE (b:Bookmark {id: $id, url: $url, title: $title, notes: $notes, status: 'unread', source_type: $type, created_at: $now})`,
+      { id: getNeo4j().int(id), url: url || '', title: title || url || '', notes: notes || '', type: source_type || 'url', now }
+    );
+    res.json({ id, url, title: title || url, notes, status: 'unread', source_type: source_type || 'url', created_at: now });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.put('/api/bookmarks/:id', requireAuth, async (req, res) => {
+  const bookmarkId = parseInt(req.params.id);
+  const { status, notes, title } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const sets = [];
+    const params = { id: getNeo4j().int(bookmarkId) };
+    if (status !== undefined) { sets.push('b.status = $status'); params.status = status; }
+    if (notes !== undefined) { sets.push('b.notes = $notes'); params.notes = notes; }
+    if (title !== undefined) { sets.push('b.title = $title'); params.title = title; }
+    if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+    await session.run(`MATCH (b:Bookmark {id: $id}) SET ${sets.join(', ')}`, params);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.delete('/api/bookmarks/:id', requireAuth, async (req, res) => {
+  const bookmarkId = parseInt(req.params.id);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run('MATCH (b:Bookmark {id: $id}) DELETE b', { id: getNeo4j().int(bookmarkId) });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Bibliography generation
+app.post('/api/threads/:threadId/bibliography', requireAuth, aiTimeout, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { format } = req.body; // 'apa' | 'chicago' | 'mla'
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+       WHERE n.node_type = 'EVIDENCE' OR n.node_type = 'REFERENCE'
+       RETURN n`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+
+    const sources = result.records.map(r => {
+      const p = r.get('n').properties;
+      let source = '';
+      try { const parsed = JSON.parse(p.content); source = parsed.source || parsed.url || ''; } catch (e) {}
+      return { title: p.title, source, content: p.content };
+    }).filter(s => s.source);
+
+    if (!sources.length) return res.json({ bibliography: 'No sources found.' });
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 0.1,
+      messages: [
+        { role: 'system', content: `Format the following sources as a bibliography in ${format || 'APA'} style. Return the formatted bibliography as plain text.` },
+        { role: 'user', content: sources.map(s => `Title: ${s.title}\nURL: ${s.source}`).join('\n\n') }
+      ],
+    });
+    res.json({ bibliography: completion.choices[0].message.content, sourceCount: sources.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 6: Confidence History & Timeline
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Create snapshot
+app.post('/api/threads/:threadId/snapshots', requireAuth, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { trigger, triggerDetail } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    // Get current thread state
+    const nodesResult = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+       OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
+       RETURN n, parent.id AS parentId`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+    const nodeData = nodesResult.records.map(r => {
+      const p = r.get('n').properties;
+      return { id: toNum(p.id), title: p.title, content: p.content, node_type: p.node_type, parentId: toNum(r.get('parentId')) };
+    });
+    const edgeData = nodesResult.records
+      .filter(r => r.get('parentId'))
+      .map(r => ({ source: toNum(r.get('parentId')), target: toNum(r.get('n').properties.id) }));
+
+    // Get latest confidence score
+    const confResult = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_CONFIDENCE]->(c:ConfidenceEntry) RETURN c ORDER BY c.created_at DESC LIMIT 1`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+    const confScore = confResult.records.length ? confResult.records[0].get('c').properties.score : null;
+
+    // Get version count
+    const verResult = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_SNAPSHOT]->(s:Snapshot) RETURN count(s) AS c`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+    const version = toNum(verResult.records[0].get('c')) + 1;
+
+    const id = await getNextId('snapshot', session);
+    const now = new Date().toISOString();
+    await session.run(
+      `MATCH (t:Thread {id: $threadId})
+       CREATE (s:Snapshot {
+         id: $id, thread_id: $threadId, version: $version,
+         trigger: $trigger, trigger_detail: $triggerDetail,
+         node_data: $nodeData, edge_data: $edgeData,
+         confidence_score: $confScore,
+         created_at: $now
+       })
+       CREATE (t)-[:HAS_SNAPSHOT]->(s)`,
+      {
+        threadId: getNeo4j().int(threadId), id: getNeo4j().int(id), version: getNeo4j().int(version),
+        trigger: trigger || 'manual', triggerDetail: triggerDetail || '',
+        nodeData: JSON.stringify(nodeData), edgeData: JSON.stringify(edgeData),
+        confScore: confScore, now
+      }
+    );
+    res.json({ id, version, trigger, nodeCount: nodeData.length, created_at: now });
+  } catch (err) {
+    console.error('Snapshot error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// List snapshots
+app.get('/api/threads/:threadId/snapshots', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_SNAPSHOT]->(s:Snapshot)
+       RETURN s ORDER BY s.version DESC`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+    const snapshots = result.records.map(r => {
+      const p = r.get('s').properties;
+      const nodeData = p.node_data ? JSON.parse(p.node_data) : [];
+      return {
+        id: toNum(p.id), version: toNum(p.version), trigger: p.trigger,
+        triggerDetail: p.trigger_detail, nodeCount: nodeData.length,
+        confidenceScore: p.confidence_score, created_at: p.created_at,
+      };
+    });
+    res.json(snapshots);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Diff two snapshots
+app.get('/api/threads/:threadId/snapshots/diff', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { v1, v2 } = req.query;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_SNAPSHOT]->(s:Snapshot)
+       WHERE s.version IN [$v1, $v2]
+       RETURN s ORDER BY s.version ASC`,
+      { threadId: getNeo4j().int(threadId), v1: getNeo4j().int(parseInt(v1)), v2: getNeo4j().int(parseInt(v2)) }
+    );
+    if (result.records.length < 2) return res.status(400).json({ error: 'Both versions required' });
+
+    const snap1 = JSON.parse(result.records[0].get('s').properties.node_data);
+    const snap2 = JSON.parse(result.records[1].get('s').properties.node_data);
+
+    const ids1 = new Set(snap1.map(n => n.id));
+    const ids2 = new Set(snap2.map(n => n.id));
+    const map1 = Object.fromEntries(snap1.map(n => [n.id, n]));
+    const map2 = Object.fromEntries(snap2.map(n => [n.id, n]));
+
+    const added = snap2.filter(n => !ids1.has(n.id));
+    const removed = snap1.filter(n => !ids2.has(n.id));
+    const modified = snap2.filter(n => ids1.has(n.id) && (map1[n.id].title !== n.title || map1[n.id].content !== n.content));
+
+    res.json({ added, removed, modified, v1NodeCount: snap1.length, v2NodeCount: snap2.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Record confidence score
+app.post('/api/threads/:threadId/confidence', requireAuth, async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { score, breakdown, verdict } = req.body;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const id = await getNextId('confidence', session);
+    const now = new Date().toISOString();
+    const nodeCount = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) RETURN count(n) AS c`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+
+    await session.run(
+      `MATCH (t:Thread {id: $threadId})
+       CREATE (c:ConfidenceEntry {
+         id: $id, thread_id: $threadId, score: $score,
+         breakdown: $breakdown, verdict: $verdict,
+         node_count: $nodeCount, created_at: $now
+       })
+       CREATE (t)-[:HAS_CONFIDENCE]->(c)`,
+      {
+        threadId: getNeo4j().int(threadId), id: getNeo4j().int(id),
+        score: score, breakdown: JSON.stringify(breakdown || {}),
+        verdict: verdict || '', nodeCount: getNeo4j().int(toNum(nodeCount.records[0].get('c'))), now
+      }
+    );
+    res.json({ id, score, created_at: now });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// List confidence history
+app.get('/api/threads/:threadId/confidence', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_CONFIDENCE]->(c:ConfidenceEntry)
+       RETURN c ORDER BY c.created_at ASC`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+    const entries = result.records.map(r => {
+      const p = r.get('c').properties;
+      return {
+        id: toNum(p.id), score: p.score, verdict: p.verdict,
+        breakdown: p.breakdown ? JSON.parse(p.breakdown) : {},
+        nodeCount: toNum(p.node_count), created_at: p.created_at,
+      };
+    });
+    res.json(entries);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Unified timeline
+app.get('/api/threads/:threadId/timeline', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const events = [];
+
+    // Thread creation
+    const threadResult = await session.run(
+      'MATCH (t:Thread {id: $id}) RETURN t.created_at AS created_at, t.title AS title',
+      { id: getNeo4j().int(threadId) }
+    );
+    if (threadResult.records.length) {
+      events.push({ type: 'thread_created', title: threadResult.records[0].get('title'), timestamp: threadResult.records[0].get('created_at') });
+    }
+
+    // Node additions
+    const nodesResult = await session.run(
+      `MATCH (t:Thread {id: $id})-[:HAS_NODE]->(n:Node) RETURN n.id AS id, n.title AS title, n.node_type AS nodeType, n.created_at AS created_at`,
+      { id: getNeo4j().int(threadId) }
+    );
+    for (const r of nodesResult.records) {
+      events.push({ type: 'node_added', nodeId: toNum(r.get('id')), title: r.get('title'), nodeType: r.get('nodeType'), timestamp: r.get('created_at') });
+    }
+
+    // Snapshots
+    const snapResult = await session.run(
+      `MATCH (t:Thread {id: $id})-[:HAS_SNAPSHOT]->(s:Snapshot) RETURN s.version AS version, s.trigger AS trigger, s.created_at AS created_at`,
+      { id: getNeo4j().int(threadId) }
+    );
+    for (const r of snapResult.records) {
+      events.push({ type: 'snapshot', version: toNum(r.get('version')), trigger: r.get('trigger'), timestamp: r.get('created_at') });
+    }
+
+    // Confidence entries
+    const confResult = await session.run(
+      `MATCH (t:Thread {id: $id})-[:HAS_CONFIDENCE]->(c:ConfidenceEntry) RETURN c.score AS score, c.verdict AS verdict, c.created_at AS created_at`,
+      { id: getNeo4j().int(threadId) }
+    );
+    for (const r of confResult.records) {
+      events.push({ type: 'confidence', score: r.get('score'), verdict: r.get('verdict'), timestamp: r.get('created_at') });
+    }
+
+    // Sort by timestamp
+    events.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+    res.json(events);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Node version history
+app.get('/api/threads/:threadId/nodes/:nodeId/history', async (req, res) => {
+  const nodeId = parseInt(req.params.nodeId);
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const result = await session.run('MATCH (n:Node {id: $id}) RETURN n.history AS history', { id: getNeo4j().int(nodeId) });
+    const raw = result.records[0]?.get('history');
+    res.json({ history: raw ? JSON.parse(raw) : [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Export thread
+app.post('/api/threads/:threadId/export', async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { format } = req.body; // 'markdown' | 'json'
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const threadResult = await session.run('MATCH (t:Thread {id: $id}) RETURN t', { id: getNeo4j().int(threadId) });
+    if (!threadResult.records.length) return res.status(404).json({ error: 'Thread not found' });
+    const thread = threadResult.records[0].get('t').properties;
+
+    const nodesResult = await session.run(
+      `MATCH (t:Thread {id: $id})-[:HAS_NODE]->(n:Node)
+       OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
+       RETURN n, parent.id AS parentId ORDER BY n.created_at ASC`,
+      { id: getNeo4j().int(threadId) }
+    );
+    const nodes = nodesResult.records.map(r => {
+      const p = r.get('n').properties;
+      return { id: toNum(p.id), title: p.title, content: p.content, node_type: p.node_type, parentId: toNum(r.get('parentId')) };
+    });
+
+    if (format === 'json') {
+      return res.json({ thread: { id: toNum(thread.id), title: thread.title, description: thread.description }, nodes });
+    }
+
+    // Default: markdown
+    const NODE_TYPE_EMOJI = { ROOT: '#', EVIDENCE: '>', REFERENCE: '@', CONTEXT: '~', EXAMPLE: '*', COUNTERPOINT: '!', SYNTHESIS: '=' };
+    let md = `# ${thread.title}\n\n${thread.description || ''}\n\n---\n\n`;
+    for (const node of nodes) {
+      let content = node.content || '';
+      try {
+        const p = JSON.parse(content);
+        content = p.description || p.point || p.explanation || p.argument || content;
+      } catch (e) {}
+      content = content.replace(/<[^>]+>/g, '');
+      md += `## ${NODE_TYPE_EMOJI[node.node_type] || ''} [${node.node_type}] ${node.title}\n\n${content}\n\n`;
+    }
+    res.json({ markdown: md, title: thread.title });
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {

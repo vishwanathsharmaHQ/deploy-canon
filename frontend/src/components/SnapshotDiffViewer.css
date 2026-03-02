@@ -1,0 +1,33 @@
+.snapshot-diff-viewer {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.sdv-loading { color: #888; }
+.sdv-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.sdv-header h4 { margin: 0; flex: 1; font-size: 14px; }
+.sdv-summary { color: #888; font-size: 12px; }
+.sdv-close { background: none; border: none; color: #666; cursor: pointer; font-size: 18px; }
+.sdv-section { margin-bottom: 12px; }
+.sdv-section h5 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; }
+.sdv-added h5 { color: #00ff9d; }
+.sdv-removed h5 { color: #ef5350; }
+.sdv-modified h5 { color: #fdd835; }
+.sdv-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.sdv-type { font-size: 10px; font-weight: 600; min-width: 80px; }
+.sdv-title { flex: 1; }
+.sdv-content { color: #666; font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sdv-no-changes { color: #666; text-align: center; font-size: 13px; }

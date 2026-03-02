@@ -56,8 +56,14 @@
 /* ── Tabs (right) ── */
 .vtb-tabs {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  flex-shrink: 1;
+  min-width: 0;
 }
+.vtb-tabs::-webkit-scrollbar { display: none; }
 
 .vtb-tab {
   background: none;
@@ -65,7 +71,9 @@
   color: #888;
   font-size: 12px;
   font-weight: 500;
-  padding: 4px 14px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
   border-radius: 4px;
   cursor: pointer;
   transition: color 0.15s, background 0.15s, border-color 0.15s;
