@@ -50,6 +50,7 @@ export default function AuthModal({ onSuccess, onClose }) {
             className={`auth-tab${tab === 'register' ? ' auth-tab--active' : ''}`}
             onClick={() => switchTab('register')}
             type="button"
+            style={{ display: 'none' }}
           >
             Register
           </button>
