@@ -80,17 +80,17 @@
   border-color: rgba(0, 255, 157, 0.5);
 }
 
-/* ── Secondary nodes sidebar (mirrors chat sidebar) ─────── */
+/* ── Secondary nodes sidebar (smooth, no layout jump) ────── */
 .ar-secondary-sidebar {
   flex: 0 0 0;
   min-width: 0;
   overflow: hidden;
-  transition: flex-basis 0.25s ease;
   border-left: 1px solid transparent;
+  transition: flex-basis 0.25s ease, border-left-color 0.25s ease;
 }
 
 .ar-secondary-sidebar--open {
-  flex: 1 1 50%;
+  flex: 0 0 400px;
   border-left-color: rgba(255, 255, 255, 0.07);
 }
 
@@ -289,6 +289,21 @@
 
 .ar-snp-tab--active .ar-snp-tab-title {
   color: rgba(255, 255, 255, 0.9);
+}
+
+.ar-snp-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.ar-snp-empty p {
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 0.85rem;
+  font-style: italic;
+  text-align: center;
 }
 
 .ar-snp-content {
@@ -1281,6 +1296,54 @@
 }
 .cm-point--strength { color: rgba(0,255,157,0.7); }
 .cm-point--gap      { color: rgba(239,83,80,0.7); }
+
+/* ── Delete node ──────────────────────────────────────────── */
+.ar-delete-btn {
+  background: rgba(239, 83, 80, 0.08);
+  color: rgba(239, 83, 80, 0.7);
+  border: 1px solid rgba(239, 83, 80, 0.25);
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ar-delete-btn:hover {
+  background: rgba(239, 83, 80, 0.16);
+  color: #ef5350;
+  border-color: rgba(239, 83, 80, 0.5);
+}
+
+.ar-delete-confirm-btn {
+  background: rgba(239, 83, 80, 0.15);
+  border: 1px solid rgba(239, 83, 80, 0.4);
+  color: #ef5350;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ar-delete-confirm-btn:hover {
+  background: rgba(239, 83, 80, 0.25);
+  border-color: #ef5350;
+}
+
+/* ── Cross-node links ─────────────────────────────────────── */
+.ar-node-link {
+  color: #4ecdc4;
+  cursor: pointer;
+  border-bottom: 1px dashed rgba(78, 205, 196, 0.5);
+  text-decoration: none;
+}
+
+.ar-node-link:hover {
+  color: #6ee7de;
+  border-bottom-color: #6ee7de;
+}
 
 /* Empty state */
 .ar-empty {

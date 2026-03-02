@@ -51,6 +51,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
   const [chatHistory, setChatHistory] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
+  const [excludedNodes, setExcludedNodes] = useState({}); // { [msgIndex]: Set<nodeIndex> }
 
   // Use refs for values needed inside streaming callbacks (avoid stale closures)
   // initialThreadId pins the chat to a specific thread (e.g. when embedded in ArticleReader)
@@ -250,10 +251,23 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     }
   }, [input, loading, messages, loadChatHistory, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate]);
 
+  const toggleExcludedNode = useCallback((msgIndex, nodeIndex) => {
+    setExcludedNodes(prev => {
+      const set = new Set(prev[msgIndex] || []);
+      if (set.has(nodeIndex)) set.delete(nodeIndex);
+      else set.add(nodeIndex);
+      return { ...prev, [msgIndex]: set };
+    });
+  }, []);
+
   const handleAcceptNodes = useCallback(async (msgIndex, proposedNodes, threadId) => {
     try {
-      const rootNode = proposedNodes.find(n => n.type === 'ROOT');
-      const secondaryNodes = proposedNodes.filter(n => n.type !== 'ROOT');
+      const excluded = excludedNodes[msgIndex] || new Set();
+      const filteredNodes = proposedNodes.filter((_, idx) => !excluded.has(idx));
+      if (filteredNodes.length === 0) return;
+
+      const rootNode = filteredNodes.find(n => n.type === 'ROOT');
+      const secondaryNodes = filteredNodes.filter(n => n.type !== 'ROOT');
       let rootNodeId = null;
       let allDuplicateSkipped = [];
 
@@ -273,11 +287,12 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
       setMessages(prev => prev.map((m, i) =>
         i === msgIndex ? { ...m, proposedNodes: null, nodesAccepted: true, duplicateSkipped: allDuplicateSkipped.length > 0 ? allDuplicateSkipped : null } : m
       ));
+      setExcludedNodes(prev => { const copy = { ...prev }; delete copy[msgIndex]; return copy; });
       onNodesCreated?.(threadId);
     } catch (err) {
       console.error('Accept nodes failed:', err);
     }
-  }, [onNodesCreated]);
+  }, [onNodesCreated, excludedNodes]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -413,7 +428,11 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                         </div>
                       )}
 
-                      {msg.proposedUpdate && onProposedUpdate && (
+                      {msg.updateApplied && (
+                        <div className="cp-update-applied">✓ Update applied</div>
+                      )}
+
+                      {msg.proposedUpdate && onProposedUpdate && !msg.updateApplied && (
                         <div className="cp-proposed-update">
                           <div className="cp-proposed-update-label">
                             ✦ Proposed update to <em>{msg.proposedUpdate.title}</em>
@@ -424,7 +443,16 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                           <div className="cp-proposed-update-actions">
                             <button
                               className="cp-accept-btn"
-                              onClick={() => onProposedUpdate(msg.proposedUpdate)}
+                              onClick={async () => {
+                                try {
+                                  await onProposedUpdate(msg.proposedUpdate);
+                                  setMessages(prev => prev.map((m, mi) =>
+                                    mi === i ? { ...m, proposedUpdate: null, updateApplied: true } : m
+                                  ));
+                                } catch (e) {
+                                  console.error('Failed to apply update:', e);
+                                }
+                              }}
                             >
                               Accept
                             </button>
@@ -440,15 +468,20 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                         </div>
                       )}
 
-                      {msg.proposedNodes && !msg.nodesAccepted && (
+                      {msg.proposedNodes && !msg.nodesAccepted && (() => {
+                        const excluded = excludedNodes[i] || new Set();
+                        const acceptCount = msg.proposedNodes.length - excluded.size;
+                        return (
                         <div className="cp-proposed-nodes">
                           <div className="cp-proposed-nodes-label">
                             ✦ {msg.proposedNodes.length} node{msg.proposedNodes.length !== 1 ? 's' : ''} ready to save
                           </div>
                           <div className="cp-proposed-nodes-list">
                             {msg.proposedNodes.map((n, ni) => (
-                              <span key={ni} className="cp-node-chip"
-                                style={{ borderColor: NODE_COLORS[n.type] || '#555', color: NODE_COLORS[n.type] || '#aaa' }}>
+                              <span key={ni}
+                                className={`cp-node-chip${excluded.has(ni) ? ' cp-node-chip--excluded' : ''}`}
+                                style={excluded.has(ni) ? {} : { borderColor: NODE_COLORS[n.type] || '#555', color: NODE_COLORS[n.type] || '#aaa' }}
+                                onClick={() => toggleExcludedNode(i, ni)}>
                                 {n.type}: {n.title}
                               </span>
                             ))}
@@ -457,20 +490,25 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                             <button
                               className="cp-accept-btn"
                               onClick={() => handleAcceptNodes(i, msg.proposedNodes, msg.proposedThreadId)}
+                              disabled={acceptCount === 0}
                             >
-                              Accept
+                              Accept{acceptCount < msg.proposedNodes.length ? ` (${acceptCount})` : ''}
                             </button>
                             <button
                               className="cp-dismiss-btn"
-                              onClick={() => setMessages(prev => prev.map((m, mi) =>
-                                mi === i ? { ...m, proposedNodes: null } : m
-                              ))}
+                              onClick={() => {
+                                setMessages(prev => prev.map((m, mi) =>
+                                  mi === i ? { ...m, proposedNodes: null } : m
+                                ));
+                                setExcludedNodes(prev => { const copy = { ...prev }; delete copy[i]; return copy; });
+                              }}
                             >
                               Discard
                             </button>
                           </div>
                         </div>
-                      )}
+                        );
+                      })()}
                     </>
                   )}
                 </div>

@@ -115,6 +115,82 @@ async function vectorQuery(session, indexName, k, embedding) {
   }
 }
 
+// ── Auto-setup: ensure vector indexes exist on startup ────────────────────────
+let _indexesEnsured = false;
+async function ensureVectorIndexes() {
+  if (_indexesEnsured) return;
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    await session.run(`
+      CREATE VECTOR INDEX thread_embedding IF NOT EXISTS
+      FOR (t:Thread) ON (t.embedding)
+      OPTIONS {indexConfig: {
+        \`vector.dimensions\`: 1536,
+        \`vector.similarity_function\`: 'cosine'
+      }}
+    `);
+    await session.run(`
+      CREATE VECTOR INDEX node_embedding IF NOT EXISTS
+      FOR (n:Node) ON (n.embedding)
+      OPTIONS {indexConfig: {
+        \`vector.dimensions\`: 1536,
+        \`vector.similarity_function\`: 'cosine'
+      }}
+    `);
+    _indexesEnsured = true;
+    console.log('Vector indexes ensured.');
+  } catch (err) {
+    console.warn('Vector index auto-setup failed (non-fatal):', err.message);
+  } finally {
+    await session.close();
+  }
+}
+
+// Backfill embeddings for any nodes/threads missing them (runs in background, non-blocking)
+async function backfillEmbeddings() {
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    const threadResult = await session.run(
+      `MATCH (t:Thread) WHERE t.embedding IS NULL RETURN t LIMIT 20`
+    );
+    for (const record of threadResult.records) {
+      const props = record.get('t').properties;
+      const text = getEmbeddingText({ title: props.title, description: props.description, content: props.content }, 'thread');
+      if (!text.trim()) continue;
+      try {
+        const embedding = await generateEmbedding(text);
+        if (embedding) {
+          await session.run(
+            `MATCH (t:Thread {id: $id}) SET t.embedding = $embedding, t.embedding_text = $text`,
+            { id: props.id, embedding, text }
+          );
+        }
+      } catch (e) { /* skip */ }
+    }
+    const nodeResult = await session.run(
+      `MATCH (n:Node) WHERE n.embedding IS NULL RETURN n LIMIT 50`
+    );
+    for (const record of nodeResult.records) {
+      const props = record.get('n').properties;
+      const text = getEmbeddingText({ title: props.title, content: props.content, node_type: props.node_type }, 'node');
+      if (!text.trim()) continue;
+      try {
+        const embedding = await generateEmbedding(text);
+        if (embedding) {
+          await session.run(
+            `MATCH (n:Node {id: $id}) SET n.embedding = $embedding, n.embedding_text = $text`,
+            { id: props.id, embedding, text }
+          );
+        }
+      } catch (e) { /* skip */ }
+    }
+  } catch (err) {
+    console.warn('Embedding backfill failed (non-fatal):', err.message);
+  } finally {
+    await session.close();
+  }
+}
+
 // ── Embedding helpers ──────────────────────────────────────────────────────────
 async function generateEmbedding(text) {
   if (!text || !text.trim()) return null;
@@ -528,6 +604,32 @@ app.put('/api/threads/:threadId/nodes/:nodeId', requireAuth, async (req, res) =>
     }
 
     res.json(node);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Delete node (with children warning)
+app.delete('/api/threads/:threadId/nodes/:nodeId', requireAuth, async (req, res) => {
+  const nodeId = parseInt(req.params.nodeId);
+  const force = req.query.force === 'true';
+  const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+  try {
+    // Check for children
+    const childResult = await session.run(
+      'MATCH (n:Node {id: $nid})-[:PARENT_OF]->(c) RETURN count(c) as cnt',
+      { nid: getNeo4j().int(nodeId) }
+    );
+    const childCount = childResult.records[0]?.get('cnt')?.toNumber?.() ?? childResult.records[0]?.get('cnt') ?? 0;
+
+    if (childCount > 0 && !force) {
+      return res.json({ hasChildren: true, childCount });
+    }
+
+    await session.run('MATCH (n:Node {id: $nid}) DETACH DELETE n', { nid: getNeo4j().int(nodeId) });
+    res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
@@ -2194,9 +2296,30 @@ app.put('/api/links/:linkId', requireAuth, async (req, res) => {
 
 // AI suggest cross-thread links
 app.post('/api/links/suggest', requireAuth, aiTimeout, async (req, res) => {
+  await ensureVectorIndexes();
   const { threadId } = req.body;
   const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
   try {
+    // Backfill embeddings for this thread's nodes that are missing them
+    const missingResult = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) WHERE n.embedding IS NULL RETURN n`,
+      { threadId: getNeo4j().int(parseInt(threadId)) }
+    );
+    for (const record of missingResult.records) {
+      const props = record.get('n').properties;
+      const text = getEmbeddingText({ title: props.title, content: props.content, node_type: props.node_type }, 'node');
+      if (!text.trim()) continue;
+      try {
+        const embedding = await generateEmbedding(text);
+        if (embedding) {
+          await session.run(
+            `MATCH (n:Node {id: $id}) SET n.embedding = $embedding, n.embedding_text = $text`,
+            { id: props.id, embedding, text }
+          );
+        }
+      } catch (e) { /* skip individual failures */ }
+    }
+
     const nodesResult = await session.run(
       `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) WHERE n.embedding IS NOT NULL RETURN n LIMIT 10`,
       { threadId: getNeo4j().int(parseInt(threadId)) }
@@ -3150,6 +3273,10 @@ app.get('*', (req, res) => {
 if (!process.env.VERCEL) {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
+    // Auto-setup vector indexes and backfill missing embeddings
+    ensureVectorIndexes()
+      .then(() => backfillEmbeddings())
+      .catch(e => console.warn('Startup embedding setup:', e.message));
   });
 }
 

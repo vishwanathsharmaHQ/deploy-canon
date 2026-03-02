@@ -539,6 +539,16 @@
   border-radius: 3px;
   border: 1px solid;
   opacity: 0.8;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.cp-node-chip--excluded {
+  opacity: 0.4;
+  text-decoration: line-through;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
 }
 
 /* Input area */
@@ -706,6 +716,12 @@
   color: #fbbf24;
   font-style: italic;
   width: 100%;
+}
+
+.cp-update-applied {
+  color: #00ff9d;
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .cp-auth-gate {

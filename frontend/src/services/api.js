@@ -175,6 +175,15 @@ export const api = {
     return response.json();
   },
 
+  async deleteNode(threadId, nodeId, force = false) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}?force=${force}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error('Failed to delete node');
+    return response.json();
+  },
+
   async updateNode(threadId, nodeId, { title, content }) {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}`, {
       method: 'PUT',

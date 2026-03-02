@@ -163,7 +163,7 @@ function buildSavedContent(nodeType, title, html, keywords) {
 }
 
 // ── Content renderer (for read-only node pages) ──────────────────────────────
-const renderContent = (rawContent) => {
+const renderContent = (rawContent, linkify) => {
   if (!rawContent) return <p className="ar-empty">No content available.</p>;
 
   let text = rawContent;
@@ -174,7 +174,8 @@ const renderContent = (rawContent) => {
 
   // Raw HTML — render directly
   if (text.trim().startsWith('<')) {
-    return <div className="ar-html" dangerouslySetInnerHTML={{ __html: text }} />;
+    const html = linkify ? linkify(text) : text;
+    return <div className="ar-html" dangerouslySetInnerHTML={{ __html: html }} />;
   }
 
   const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
@@ -226,11 +227,13 @@ const getNodeType = (node) => {
 
 // Render a string that may contain HTML or markdown.
 // TipTap / saved HTML always starts with a tag; AI content is markdown.
-const renderHtmlOrText = (str) => {
+// Optional linkify fn transforms HTML strings before rendering.
+const renderHtmlOrText = (str, linkify) => {
   if (!str) return null;
   const s = String(str);
   if (s.trim().startsWith('<')) {
-    return <div className="ar-html" dangerouslySetInnerHTML={{ __html: s }} />;
+    const html = linkify ? linkify(s) : s;
+    return <div className="ar-html" dangerouslySetInnerHTML={{ __html: html }} />;
   }
   return <div className="ar-markdown"><ReactMarkdown>{s}</ReactMarkdown></div>;
 };
@@ -481,7 +484,18 @@ const formatNodeContent = (node) => {
 
 // ── Secondary node panel (split-screen right sidebar for ROOT pages) ─────────
 const SecondaryNodePanel = ({ nodes, selectedId, onSelect, label, onAccept, onDiscard }) => {
-  if (!nodes || nodes.length === 0) return null;
+  if (!nodes || nodes.length === 0) {
+    return (
+      <div className="ar-snp">
+        <div className="ar-snp-header">
+          <span className="ar-snp-label">{label || 'Supporting Nodes'}</span>
+        </div>
+        <div className="ar-snp-empty">
+          <p>No supporting nodes for this page.</p>
+        </div>
+      </div>
+    );
+  }
 
   const selectedNode = nodes.find(n => n.id === selectedId) || nodes[0];
   const selectedType = getNodeType(selectedNode);
@@ -686,6 +700,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
   const [forkClaim, setForkClaim] = useState('');
   const [forkLoading, setForkLoading] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { nodeId, childCount }
   const [editTitle, setEditTitle] = useState('');
   const [editKeywords, setEditKeywords] = useState('');
   const [editSaving, setEditSaving] = useState(false);
@@ -700,6 +715,71 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
 
   // Pinned nodes (Red Team / Steelman results) take precedence over children
   const effectiveSecondaryNodes = secondaryPinnedNodes ?? currentRootChildren;
+
+  // Map of lowercase node titles → { id, pageIndex, title } for cross-node linking
+  const nodeLinkMap = useMemo(() => {
+    const map = new Map();
+    orderedNodes.forEach((n, idx) => {
+      const title = n.title || '';
+      if (title.trim()) {
+        map.set(title.toLowerCase(), { id: n.id, pageIndex: idx, title });
+      }
+    });
+    return map;
+  }, [orderedNodes]);
+
+  // Replace node title mentions in an HTML string with clickable links (excluding currentNodeId)
+  const linkifyNodeMentions = useCallback((htmlStr, currentNodeId) => {
+    if (!htmlStr || nodeLinkMap.size === 0) return htmlStr;
+    // Build sorted entries (longest first to avoid partial matches)
+    const entries = [];
+    nodeLinkMap.forEach((val, key) => {
+      if (val.id !== currentNodeId) entries.push({ lower: key, ...val });
+    });
+    entries.sort((a, b) => b.lower.length - a.lower.length);
+    if (entries.length === 0) return htmlStr;
+
+    // Build a single regex alternation for all titles
+    const escaped = entries.map(e => e.lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const pattern = new RegExp(`(?<![\\w-])(${escaped.join('|')})(?![\\w-])`, 'gi');
+
+    // Split on HTML tags to only replace in text nodes
+    const parts = htmlStr.split(/(<[^>]*>)/);
+    let inAnchor = 0;
+    const result = parts.map(part => {
+      if (part.startsWith('<')) {
+        if (/^<a[\s>]/i.test(part)) inAnchor++;
+        else if (/^<\/a>/i.test(part)) inAnchor = Math.max(0, inAnchor - 1);
+        return part;
+      }
+      if (inAnchor > 0) return part; // don't link inside existing <a> tags
+      return part.replace(pattern, (match) => {
+        const entry = entries.find(e => e.lower === match.toLowerCase());
+        if (!entry) return match;
+        return `<a class="ar-node-link" data-node-id="${entry.id}" href="#">${match}</a>`;
+      });
+    });
+    return result.join('');
+  }, [nodeLinkMap]);
+
+  // Click delegation for node links in the article body
+  const bodyRef = useRef(null);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const handler = (e) => {
+      const link = e.target.closest('.ar-node-link');
+      if (!link) return;
+      e.preventDefault();
+      const nodeId = link.dataset.nodeId;
+      if (!nodeId) return;
+      const numId = parseInt(nodeId);
+      const idx = orderedNodes.findIndex(n => n.id === numId || String(n.id) === nodeId);
+      if (idx >= 0) setCurrentPage(idx + 1);
+    };
+    body.addEventListener('click', handler);
+    return () => body.removeEventListener('click', handler);
+  }, [orderedNodes]);
 
   const handleRedTeam = async (node) => {
     if (!currentUser) { onAuthRequired?.(); return; }
@@ -800,7 +880,8 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     setIsEditing(false);
   }, [currentPage]);
 
-  // Auto-open secondary panel when on a ROOT page with children; clear pins on navigation
+  // Auto-open secondary panel when on a ROOT page with children; clear pins on navigation.
+  // Never auto-close — prevents layout jump when paginating between nodes with/without children.
   useEffect(() => {
     setSecondaryPinnedNodes(null);
     setSecondaryPanelLabel('Supporting Nodes');
@@ -810,15 +891,15 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
         id && currentRootChildren.some(n => n.id === id) ? id : currentRootChildren[0].id
       );
     } else {
-      setSecondaryOpen(false);
       setSelectedSecondaryId(null);
+      // Don't setSecondaryOpen(false) — sidebar stays to avoid layout jump
     }
   }, [currentPage]); // intentionally only re-runs on page change
 
   useEffect(() => {
     if (!thread?.id) return;
     loadOrder();
-  }, [thread?.id]);
+  }, [thread?.id, thread?.nodes?.length]);
 
   // When initialNodeId changes (e.g. user selected a node then clicked Article tab), navigate to it
   useEffect(() => {
@@ -931,6 +1012,35 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     }
   };
 
+  const handleDeleteNode = async (nodeId) => {
+    try {
+      const result = await api.deleteNode(thread.id, nodeId);
+      if (result.hasChildren) {
+        setDeleteConfirm({ nodeId, childCount: result.childCount });
+        return;
+      }
+      // Deleted — remove from ordered nodes and navigate
+      setOrderedNodes(prev => prev.filter(n => n.id !== nodeId));
+      setCurrentPage(p => Math.max(0, p - 1));
+      onNodesCreated?.(thread.id); // refresh thread data
+    } catch (e) {
+      console.error('Delete node failed:', e);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await api.deleteNode(thread.id, deleteConfirm.nodeId, true);
+      setOrderedNodes(prev => prev.filter(n => n.id !== deleteConfirm.nodeId));
+      setCurrentPage(p => Math.max(0, p - 1));
+      setDeleteConfirm(null);
+      onNodesCreated?.(thread.id);
+    } catch (e) {
+      console.error('Force delete failed:', e);
+    }
+  };
+
   const renderPage = () => {
     if (currentPage === 0) {
       return <ThreadContentEditor thread={thread} onContentChange={onContentChange} currentUser={currentUser} onAuthRequired={onAuthRequired} />;
@@ -992,6 +1102,15 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
             )}
             {!isEditing && onUpdateNode && (
               <button className="ar-edit-btn" onClick={handleEditStart}>Edit</button>
+            )}
+            {!isEditing && currentUser && (
+              <button
+                className="ar-delete-btn"
+                onClick={() => handleDeleteNode(node.id)}
+                title="Delete this node"
+              >
+                ✕ Delete
+              </button>
             )}
             {!isEditing && (
               <>
@@ -1069,7 +1188,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
             <h1 className="ar-title">{nodeTitle}</h1>
             <hr className="ar-divider" />
             <div className="ar-content">
-              {isReactElement ? nodeRendered : renderContent(nodeRendered)}
+              {isReactElement ? nodeRendered : renderContent(nodeRendered, (html) => linkifyNodeMentions(html, node.id))}
             </div>
             {nodeType === 'ROOT' && <ConfidenceMeter threadId={thread.id} />}
             {nodeType === 'ROOT' && (
@@ -1105,7 +1224,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
       <div className="ar-content-row">
         {/* ── Main reading area ── */}
         <div className="ar-content-area">
-          <main className="ar-body">
+          <main className="ar-body" ref={bodyRef}>
             {loading ? (
               <div className="ar-loading">Loading...</div>
             ) : (
@@ -1137,7 +1256,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
         </div>
 
         {/* ── Secondary nodes sidebar ── */}
-        <div className={`ar-secondary-sidebar${secondaryOpen && effectiveSecondaryNodes.length > 0 ? ' ar-secondary-sidebar--open' : ''}${secondaryOpen && effectiveSecondaryNodes.length > 0 && (chatOpen || socraticOpen) ? ' ar-secondary-sidebar--compact' : ''}`}>
+        <div className={`ar-secondary-sidebar${secondaryOpen ? ' ar-secondary-sidebar--open' : ''}${secondaryOpen && (chatOpen || socraticOpen) ? ' ar-secondary-sidebar--compact' : ''}`}>
           <SecondaryNodePanel
             nodes={effectiveSecondaryNodes}
             selectedId={selectedSecondaryId}
@@ -1204,8 +1323,28 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
         </div>
       )}
 
+      {/* ── Delete confirmation modal ── */}
+      {deleteConfirm && (
+        <div className="ar-modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="ar-modal ar-delete-modal" onClick={e => e.stopPropagation()}>
+            <h3 className="ar-modal-title" style={{ color: '#ef5350' }}>Delete Node</h3>
+            <p className="ar-modal-desc">
+              This node has <strong style={{ color: '#fff' }}>{deleteConfirm.childCount}</strong> child node{deleteConfirm.childCount !== 1 ? 's' : ''}. Their parent link will be removed. Delete anyway?
+            </p>
+            <div className="ar-modal-actions">
+              <button className="ar-delete-confirm-btn" onClick={handleConfirmDelete}>
+                Delete
+              </button>
+              <button className="ar-modal-cancel" onClick={() => setDeleteConfirm(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Secondary nodes toggle ── */}
-      {effectiveSecondaryNodes.length > 0 && !loading && (
+      {!loading && (
         <button
           className={`ar-secondary-toggle${secondaryOpen ? ' ar-secondary-toggle--open' : ''}`}
           onClick={() => setSecondaryOpen(o => !o)}
