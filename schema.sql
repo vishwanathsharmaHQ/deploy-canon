@@ -6,8 +6,6 @@ CREATE TABLE threads (
     content TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    is_on_chain BOOLEAN DEFAULT FALSE,
-    chain_id INTEGER,
     metadata JSONB
 );
 
@@ -20,8 +18,6 @@ CREATE TABLE nodes (
     node_type VARCHAR(50) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    is_on_chain BOOLEAN DEFAULT FALSE,
-    chain_id INTEGER,
     metadata JSONB,
     parent_id INTEGER REFERENCES nodes(id)
 );

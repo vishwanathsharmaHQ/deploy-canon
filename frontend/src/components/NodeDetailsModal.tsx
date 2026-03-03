@@ -6,15 +6,11 @@ import './NodeDetailsModal.css';
 interface NodeDetailsModalProps {
   node: ThreadNode;
   onClose: () => void;
-  onVote?: (nodeId: number, support: boolean) => void;
-  onCreateProposal?: (nodeId: number) => void;
   onAddNode?: (parentId: number) => void;
   loading?: boolean;
-  voteAmount?: string;
-  setVoteAmount?: (amount: string) => void;
 }
 
-const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, onVote, onCreateProposal, onAddNode, loading, voteAmount, setVoteAmount }) => {
+const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, onAddNode, loading }) => {
   const [showAddNode, setShowAddNode] = useState(false);
 
   const formatTitle = (title: string, nodeType: NodeTypeName): string => {

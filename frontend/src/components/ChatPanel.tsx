@@ -1,65 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { flushSync } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../services/api';
 import { NODE_TYPE_COLORS } from '../constants';
+import { relativeDate } from '../utils/dates';
+import { createMdComponents } from '../utils/markdown';
+import { useChatStream } from '../hooks/useChatStream';
+import type { ChatMessage } from '../hooks/useChatStream';
 import type { User, NodeTypeName } from '../types';
 import './ChatPanel.css';
 
-const YT_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
-
-const mdComponents = {
-  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
-    const yt = href?.match(YT_REGEX);
-    if (yt) {
-      return (
-        <div className="cp-youtube">
-          <iframe
-            src={`https://www.youtube.com/embed/${yt[1]}`}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            title={`yt-${yt[1]}`}
-          />
-        </div>
-      );
-    }
-    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
-  },
-};
-
-function relativeDate(iso: string): string {
-  if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
-  const days = Math.floor(diff / 86400000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-interface ChatMessage {
-  role: string;
-  content: string;
-  citations?: any[];
-  extractedNodes?: any[];
-  createdNodes?: any[];
-  newThread?: any;
-  proposedUpdate?: any;
-  proposedNodes?: any[] | null;
-  proposedThreadId?: number;
-  streaming?: boolean;
-  processing?: boolean;
-  nodesAccepted?: boolean;
-  duplicateSkipped?: string[] | null;
-  updateApplied?: boolean;
-}
-
-interface ChatHistoryItem {
-  id: number;
-  title: string;
-  messageCount: number;
-  created_at: string;
-}
+const mdComponents = createMdComponents('cp-youtube');
 
 interface ProposedUpdate {
   nodeId: number;
@@ -80,19 +30,26 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate, defaultSidebarCollapsed = false, currentUser, onAuthRequired }: ChatPanelProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const {
+    messages,
+    setMessages,
+    loading,
+    activeChatId,
+    chatHistory,
+    loadChatHistory,
+    handleSend: sendMessage,
+    handleLoadChat,
+    handleNewChat,
+  } = useChatStream({
+    initialThreadId,
+    selectedThreadId,
+    articleContext,
+    onThreadCreated,
+  });
+
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
-  const [activeChatId, setActiveChatId] = useState<number | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
   const [excludedNodes, setExcludedNodes] = useState<Record<number, Set<number>>>({}); // { [msgIndex]: Set<nodeIndex> }
-
-  // Use refs for values needed inside streaming callbacks (avoid stale closures)
-  // initialThreadId pins the chat to a specific thread (e.g. when embedded in ArticleReader)
-  const activeThreadIdRef = useRef<number | null>(initialThreadId || null);
-  const savedChatIdRef = useRef<number | null>(null);
-  const accReplyRef = useRef('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -101,190 +58,18 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Load chat history whenever the active thread changes
-  const loadChatHistory = useCallback(async (threadId: number | null) => {
-    if (!threadId) { setChatHistory([]); return; }
-    try {
-      const chats = await api.getThreadChats(threadId);
-      setChatHistory(chats);
-    } catch (err) {
-      console.error('Failed to load chat history:', err);
-    }
-  }, []);
-
   // When the selected thread changes from the sidebar, refresh the chat list
-  // (but don't set activeThreadIdRef — new messages start fresh)
   useEffect(() => {
     loadChatHistory(selectedThreadId);
   }, [selectedThreadId, loadChatHistory]);
-
-  const handleNewChat = () => {
-    setMessages([]);
-    setInput('');
-    // Pin to initialThreadId (article context) or selectedThreadId (chat tab).
-    // Backend's topicShift detection creates a new thread only if the topic truly changes.
-    activeThreadIdRef.current = initialThreadId || selectedThreadId || null;
-    savedChatIdRef.current = null;
-    setActiveChatId(null);
-  };
-
-  const handleLoadChat = async (chatId: number) => {
-    try {
-      const chat = await api.getChat(chatId);
-      setMessages(chat.messages || []);
-      savedChatIdRef.current = chatId;
-      setActiveChatId(chatId);
-      if (chat.threadId && chat.threadId !== activeThreadIdRef.current) {
-        activeThreadIdRef.current = chat.threadId;
-        await loadChatHistory(chat.threadId);
-      }
-    } catch (err) {
-      console.error('Failed to load chat:', err);
-    }
-  };
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || loading) return;
     const userMsg = input.trim();
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-
-    // Capture history snapshot — only role + content go to the LLM
-    const historySnapshot = messages
-      .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(({ role, content }) => ({ role, content }));
-
-    const assistantIndex = messages.length + 1;
-    setMessages(prev => [
-      ...prev,
-      { role: 'user', content: userMsg },
-      { role: 'assistant', content: '', citations: [], createdNodes: [], newThread: null, proposedUpdate: null, streaming: true, processing: false },
-    ]);
-    setLoading(true);
-    accReplyRef.current = '';
-
-    try {
-      // Phase 1: stream the LLM reply
-      await api.chatStream({
-        message: userMsg,
-        history: historySnapshot,
-        threadId: activeThreadIdRef.current,
-        nodeContext: articleContext || null,
-        onToken: (token: string) => {
-          accReplyRef.current += token;
-          setMessages(prev => {
-            const updated = [...prev];
-            const msg = updated[assistantIndex];
-            if (msg?.role === 'assistant') {
-              updated[assistantIndex] = { ...msg, content: msg.content + token };
-            }
-            return updated;
-          });
-        },
-        onDone: async (data: any) => {
-          // Streaming finished — show "extracting" spinner while we call /api/chat/extract
-          flushSync(() => {
-            setMessages(prev => {
-              const updated = [...prev];
-              const msg = updated[assistantIndex];
-              if (msg?.role === 'assistant') {
-                updated[assistantIndex] = { ...msg, streaming: false, processing: true, citations: data.citations || [] };
-              }
-              return updated;
-            });
-          });
-
-          const streamedReply = data.reply || accReplyRef.current;
-          const streamedCitations = data.citations || [];
-
-          // Phase 2: extraction — returns proposed nodes (not yet saved)
-          let extractData: any = { citations: streamedCitations, proposedNodes: [], threadId: activeThreadIdRef.current, newThread: null, proposedUpdate: null };
-          try {
-            extractData = await api.chatExtract({
-              message: userMsg,
-              reply: streamedReply,
-              threadId: activeThreadIdRef.current,
-              nodeContext: articleContext || null,
-              citations: streamedCitations,
-            });
-          } catch (extractErr) {
-            console.error('Extraction failed:', extractErr);
-          }
-
-          // Finalize the assistant message with proposed nodes (not yet saved)
-          setMessages(prev => {
-            const updated = [...prev];
-            const msg = updated[assistantIndex];
-            if (msg?.role === 'assistant') {
-              updated[assistantIndex] = {
-                ...msg,
-                streaming: false,
-                processing: false,
-                citations: extractData.citations || streamedCitations,
-                proposedNodes: extractData.proposedNodes?.length > 0 ? extractData.proposedNodes : null,
-                proposedThreadId: extractData.threadId,
-                newThread: extractData.newThread || null,
-                proposedUpdate: extractData.proposedUpdate || null,
-              };
-            }
-            return updated;
-          });
-
-          const resolvedThreadId = extractData.threadId || activeThreadIdRef.current;
-
-          // Auto-notify for new thread (thread is created immediately, nodes need accept)
-          if (extractData.newThread) {
-            activeThreadIdRef.current = extractData.threadId;
-            onThreadCreated?.(extractData.threadId);
-          }
-
-          // Persist the conversation to the database
-          if (resolvedThreadId) {
-            const finalMessages = [
-              ...historySnapshot,
-              { role: 'user', content: userMsg },
-              {
-                role: 'assistant',
-                content: accReplyRef.current,
-                citations: extractData.citations || streamedCitations,
-                createdNodes: [],
-              },
-            ];
-            const chatTitle = userMsg.substring(0, 80);
-            try {
-              if (savedChatIdRef.current) {
-                await api.updateChat(savedChatIdRef.current, { messages: finalMessages });
-              } else {
-                const saved = await api.createChat({ threadId: resolvedThreadId, title: chatTitle, messages: finalMessages });
-                savedChatIdRef.current = saved.id;
-                setActiveChatId(saved.id);
-              }
-              await loadChatHistory(resolvedThreadId);
-            } catch (err) {
-              console.error('Failed to save chat:', err);
-            }
-          }
-
-          setLoading(false);
-        },
-        onError: (err: any) => {
-          setMessages(prev => {
-            const updated = [...prev];
-            updated[assistantIndex] = { role: 'error', content: `Error: ${err.message}` };
-            return updated;
-          });
-          setLoading(false);
-        },
-      });
-    } catch (err: any) {
-      setMessages(prev => {
-        const updated = [...prev];
-        updated[assistantIndex] = { role: 'error', content: `Error: ${err.message}` };
-        return updated;
-      });
-      setLoading(false);
-    }
-  }, [input, loading, messages, loadChatHistory, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate]);
+    await sendMessage(userMsg);
+  }, [input, loading, sendMessage]);
 
   const toggleExcludedNode = useCallback((msgIndex: number, nodeIndex: number) => {
     setExcludedNodes(prev => {
@@ -327,7 +112,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     } catch (err) {
       console.error('Accept nodes failed:', err);
     }
-  }, [onNodesCreated, excludedNodes]);
+  }, [onNodesCreated, excludedNodes, setMessages]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -358,7 +143,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
           {!sidebarCollapsed && (
             <>
               <span className="cp-sidebar-title">Chats</span>
-              <button className="cp-new-btn" onClick={handleNewChat} title="New chat">+ New</button>
+              <button className="cp-new-btn" onClick={() => handleNewChat(() => setInput(''))} title="New chat">+ New</button>
             </>
           )}
         </div>

@@ -10,15 +10,6 @@ export interface Thread {
   updated_at: string;
   nodes: ThreadNode[];
   edges?: Edge[];
-  // On-chain fields (optional)
-  creator?: string;
-  metadataHash?: string;
-  contentHash?: string;
-  hasVoted?: boolean;
-  votesFor?: bigint;
-  votesAgainst?: bigint;
-  proposalDeadline?: number;
-  hasActiveProposal?: boolean;
 }
 
 export interface ThreadMetadata {
@@ -40,8 +31,6 @@ export interface ThreadNode {
   metadata: NodeMetadata;
   created_at: string;
   updated_at: string;
-  // On-chain fields
-  hasVoted?: boolean;
   threadId?: number;
 }
 

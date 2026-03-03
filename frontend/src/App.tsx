@@ -1,8 +1,4 @@
 import { useEffect, useCallback, useRef, useMemo } from 'react'
-import { ethers } from 'ethers'
-import CanonThread from './contracts/CanonThread.json'
-import CanonToken from './contracts/CanonToken.json'
-import deployments from './contracts/deployments.json'
 import { ReactFlowProvider } from '@xyflow/react'
 import ThreadGraph from './components/ThreadGraph'
 import NodeDetailsModal from './components/NodeDetailsModal'
@@ -39,61 +35,27 @@ function App() {
     searchQuery, setSearchQuery, isSearchLoading, setIsSearchLoading,
   } = useUIStore()
   const {
-    threads, offChainThreads, selectedThreadId, setSelectedThreadId,
+    threads, selectedThreadId, setSelectedThreadId,
     title, setTitle, description, setDescription,
-    isOnChain, setIsOnChain, setOffChainThreads,
-    loadOffChainThreads, createThread,
+    setThreads, loadThreads, createThread,
   } = useThreadStore()
   const {
     selectedNode, setSelectedNode, graphSelectedNodeId, setGraphSelectedNodeId,
     editorNode, setEditorNode, handleCloseModal,
   } = useNodeStore()
 
-  // ── On-chain state (kept local — only relevant when isOnChain) ────────────
-  const accountRef = useRef<string | null>(null)
-  const contractRef = useRef<any>(null)
-  const tokenContractRef = useRef<any>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const voteAmountRef = useRef('')
 
   // ── Auth check on mount ─────────────────────────────────────────────────────
   useEffect(() => { checkAuth() }, [])
 
   // ── Load threads on mount ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!isOnChain) { loadOffChainThreads() }
-  }, [])
+  useEffect(() => { loadThreads() }, [])
 
   // ── Require login helper ────────────────────────────────────────────────────
   function requireLogin(action: () => void) {
     if (!currentUser) { setShowAuthModal(true); return }
     action()
-  }
-
-  // ── On-chain wallet connection ──────────────────────────────────────────────
-  async function connectWallet() {
-    if (typeof window.ethereum === 'undefined') return
-    try {
-      try {
-        await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x7A69' }] })
-      } catch (switchError: any) {
-        if (switchError.code === 4902) {
-          await window.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [{ chainId: '0x7A69', chainName: 'Hardhat Local', nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 }, rpcUrls: ['http://127.0.0.1:8545'] }],
-          })
-        } else return
-      }
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
-      accountRef.current = accounts[0]
-      const provider = new ethers.JsonRpcProvider('http://127.0.0.1:8545')
-      const signer = await provider.getSigner(accounts[0])
-      const code = await provider.getCode(deployments.canonThread)
-      if (code === '0x') return
-      contractRef.current = new ethers.Contract(deployments.canonThread, CanonThread.abi, signer)
-      tokenContractRef.current = new ethers.Contract(deployments.canonToken, CanonToken.abi, signer)
-      setError(null)
-    } catch { /* wallet connection failed */ }
   }
 
   // ── Node handlers ───────────────────────────────────────────────────────────
@@ -102,7 +64,7 @@ function App() {
   const handleUpdateNode = async ({ nodeId, threadId }: any, { title, content }: any) => {
     try {
       await api.updateNode(threadId, nodeId, { title, content })
-      await loadOffChainThreads()
+      await loadThreads()
     } catch (err: any) {
       setError('Failed to update node: ' + err.message)
     }
@@ -123,7 +85,7 @@ function App() {
         parentId: newNode.parentId,
         metadata: { title: newNode.title, description: newNode.content.substring(0, 100), createdAt: new Date().toISOString() },
       })
-      await loadOffChainThreads()
+      await loadThreads()
       setSelectedNode(null)
     } catch (err: any) {
       setError('Failed to create node: ' + err.message)
@@ -133,15 +95,14 @@ function App() {
   }
 
   // ── Thread navigation ───────────────────────────────────────────────────────
-  const displayThreads = isOnChain ? threads : offChainThreads
-  const threadToShow = displayThreads.find((t: any) => t.id === selectedThreadId)
+  const threadToShow = threads.find((t: any) => t.id === selectedThreadId)
   const graphData = threadToShow ? [threadToShow] : []
 
-  const currentThreadIndex = displayThreads.findIndex((t: any) => t.id === selectedThreadId)
+  const currentThreadIndex = threads.findIndex((t: any) => t.id === selectedThreadId)
   const hasPrevThread = currentThreadIndex > 0
-  const hasNextThread = currentThreadIndex >= 0 && currentThreadIndex < displayThreads.length - 1
-  const handlePrevThread = () => { if (hasPrevThread) setSelectedThreadId(displayThreads[currentThreadIndex - 1].id) }
-  const handleNextThread = () => { if (hasNextThread) setSelectedThreadId(displayThreads[currentThreadIndex + 1].id) }
+  const hasNextThread = currentThreadIndex >= 0 && currentThreadIndex < threads.length - 1
+  const handlePrevThread = () => { if (hasPrevThread) setSelectedThreadId(threads[currentThreadIndex - 1].id) }
+  const handleNextThread = () => { if (hasNextThread) setSelectedThreadId(threads[currentThreadIndex + 1].id) }
 
   // ── Graph chat context ──────────────────────────────────────────────────────
   const graphChatContext = useMemo(() => {
@@ -154,10 +115,10 @@ function App() {
   // ── Search ──────────────────────────────────────────────────────────────────
   const filteredThreads = useMemo(() => {
     if (!searchQuery) return []
-    return displayThreads.filter((thread: any) =>
+    return threads.filter((thread: any) =>
       thread.metadata?.title?.toLowerCase().includes(searchQuery.toLowerCase())
     )
-  }, [displayThreads, searchQuery])
+  }, [threads, searchQuery])
 
   const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value)
@@ -176,8 +137,8 @@ function App() {
           if (semanticResults.threads?.length > 0 || semanticResults.nodes?.length > 0) {
             const threadResults = semanticResults.threads || []
             if (threadResults.length > 0) {
-              const existingIds = new Set(offChainThreads.map((t: any) => t.id))
-              setOffChainThreads([...offChainThreads, ...threadResults.filter((t: any) => !existingIds.has(t.id))])
+              const existingIds = new Set(threads.map((t: any) => t.id))
+              setThreads([...threads, ...threadResults.filter((t: any) => !existingIds.has(t.id))])
             }
             setShowSearchResults(true)
             setIsSearchLoading(false)
@@ -190,12 +151,12 @@ function App() {
         if (!currentUser) { setShowAuthModal(true); return }
         const newThread = await api.generateThread(searchQuery)
         setSelectedThreadId(newThread.id)
-        await loadOffChainThreads()
+        await loadThreads()
         setSearchQuery('')
         setShowSearchResults(false)
       } else {
-        const existingIds = new Set(offChainThreads.map((t: any) => t.id))
-        setOffChainThreads([...offChainThreads, ...results.filter((t: any) => !existingIds.has(t.id))])
+        const existingIds = new Set(threads.map((t: any) => t.id))
+        setThreads([...threads, ...results.filter((t: any) => !existingIds.has(t.id))])
         setShowSearchResults(true)
       }
     } catch {
@@ -226,8 +187,8 @@ function App() {
   }, [])
 
   // ── Reload helpers for child components ─────────────────────────────────────
-  const onNodesCreated = async (tid: number) => { await loadOffChainThreads(); setSelectedThreadId(tid) }
-  const onThreadCreated = async (tid: number) => { await loadOffChainThreads(); setSelectedThreadId(tid) }
+  const onNodesCreated = async (tid: number) => { await loadThreads(); setSelectedThreadId(tid) }
+  const onThreadCreated = async (tid: number) => { await loadThreads(); setSelectedThreadId(tid) }
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -294,8 +255,8 @@ function App() {
               threadId={(threadToShow as any)?.id}
               currentUser={currentUser}
               onAuthRequired={() => setShowAuthModal(true)}
-              onNodesCreated={async (tid: number) => { await loadOffChainThreads(); setSelectedThreadId(tid); setView('graph') }}
-              onThreadCreated={async (tid: number) => { await loadOffChainThreads(); setSelectedThreadId(tid); setView('graph') }}
+              onNodesCreated={async (tid: number) => { await loadThreads(); setSelectedThreadId(tid); setView('graph') }}
+              onThreadCreated={async (tid: number) => { await loadThreads(); setSelectedThreadId(tid); setView('graph') }}
             />
             <div style={{ padding: '0 20px 20px' }}>
               <ReadLaterQueue
@@ -314,7 +275,7 @@ function App() {
             currentUser={currentUser}
             onAuthRequired={() => setShowAuthModal(true)}
             onContentChange={(html: string) => {
-              setOffChainThreads(offChainThreads.map((t: any) =>
+              setThreads(threads.map((t: any) =>
                 t.id === (threadToShow as any).id ? { ...t, content: html } : t
               ))
             }}
@@ -345,7 +306,7 @@ function App() {
             <div className="custom-select" ref={dropdownRef}>
               <button className="thread-selector" onClick={() => setShowThreadDropdown(!showThreadDropdown)}>
                 {selectedThreadId
-                  ? displayThreads.find((t: any) => t.id === selectedThreadId)?.metadata?.title || `Thread ${selectedThreadId}`
+                  ? threads.find((t: any) => t.id === selectedThreadId)?.metadata?.title || `Thread ${selectedThreadId}`
                   : 'Select a Thread'}
               </button>
               {showThreadDropdown && (
@@ -353,7 +314,7 @@ function App() {
                   <div className="dropdown-item create-thread-option" onClick={() => requireLogin(() => { setShowCreateThreadModal(true); setShowThreadDropdown(false) })}>
                     + Create New Thread
                   </div>
-                  {displayThreads.map((thread: any) => (
+                  {threads.map((thread: any) => (
                     <div key={thread.id} className="dropdown-item" onClick={() => { setSelectedThreadId(thread.id); setShowThreadDropdown(false) }}>
                       {thread.metadata?.title || `Thread ${thread.id}`}
                     </div>
@@ -468,12 +429,8 @@ function App() {
           <NodeDetailsModal
             node={selectedNode}
             onClose={handleCloseModal}
-            onVote={() => {}}
-            onCreateProposal={() => {}}
             onAddNode={handleAddNode}
             loading={loading}
-            voteAmount={voteAmountRef.current}
-            setVoteAmount={(v: string) => { voteAmountRef.current = v }}
           />
         )}
 

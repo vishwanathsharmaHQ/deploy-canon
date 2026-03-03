@@ -1,0 +1,151 @@
+import React from 'react';
+import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
+import type { Thread, NodeTypeName } from '../types';
+import CrossThreadLinkPanel from './CrossThreadLinkPanel';
+
+interface GraphContentSidebarProps {
+  selectedNode: any;
+  threads: Thread[];
+  onClose: () => void;
+  onNodeClick: (node: any) => void;
+  onOpenEditor?: (node: any) => void;
+  onOpenInArticle?: (nodeId: number) => void;
+  onNavigateToThread?: (threadId: number) => void;
+  formatContent: (content: any, nodeType: string) => React.ReactNode;
+}
+
+function getChildNodes(threads: Thread[], nodeId: string) {
+  if (!threads.length) return [];
+  const thread = threads[0];
+  if (nodeId.startsWith('thread-')) {
+    return (thread.nodes || []).filter(node => !node.parent_id);
+  } else {
+    const nodeIdNumber = parseInt(nodeId.replace('node-', ''));
+    return (thread.nodes || []).filter(node => node.parent_id === nodeIdNumber);
+  }
+}
+
+function getNodeTypeBadgeColor(type: string | number) {
+  if (type === 'thread') return NODE_TYPE_COLORS.thread;
+  return NODE_TYPE_COLORS[NODE_TYPES[type as number] as NodeTypeName] || '#666';
+}
+
+const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
+  selectedNode,
+  threads,
+  onClose,
+  onNodeClick,
+  onOpenEditor,
+  onOpenInArticle,
+  onNavigateToThread,
+  formatContent,
+}) => {
+  if (!selectedNode) return null;
+
+  const rfIdPrefix = selectedNode.type === 'thread' ? 'thread-' : 'node-';
+  const children = getChildNodes(threads, `${rfIdPrefix}${selectedNode.id}`);
+
+  return (
+    <>
+      <div className="content-sidebar-header">
+        {selectedNode.type !== 'thread' && (
+          <button
+            className="back-button"
+            onClick={() => {
+              if (selectedNode.parent_id) {
+                const parentNode = threads[0].nodes.find(n => n.id === selectedNode.parent_id);
+                if (parentNode) { onNodeClick(parentNode); return; }
+              }
+              const thread = threads[0];
+              onNodeClick({
+                ...thread,
+                type: 'thread',
+                metadata: {
+                  ...thread.metadata,
+                  title: thread.metadata?.title || thread.title || `Thread ${thread.id}`
+                }
+              });
+            }}
+            aria-label="Back to parent"
+          >
+            &larr;
+          </button>
+        )}
+        <h2>
+          {selectedNode.type === 'thread'
+            ? (selectedNode.originalData?.metadata?.title || selectedNode.originalData?.title || selectedNode.title || `Thread ${selectedNode.id}`)
+            : (selectedNode.metadata?.title || selectedNode.title || `Node ${selectedNode.id}`)}
+        </h2>
+        <div className="header-actions">
+          {selectedNode.type !== 'thread' && onOpenInArticle && (
+            <button
+              className="open-in-article-button"
+              onClick={() => onOpenInArticle(selectedNode.id)}
+              title="Read this node in Article view"
+            >
+              Read →
+            </button>
+          )}
+          <button
+            className="add-node-button"
+            onClick={() => onOpenEditor && onOpenEditor(selectedNode)}
+          >
+            Add Node
+          </button>
+          <button className="content-sidebar-close" onClick={onClose}>&times;</button>
+        </div>
+      </div>
+      <div className="content-sidebar-body">
+        <div className="child-nodes-list">
+          <h3>Connected Nodes</h3>
+          {children.length > 0 ? (
+            <div className="nodes-grid">
+              {children.map((node: any) => (
+                <div
+                  key={node.id}
+                  className="node-card"
+                  onClick={() => onNodeClick(node)}
+                >
+                  <div
+                    className="node-card-type"
+                    style={{ backgroundColor: NODE_TYPE_COLORS[NODE_TYPES[node.type] as NodeTypeName] }}
+                  >
+                    {NODE_TYPES[node.type]}
+                  </div>
+                  <div className="node-card-title">
+                    {node.metadata?.title || `Node ${node.id}`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="no-nodes-message">No nodes connected yet</p>
+          )}
+        </div>
+
+        <div className="content-sidebar-metadata">
+          <div
+            className="type-badge"
+            style={{ backgroundColor: getNodeTypeBadgeColor(selectedNode.type) }}
+          >
+            {selectedNode.type === 'thread' ? 'THREAD' : NODE_TYPES[selectedNode.type]}
+          </div>
+        </div>
+
+        <div className="content-sidebar-content">
+          {formatContent(selectedNode.content, selectedNode.type === 'thread' ? 'thread' : NODE_TYPES[selectedNode.type])}
+        </div>
+
+        {selectedNode.type !== 'thread' && threads.length > 0 && (
+          <CrossThreadLinkPanel
+            nodeId={selectedNode.id}
+            threadId={threads[0].id}
+            onNavigateToThread={onNavigateToThread}
+          />
+        )}
+      </div>
+    </>
+  );
+};
+
+export default GraphContentSidebar;

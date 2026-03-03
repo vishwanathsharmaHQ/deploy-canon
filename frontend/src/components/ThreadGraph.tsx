@@ -1,5 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, useRef, memo } from 'react';
-import { sanitizeHtml } from '../utils/sanitize';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   ReactFlow,
   useNodesState,
@@ -10,33 +9,12 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import ReactMarkdown from 'react-markdown';
 import './ThreadGraph.css';
 import { api } from '../services/api';
 import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
+import { formatContent } from '../utils/graphContent';
 import type { Thread, ThreadNode, NodeTypeName } from '../types';
-import CrossThreadLinkPanel from './CrossThreadLinkPanel';
-
-const YT_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
-
-const mdComponents = {
-  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
-    const yt = href?.match(YT_REGEX);
-    if (yt) {
-      return (
-        <div className="sidebar-youtube">
-          <iframe
-            src={`https://www.youtube.com/embed/${yt[1]}`}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            title={`yt-${yt[1]}`}
-          />
-        </div>
-      );
-    }
-    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
-  },
-};
+import GraphContentSidebar from './GraphContentSidebar';
 
 // Custom node component with decay visualization
 function GraphNode({ data }: { data: any }) {
@@ -396,26 +374,6 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     if (onSelectedNodeChange) onSelectedNodeChange(null);
   };
 
-  const getChildNodes = (nodeId: string) => {
-    if (!threads.length) return [];
-    const thread = threads[0];
-    if (nodeId.startsWith('thread-')) {
-      return (thread.nodes || []).filter(node => !node.parent_id);
-    } else {
-      const nodeIdNumber = parseInt(nodeId.replace('node-', ''));
-      return (thread.nodes || []).filter(node => node.parent_id === nodeIdNumber);
-    }
-  };
-
-  const handleChildNodeClick = (node: any) => {
-    handleNodeClick(node);
-  };
-
-  const getNodeTypeBadgeColor = (type: string | number) => {
-    if (type === 'thread') return NODE_TYPE_COLORS.thread;
-    return NODE_TYPE_COLORS[NODE_TYPES[type as number] as NodeTypeName] || '#666';
-  };
-
   // Save layout (also updates the ref so rebuilds preserve positions)
   const layoutSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveCurrentLayout = useCallback(async () => {
@@ -477,100 +435,6 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
       console.error('Failed to reset layout:', e);
     } finally {
       setLayoutLoading(false);
-    }
-  };
-
-  // Render a string that may contain HTML tags or markdown
-  const renderText = (text: any): React.ReactNode => {
-    if (!text) return null;
-    const str = String(text);
-    if (/<[a-z][\s\S]*>/i.test(str)) {
-      return <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(str) }} />;
-    }
-    return <ReactMarkdown components={mdComponents as any}>{str}</ReactMarkdown>;
-  };
-
-  const formatContent = (content: any, nodeType: string): React.ReactNode => {
-    if (!content) return 'No content available';
-
-    try {
-      let actualContent = content.content || content;
-
-      if (typeof actualContent === 'string' && (actualContent.startsWith('{') || actualContent.startsWith('['))) {
-        try { actualContent = JSON.parse(actualContent); } catch (e) { /* ignore */ }
-      }
-
-      if (['ROOT', 'EVIDENCE', 'EXAMPLE', 'COUNTERPOINT'].includes(nodeType)) {
-        const jsonContent = typeof actualContent === 'object' ? actualContent :
-          typeof actualContent === 'string' && actualContent.startsWith('{') ?
-            JSON.parse(actualContent) : null;
-
-        if (jsonContent) {
-          switch (nodeType) {
-            case 'ROOT':
-              return (
-                <div className="root-content">
-                  <h4 className="root-title">{renderText(jsonContent.title)}</h4>
-                  <div className="root-description">{renderText(jsonContent.description)}</div>
-                  {jsonContent.keywords && (
-                    <div className="root-keywords">
-                      <strong>Keywords: </strong>{Array.isArray(jsonContent.keywords) ? jsonContent.keywords.join(', ') : renderText(jsonContent.keywords)}
-                    </div>
-                  )}
-                </div>
-              );
-            case 'EVIDENCE': {
-              const srcUrl = jsonContent.source || '';
-              const ytMatch = srcUrl.match?.(YT_REGEX);
-              return (
-                <div className="evidence-content">
-                  <div className="evidence-point">{renderText(jsonContent.point)}</div>
-                  {ytMatch ? (
-                    <div className="sidebar-youtube">
-                      <iframe
-                        src={`https://www.youtube.com/embed/${ytMatch[1]}`}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                        title={`yt-${ytMatch[1]}`}
-                      />
-                    </div>
-                  ) : (
-                    <p className="evidence-source"><em>Source: {
-                      /^https?:\/\//.test(srcUrl)
-                        ? <a href={srcUrl} target="_blank" rel="noopener noreferrer">{srcUrl}</a>
-                        : renderText(srcUrl)
-                    }</em></p>
-                  )}
-                </div>
-              );
-            }
-            case 'EXAMPLE':
-              return (
-                <div className="example-content">
-                  <h4 className="example-title">{renderText(jsonContent.title)}</h4>
-                  <div className="example-description">{renderText(jsonContent.description)}</div>
-                </div>
-              );
-            case 'COUNTERPOINT':
-              return (
-                <div className="counterpoint-content">
-                  <h4 className="counterpoint-argument">{renderText(jsonContent.argument)}</h4>
-                  <div className="counterpoint-explanation">{renderText(jsonContent.explanation)}</div>
-                </div>
-              );
-          }
-        }
-      }
-
-      // Plain text or HTML string
-      const textContent = typeof actualContent === 'object' ?
-        JSON.stringify(actualContent, null, 2) : String(actualContent);
-      if (/<[a-z][\s\S]*>/i.test(textContent)) {
-        return <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(textContent) }} />;
-      }
-      return <ReactMarkdown components={mdComponents as any}>{textContent}</ReactMarkdown>;
-    } catch (e) {
-      return 'Error displaying content';
     }
   };
 
@@ -648,117 +512,16 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
       </div>
 
       <div className={`content-sidebar ${selectedNode ? 'open' : ''}`}>
-        {selectedNode && (
-          <>
-            <div className="content-sidebar-header">
-              {selectedNode.type !== 'thread' && (
-                <button
-                  className="back-button"
-                  onClick={() => {
-                    if (selectedNode.parent_id) {
-                      const parentNode = threads[0].nodes.find(n => n.id === selectedNode.parent_id);
-                      if (parentNode) { handleNodeClick(parentNode); return; }
-                    }
-                    const thread = threads[0];
-                    handleNodeClick({
-                      ...thread,
-                      type: 'thread',
-                      metadata: {
-                        ...thread.metadata,
-                        title: thread.metadata?.title || thread.title || `Thread ${thread.id}`
-                      }
-                    });
-                  }}
-                  aria-label="Back to parent"
-                >
-                  &larr;
-                </button>
-              )}
-              <h2>
-                {selectedNode.type === 'thread'
-                  ? (selectedNode.originalData?.metadata?.title || selectedNode.originalData?.title || selectedNode.title || `Thread ${selectedNode.id}`)
-                  : (selectedNode.metadata?.title || selectedNode.title || `Node ${selectedNode.id}`)}
-              </h2>
-              <div className="header-actions">
-                {selectedNode.type !== 'thread' && onOpenInArticle && (
-                  <button
-                    className="open-in-article-button"
-                    onClick={() => onOpenInArticle(selectedNode.id)}
-                    title="Read this node in Article view"
-                  >
-                    Read →
-                  </button>
-                )}
-                <button
-                  className="add-node-button"
-                  onClick={() => onOpenEditor && onOpenEditor(selectedNode)}
-                >
-                  Add Node
-                </button>
-                <button className="content-sidebar-close" onClick={closeContentSidebar}>&times;</button>
-              </div>
-            </div>
-            <div className="content-sidebar-body">
-              <div className="child-nodes-list">
-                <h3>Connected Nodes</h3>
-                {getChildNodes(`${selectedNode.type === 'thread' ? 'thread-' : 'node-'}${selectedNode.id}`).length > 0 ? (
-                  <div className="nodes-grid">
-                    {getChildNodes(`${selectedNode.type === 'thread' ? 'thread-' : 'node-'}${selectedNode.id}`).map((node: any) => (
-                      <div
-                        key={node.id}
-                        className="node-card"
-                        onClick={() => handleChildNodeClick(node)}
-                      >
-                        <div
-                          className="node-card-type"
-                          style={{ backgroundColor: NODE_TYPE_COLORS[NODE_TYPES[node.type] as NodeTypeName] }}
-                        >
-                          {NODE_TYPES[node.type]}
-                        </div>
-                        <div className="node-card-title">
-                          {node.metadata?.title || `Node ${node.id}`}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="no-nodes-message">No nodes connected yet</p>
-                )}
-              </div>
-
-              <div className="content-sidebar-metadata">
-                <div
-                  className="type-badge"
-                  style={{ backgroundColor: getNodeTypeBadgeColor(selectedNode.type) }}
-                >
-                  {selectedNode.type === 'thread' ? 'THREAD' : NODE_TYPES[selectedNode.type]}
-                </div>
-                <div className="voting-stats">
-                  <div className="stat">
-                    <label>Votes For:</label>
-                    <span>{selectedNode.votesFor || '0'}</span>
-                  </div>
-                  <div className="stat">
-                    <label>Votes Against:</label>
-                    <span>{selectedNode.votesAgainst || '0'}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="content-sidebar-content">
-                {formatContent(selectedNode.content, selectedNode.type === 'thread' ? 'thread' : NODE_TYPES[selectedNode.type])}
-              </div>
-
-              {selectedNode.type !== 'thread' && threads.length > 0 && (
-                <CrossThreadLinkPanel
-                  nodeId={selectedNode.id}
-                  threadId={threads[0].id}
-                  onNavigateToThread={onNavigateToThread}
-                />
-              )}
-            </div>
-          </>
-        )}
+        <GraphContentSidebar
+          selectedNode={selectedNode}
+          threads={threads}
+          onClose={closeContentSidebar}
+          onNodeClick={handleNodeClick}
+          onOpenEditor={onOpenEditor}
+          onOpenInArticle={onOpenInArticle}
+          onNavigateToThread={onNavigateToThread}
+          formatContent={formatContent}
+        />
       </div>
     </div>
   );
