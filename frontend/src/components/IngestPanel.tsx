@@ -39,8 +39,8 @@ const IngestPanel: React.FC<IngestPanelProps> = ({ threadId, onNodesCreated, onT
     try {
       const data = await api.ingestUrl(url, threadId);
       setResult(data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -61,15 +61,15 @@ const IngestPanel: React.FC<IngestPanelProps> = ({ threadId, onNodesCreated, onT
         try {
           const data = await api.ingestPdf(base64, file.name, threadId);
           setResult(data);
-        } catch (err: any) {
-          setError(err.message);
+        } catch (err: unknown) {
+          setError((err as Error).message);
         } finally {
           setLoading(false);
         }
       };
       reader.readAsDataURL(file);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err as Error).message);
       setLoading(false);
     }
   };
@@ -107,8 +107,8 @@ const IngestPanel: React.FC<IngestPanelProps> = ({ threadId, onNodesCreated, onT
       }
       setResult(null);
       setUrl('');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -143,8 +143,8 @@ const IngestPanel: React.FC<IngestPanelProps> = ({ threadId, onNodesCreated, onT
       }
       setResult(null);
       setUrl('');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -156,8 +156,8 @@ const IngestPanel: React.FC<IngestPanelProps> = ({ threadId, onNodesCreated, onT
     try {
       await api.createBookmark({ url, title: url, source_type: 'url' });
       setUrl('');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err as Error).message);
     }
   };
 

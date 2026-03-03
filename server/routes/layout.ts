@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getNeo4j } from '../db/driver.js';
+import { getNeo4j, toNum } from '../db/driver.js';
 import { formatThread } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
@@ -103,6 +103,43 @@ router.get('/:threadId/sequence', withSession(async (req, res) => {
   );
   const seqStr = result.records[0]?.get('sequence');
   res.json(seqStr ? JSON.parse(seqStr) : null);
+}));
+
+// ── Suggest sequence (AI) ────────────────────────────────────────────────────
+
+router.post('/:threadId/sequence/suggest', requireAuth, withSession(async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const result = await req.neo4jSession!.run(
+    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
+    { threadId: getNeo4j().int(threadId) }
+  );
+  const nodes = result.records.map(r => {
+    const p = r.get('n').properties;
+    return { id: toNum(p.id), title: p.title, node_type: p.node_type };
+  });
+  if (!nodes.length) return res.json({ sequence: [] });
+
+  const { getOpenAI } = await import('../services/openai.js');
+  const openai = getOpenAI();
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    temperature: 0.2,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content: `You are a knowledge organizer. Given a list of argument nodes, return the optimal reading sequence as a JSON array of node IDs.
+Return exactly: { "sequence": [<id1>, <id2>, ...] }
+Order them so the narrative flows logically: ROOT claim first, then supporting evidence, counterpoints, and synthesis.`,
+      },
+      {
+        role: 'user',
+        content: nodes.map(n => `ID ${n.id}: [${n.node_type}] ${n.title}`).join('\n'),
+      },
+    ],
+  });
+  const parsed = JSON.parse(completion.choices[0].message.content!);
+  res.json({ sequence: parsed.sequence || [] });
 }));
 
 router.delete('/:threadId/sequence', requireAuth, withSession(async (req, res) => {

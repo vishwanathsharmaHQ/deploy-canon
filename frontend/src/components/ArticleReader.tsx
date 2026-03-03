@@ -46,7 +46,7 @@ interface ArticleReaderProps {
 
 const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired }) => {
   const [currentPage, setCurrentPage] = useState(0);
-  const [orderedNodes, setOrderedNodes] = useState<any[]>([]);
+  const [orderedNodes, setOrderedNodes] = useState<ThreadNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -56,14 +56,14 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   // Red Team / Steelman — proposals shown in secondary panel with Accept/Discard
   const [redTeamLoading, setRedTeamLoading] = useState(false);
   const [steelmanLoading, setSteelmanLoading] = useState(false);
-  const [secondaryPinnedNodes, setSecondaryPinnedNodes] = useState<any[] | null>(null); // overrides currentRootChildren
+  const [secondaryPinnedNodes, setSecondaryPinnedNodes] = useState<ThreadNode[] | null>(null);
   const [secondaryPanelLabel, setSecondaryPanelLabel] = useState('Supporting Nodes');
-  const [pendingProposals, setPendingProposals] = useState<{ nodes: any[]; parentNodeId: number; type: string } | null>(null);
+  const [pendingProposals, setPendingProposals] = useState<{ nodes: ThreadNode[]; parentNodeId: number; type: string } | null>(null);
   // Fork
   const [forkModalOpen, setForkModalOpen] = useState(false);
   const [forkClaim, setForkClaim] = useState('');
   const [forkLoading, setForkLoading] = useState(false);
-  const [pendingUpdate, setPendingUpdate] = useState<any>(null);
+  const [pendingUpdate, setPendingUpdate] = useState<ProposedUpdate | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ nodeId: number; childCount: number } | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editKeywords, setEditKeywords] = useState('');
@@ -145,13 +145,13 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     return () => body.removeEventListener('click', handler);
   }, [orderedNodes]);
 
-  const handleRedTeam = async (node: any) => {
+  const handleRedTeam = async (node: ThreadNode) => {
     if (!currentUser) { onAuthRequired?.(); return; }
     setRedTeamLoading(true);
     try {
       const { proposals, parentNodeId } = await api.redTeamThread(thread.id, node.id);
       // Proposals are not saved yet — show with Accept/Discard in secondary panel
-      const previewNodes = proposals.map((p: any, i: number) => ({ ...p, id: `pending-rt-${i}`, node_type: p.nodeType, parent_id: parentNodeId }));
+      const previewNodes = proposals.map((p: { title: string; content: string; nodeType: string }, i: number) => ({ ...p, id: `pending-rt-${i}` as unknown as number, node_type: p.nodeType, parent_id: parentNodeId } as ThreadNode));
       setPendingProposals({ nodes: previewNodes, parentNodeId, type: 'redteam' });
       setSecondaryPinnedNodes(previewNodes);
       setSecondaryPanelLabel('⚔ Red Team — Review');
@@ -169,7 +169,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     setSteelmanLoading(true);
     try {
       const { proposal, parentId } = await api.steelmanNode(thread.id, nodeId);
-      const previewNode = { ...proposal, id: 'pending-steelman', node_type: proposal.nodeType, parent_id: parentId };
+      const previewNode = { ...proposal, id: 'pending-steelman' as unknown as number, node_type: proposal.nodeType, parent_id: parentId } as ThreadNode;
       setPendingProposals({ nodes: [previewNode], parentNodeId: parentId, type: 'steelman' });
       setSecondaryPinnedNodes([previewNode]);
       setSecondaryPanelLabel('▲ Steelmanned — Review');
@@ -185,7 +185,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   const handleAcceptProposals = async () => {
     if (!pendingProposals) return;
     try {
-      const { created } = await api.createNodesBatch(thread.id, pendingProposals.nodes.map((n: any) => ({
+      const { created } = await api.createNodesBatch(thread.id, pendingProposals.nodes.map(n => ({
         title: n.title,
         content: n.content,
         nodeType: n.node_type || n.nodeType,
@@ -280,7 +280,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
       const nodes = thread.nodes || [];
       const saved = await api.loadArticleSequence(thread.id);
 
-      let ordered: any[];
+      let ordered: ThreadNode[];
       if (saved && Array.isArray(saved)) {
         const savedSet = new Set(saved);
         const savedOrdered = saved.map((id: number) => nodes.find(n => n.id === id)).filter(Boolean);
@@ -338,7 +338,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     const nodeType = getNodeType(node);
 
     // Preserve existing fields (e.g. keywords for ROOT), only replace title + body
-    let existingParsed: any = {};
+    let existingParsed: Record<string, unknown> = {};
     if (typeof node.content === 'string') {
       try { existingParsed = JSON.parse(node.content); } catch (e) { /* ignore */ }
     }
@@ -638,7 +638,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
               thread={thread}
               currentUser={currentUser}
               onAuthRequired={onAuthRequired}
-              onNodesCreated={(nodes: any[]) => {
+              onNodesCreated={(nodes: ThreadNode[]) => {
                 setOrderedNodes(prev => [...prev, ...nodes]);
                 onNodesCreated?.(thread.id);
               }}

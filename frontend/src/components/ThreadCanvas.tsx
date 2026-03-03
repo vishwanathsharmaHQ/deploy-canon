@@ -10,10 +10,10 @@ interface ThreadCanvasProps {
 }
 
 const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
-  const [initialData, setInitialData] = useState<any>(null);
+  const [initialData, setInitialData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const excalidrawAPIRef = useRef<any>(null);
+  const excalidrawAPIRef = useRef<{ getSceneElements: () => unknown; getAppState: () => unknown } | null>(null);
 
   // Load saved canvas data on mount
   useEffect(() => {
@@ -34,7 +34,7 @@ const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
   }, [thread.id]);
 
   // Debounced auto-save
-  const handleChange = useCallback((elements: any, appState: any) => {
+  const handleChange = useCallback((elements: unknown[], appState: Record<string, unknown>) => {
     if (loading) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {

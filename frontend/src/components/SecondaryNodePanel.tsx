@@ -2,10 +2,10 @@ import React from 'react';
 import { NODE_TYPE_COLORS } from '../constants';
 import { getNodeType, formatNodeContent, renderContent } from '../utils/articleContent';
 import SourceVerifyBadge from './SourceVerifyBadge';
-import type { NodeTypeName } from '../types';
+import type { ThreadNode, NodeTypeName } from '../types';
 
 interface SecondaryNodePanelProps {
-  nodes: any[];
+  nodes: ThreadNode[];
   selectedId: number | string | null;
   onSelect: (id: number | string) => void;
   label?: string;
@@ -39,7 +39,7 @@ const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selected
       </div>
 
       <div className="ar-snp-tabs">
-        {nodes.map((node: any) => {
+        {nodes.map((node) => {
           const nodeType = getNodeType(node);
           const color = NODE_TYPE_COLORS[nodeType as NodeTypeName] || '#888';
           const isActive = node.id === selectedId;

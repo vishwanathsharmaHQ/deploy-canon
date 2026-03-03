@@ -6,7 +6,7 @@ import { relativeDate } from '../utils/dates';
 import { createMdComponents } from '../utils/markdown';
 import { useChatStream } from '../hooks/useChatStream';
 import type { ChatMessage } from '../hooks/useChatStream';
-import type { User, NodeTypeName } from '../types';
+import type { User, NodeTypeName, ProposedNode } from '../types';
 import './ChatPanel.css';
 
 const mdComponents = createMdComponents('cp-youtube');
@@ -22,7 +22,7 @@ interface ChatPanelProps {
   initialThreadId?: number | null;
   onNodesCreated?: (threadId: number) => void;
   onThreadCreated?: (threadId: number) => void;
-  articleContext?: any;
+  articleContext?: { nodeId: number; nodeType: string; title: string; content: string } | null;
   onProposedUpdate?: (update: ProposedUpdate) => Promise<void>;
   defaultSidebarCollapsed?: boolean;
   currentUser: User | null | undefined;
@@ -80,14 +80,14 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     });
   }, []);
 
-  const handleAcceptNodes = useCallback(async (msgIndex: number, proposedNodes: any[], threadId: number) => {
+  const handleAcceptNodes = useCallback(async (msgIndex: number, proposedNodes: ProposedNode[], threadId: number) => {
     try {
       const excluded = excludedNodes[msgIndex] || new Set();
-      const filteredNodes = proposedNodes.filter((_: any, idx: number) => !excluded.has(idx));
+      const filteredNodes = proposedNodes.filter((_, idx) => !excluded.has(idx));
       if (filteredNodes.length === 0) return;
 
-      const rootNode = filteredNodes.find((n: any) => n.type === 'ROOT');
-      const secondaryNodes = filteredNodes.filter((n: any) => n.type !== 'ROOT');
+      const rootNode = filteredNodes.find(n => n.type === 'ROOT');
+      const secondaryNodes = filteredNodes.filter(n => n.type !== 'ROOT');
       let rootNodeId: number | null = null;
       let allDuplicateSkipped: string[] = [];
 
@@ -96,7 +96,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
         rootNodeId = created.id;
       }
       if (secondaryNodes.length > 0) {
-        const batchResult = await api.createNodesBatch(threadId, secondaryNodes.map((n: any) => ({
+        const batchResult = await api.createNodesBatch(threadId, secondaryNodes.map(n => ({
           title: n.title, content: n.content, nodeType: n.type, parentId: rootNodeId,
         })));
         if ((batchResult.duplicateSkipped?.length ?? 0) > 0) {
@@ -201,7 +201,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                   ) : (
                     <>
                       <div className="cp-markdown">
-                        <ReactMarkdown components={mdComponents as any}>{msg.content}</ReactMarkdown>
+                        <ReactMarkdown components={mdComponents as Record<string, React.ComponentType>}>{msg.content}</ReactMarkdown>
                       </div>
 
                       {msg.processing && (
@@ -216,7 +216,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                       {msg.citations && msg.citations.length > 0 && (
                         <div className="cp-citations">
                           <span className="cp-citations-label">Sources</span>
-                          {msg.citations.map((c: any, ci: number) => (
+                          {msg.citations.map((c, ci) => (
                             <a key={ci} href={c.url} target="_blank" rel="noopener noreferrer"
                                className="cp-citation" title={c.url}>
                               [{ci + 1}] {(c.title || c.url).substring(0, 60)}
@@ -238,7 +238,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                               Skipped {msg.duplicateSkipped.length} duplicate{msg.duplicateSkipped.length !== 1 ? 's' : ''}: {msg.duplicateSkipped.join(', ')}
                             </span>
                           )}
-                          {msg.proposedNodes?.map((n: any, ni: number) => (
+                          {msg.proposedNodes?.map((n, ni) => (
                             <span key={ni} className="cp-node-chip"
                               style={{ borderColor: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#555', color: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#aaa' }}
                               title={n.title}>
@@ -297,7 +297,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                             ✦ {msg.proposedNodes.length} node{msg.proposedNodes.length !== 1 ? 's' : ''} ready to save
                           </div>
                           <div className="cp-proposed-nodes-list">
-                            {msg.proposedNodes.map((n: any, ni: number) => (
+                            {msg.proposedNodes.map((n, ni) => (
                               <span key={ni}
                                 className={`cp-node-chip${excluded.has(ni) ? ' cp-node-chip--excluded' : ''}`}
                                 style={excluded.has(ni) ? {} : { borderColor: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#555', color: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#aaa' }}

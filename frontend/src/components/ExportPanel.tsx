@@ -10,7 +10,7 @@ interface ExportPanelProps {
 
 const ExportPanel: React.FC<ExportPanelProps> = ({ threadId, threadTitle, onClose }) => {
   const [format, setFormat] = useState<'markdown' | 'json'>('markdown');
-  const [preview, setPreview] = useState<any>(null);
+  const [preview, setPreview] = useState<{ content: string; format: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleExport = async () => {

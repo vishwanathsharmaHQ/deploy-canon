@@ -17,6 +17,7 @@ import ReadLaterQueue from './components/ReadLaterQueue'
 import ThreadTimeline from './components/ThreadTimeline'
 import { api } from './services/api'
 import { NODE_TYPES } from './constants'
+import type { ThreadNode, ViewName } from './types'
 import { useAuthStore } from './stores/useAuthStore'
 import { useUIStore } from './stores/useUIStore'
 import { useThreadStore } from './stores/useThreadStore'
@@ -59,18 +60,18 @@ function App() {
   }
 
   // ── Node handlers ───────────────────────────────────────────────────────────
-  const handleNodeClick = (node: any) => setSelectedNode(node)
+  const handleNodeClick = (node: ThreadNode) => setSelectedNode(node)
 
-  const handleUpdateNode = async ({ nodeId, threadId }: any, { title, content }: any) => {
+  const handleUpdateNode = async ({ nodeId, threadId }: { nodeId: number; threadId: number }, { title, content }: { title: string; content: string }) => {
     try {
       await api.updateNode(threadId, nodeId, { title, content })
       await loadThreads()
-    } catch (err: any) {
-      setError('Failed to update node: ' + err.message)
+    } catch (err: unknown) {
+      setError('Failed to update node: ' + (err as Error).message)
     }
   }
 
-  const handleAddNode = async (threadData: any) => {
+  const handleAddNode = async (threadData: { newNode: { title?: string; content?: string; type?: number | string; threadId: number; parentId?: number | null } }) => {
     const { newNode } = threadData
     if (!newNode?.title || !newNode?.content) return
     try {
@@ -87,18 +88,18 @@ function App() {
       })
       await loadThreads()
       setSelectedNode(null)
-    } catch (err: any) {
-      setError('Failed to create node: ' + err.message)
+    } catch (err: unknown) {
+      setError('Failed to create node: ' + (err as Error).message)
     } finally {
       setLoading(false)
     }
   }
 
   // ── Thread navigation ───────────────────────────────────────────────────────
-  const threadToShow = threads.find((t: any) => t.id === selectedThreadId)
+  const threadToShow = threads.find(t => t.id === selectedThreadId)
   const graphData = threadToShow ? [threadToShow] : []
 
-  const currentThreadIndex = threads.findIndex((t: any) => t.id === selectedThreadId)
+  const currentThreadIndex = threads.findIndex(t => t.id === selectedThreadId)
   const hasPrevThread = currentThreadIndex > 0
   const hasNextThread = currentThreadIndex >= 0 && currentThreadIndex < threads.length - 1
   const handlePrevThread = () => { if (hasPrevThread) setSelectedThreadId(threads[currentThreadIndex - 1].id) }
@@ -107,7 +108,7 @@ function App() {
   // ── Graph chat context ──────────────────────────────────────────────────────
   const graphChatContext = useMemo(() => {
     if (!graphSelectedNodeId || !threadToShow) return null
-    const node = ((threadToShow as any).nodes || []).find((n: any) => n.id === graphSelectedNodeId)
+    const node = (threadToShow.nodes || []).find(n => n.id === graphSelectedNodeId)
     if (!node) return null
     return { nodeId: node.id, nodeType: node.node_type, title: node.title || node.metadata?.title, content: typeof node.content === 'string' ? node.content.substring(0, 600) : '' }
   }, [graphSelectedNodeId, threadToShow])
@@ -115,7 +116,7 @@ function App() {
   // ── Search ──────────────────────────────────────────────────────────────────
   const filteredThreads = useMemo(() => {
     if (!searchQuery) return []
-    return threads.filter((thread: any) =>
+    return threads.filter(thread =>
       thread.metadata?.title?.toLowerCase().includes(searchQuery.toLowerCase())
     )
   }, [threads, searchQuery])
@@ -137,8 +138,8 @@ function App() {
           if (semanticResults.threads?.length > 0 || semanticResults.nodes?.length > 0) {
             const threadResults = semanticResults.threads || []
             if (threadResults.length > 0) {
-              const existingIds = new Set(threads.map((t: any) => t.id))
-              setThreads([...threads, ...threadResults.filter((t: any) => !existingIds.has(t.id))])
+              const existingIds = new Set(threads.map(t => t.id))
+              setThreads([...threads, ...threadResults.filter(t => !existingIds.has(t.id))])
             }
             setShowSearchResults(true)
             setIsSearchLoading(false)
@@ -155,8 +156,8 @@ function App() {
         setSearchQuery('')
         setShowSearchResults(false)
       } else {
-        const existingIds = new Set(threads.map((t: any) => t.id))
-        setThreads([...threads, ...results.filter((t: any) => !existingIds.has(t.id))])
+        const existingIds = new Set(threads.map(t => t.id))
+        setThreads([...threads, ...results.filter(t => !existingIds.has(t.id))])
         setShowSearchResults(true)
       }
     } catch {
@@ -219,12 +220,12 @@ function App() {
         {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest') && (
           <ViewTabBar
             view={view}
-            onChangeView={(newView: any) => {
+            onChangeView={(newView: ViewName) => {
               if (['sequence', 'editor', 'canvas', 'review', 'ingest', 'timeline'].includes(newView)) {
                 requireLogin(() => setView(newView))
               } else { setView(newView) }
             }}
-            threadTitle={(threadToShow as any)?.metadata?.title || (threadToShow as any)?.title || (threadToShow ? `Thread ${(threadToShow as any).id}` : '')}
+            threadTitle={threadToShow?.metadata?.title || threadToShow?.title || (threadToShow ? `Thread ${threadToShow.id}` : '')}
             onPrevThread={handlePrevThread}
             onNextThread={handleNextThread}
             hasPrev={hasPrevThread}
@@ -236,7 +237,7 @@ function App() {
           <NodeEditor
             thread={threadToShow}
             selectedNode={editorNode}
-            onSubmit={async (data: any) => { await handleAddNode(data); setView('graph'); setEditorNode(null) }}
+            onSubmit={async (data: { id: number | string; type: string | number; newNode: { title: string; content: string; type: number; threadId: number; parentId: number | null } }) => { await handleAddNode(data); setView('graph'); setEditorNode(null) }}
             onCancel={() => { setView('graph'); setEditorNode(null) }}
           />
         ) : view === 'sequence' && threadToShow ? (
@@ -248,11 +249,11 @@ function App() {
             <GlobalGraphView onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }} />
           </ReactFlowProvider>
         ) : view === 'review' && threadToShow ? (
-          <ReviewMode threadId={(threadToShow as any).id} onClose={() => setView('graph')} />
+          <ReviewMode threadId={threadToShow.id} onClose={() => setView('graph')} />
         ) : view === 'ingest' ? (
           <div style={{ flex: 1, overflow: 'auto' }}>
             <IngestPanel
-              threadId={(threadToShow as any)?.id}
+              threadId={threadToShow?.id ?? null}
               currentUser={currentUser}
               onAuthRequired={() => setShowAuthModal(true)}
               onNodesCreated={async (tid: number) => { await loadThreads(); setSelectedThreadId(tid); setView('graph') }}
@@ -267,7 +268,7 @@ function App() {
             </div>
           </div>
         ) : view === 'timeline' && threadToShow ? (
-          <ThreadTimeline threadId={(threadToShow as any).id} threadTitle={(threadToShow as any)?.metadata?.title || (threadToShow as any)?.title} />
+          <ThreadTimeline threadId={threadToShow.id} threadTitle={threadToShow?.metadata?.title || threadToShow?.title} />
         ) : view === 'article' && threadToShow ? (
           <ArticleReader
             thread={threadToShow}
@@ -275,8 +276,8 @@ function App() {
             currentUser={currentUser}
             onAuthRequired={() => setShowAuthModal(true)}
             onContentChange={(html: string) => {
-              setThreads(threads.map((t: any) =>
-                t.id === (threadToShow as any).id ? { ...t, content: html } : t
+              setThreads(threads.map(t =>
+                t.id === threadToShow.id ? { ...t, content: html } : t
               ))
             }}
             onUpdateNode={handleUpdateNode}
@@ -306,7 +307,7 @@ function App() {
             <div className="custom-select" ref={dropdownRef}>
               <button className="thread-selector" onClick={() => setShowThreadDropdown(!showThreadDropdown)}>
                 {selectedThreadId
-                  ? threads.find((t: any) => t.id === selectedThreadId)?.metadata?.title || `Thread ${selectedThreadId}`
+                  ? threads.find(t => t.id === selectedThreadId)?.metadata?.title || `Thread ${selectedThreadId}`
                   : 'Select a Thread'}
               </button>
               {showThreadDropdown && (
@@ -314,7 +315,7 @@ function App() {
                   <div className="dropdown-item create-thread-option" onClick={() => requireLogin(() => { setShowCreateThreadModal(true); setShowThreadDropdown(false) })}>
                     + Create New Thread
                   </div>
-                  {threads.map((thread: any) => (
+                  {threads.map(thread => (
                     <div key={thread.id} className="dropdown-item" onClick={() => { setSelectedThreadId(thread.id); setShowThreadDropdown(false) }}>
                       {thread.metadata?.title || `Thread ${thread.id}`}
                     </div>
@@ -354,7 +355,7 @@ function App() {
                       <p>Generating thread for "{searchQuery}"...</p>
                     </div>
                   ) : filteredThreads.length > 0 ? (
-                    filteredThreads.map((thread: any) => (
+                    filteredThreads.map(thread => (
                       <div key={thread.id} className="search-result-item" onClick={() => { setSelectedThreadId(thread.id); setSearchQuery(''); setShowSearchResults(false) }}>
                         {thread.metadata?.title || `Thread ${thread.id}`}
                       </div>
@@ -383,7 +384,7 @@ function App() {
                 threads={graphData}
                 onNodeClick={handleNodeClick}
                 onAddNode={handleAddNode}
-                onOpenEditor={(node: any) => requireLogin(() => { setEditorNode(node); setView('editor') })}
+                onOpenEditor={(node: ThreadNode) => requireLogin(() => { setEditorNode(node); setView('editor') })}
                 onSelectedNodeChange={setGraphSelectedNodeId}
                 onOpenInArticle={(nodeId: number) => { setGraphSelectedNodeId(nodeId); setView('article') }}
                 onNavigateToThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }}
@@ -412,7 +413,7 @@ function App() {
                       className="submit-button"
                       onClick={async () => {
                         setLoading(true)
-                        try { await createThread() } catch (err: any) { setError('Failed to create thread: ' + err.message) } finally { setLoading(false) }
+                        try { await createThread() } catch (err: unknown) { setError('Failed to create thread: ' + (err as Error).message) } finally { setLoading(false) }
                       }}
                       disabled={loading}
                     >
@@ -436,7 +437,7 @@ function App() {
 
         {showAuthModal && (
           <AuthModal
-            onSuccess={(user: any) => { useAuthStore.getState().checkAuth(); setShowAuthModal(false) }}
+            onSuccess={() => { useAuthStore.getState().checkAuth(); setShowAuthModal(false) }}
             onClose={() => setShowAuthModal(false)}
           />
         )}

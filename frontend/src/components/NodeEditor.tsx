@@ -83,7 +83,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
       }),
     ],
     content: '',
-    onUpdate: ({ editor }: any) => {
+    onUpdate: ({ editor }: { editor: { isEmpty: boolean } }) => {
       setHasContent(!editor.isEmpty);
     },
   });

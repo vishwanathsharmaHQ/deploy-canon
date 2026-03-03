@@ -4,14 +4,14 @@ import type { Thread, NodeTypeName } from '../types';
 import CrossThreadLinkPanel from './CrossThreadLinkPanel';
 
 interface GraphContentSidebarProps {
-  selectedNode: any;
+  selectedNode: Record<string, unknown> | null;
   threads: Thread[];
   onClose: () => void;
-  onNodeClick: (node: any) => void;
-  onOpenEditor?: (node: any) => void;
+  onNodeClick: (node: Record<string, unknown>) => void;
+  onOpenEditor?: (node: Record<string, unknown>) => void;
   onOpenInArticle?: (nodeId: number) => void;
   onNavigateToThread?: (threadId: number) => void;
-  formatContent: (content: any, nodeType: string) => React.ReactNode;
+  formatContent: (content: unknown, nodeType: string) => React.ReactNode;
 }
 
 function getChildNodes(threads: Thread[], nodeId: string) {
@@ -100,7 +100,7 @@ const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
           <h3>Connected Nodes</h3>
           {children.length > 0 ? (
             <div className="nodes-grid">
-              {children.map((node: any) => (
+              {children.map((node) => (
                 <div
                   key={node.id}
                   className="node-card"

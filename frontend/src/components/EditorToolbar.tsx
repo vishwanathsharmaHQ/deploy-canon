@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import InputModal from './InputModal';
 
 interface EditorToolbarProps {
-  editor: any;
+  editor: { chain: () => Record<string, (...args: unknown[]) => { run: () => void }> } | null;
   classPrefix: string; // 'ar' or 'ne'
 }
 

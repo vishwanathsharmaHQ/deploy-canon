@@ -32,17 +32,17 @@ export function embedYouTubeLinks(html: string): string {
   return result;
 }
 
-export const getNodeType = (node: any): string => {
+export const getNodeType = (node: { node_type?: string; type?: string | number }): string => {
   if (node.node_type) return node.node_type;
   if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'ROOT';
   return node.type || 'ROOT';
 };
 
-export function getEditableContent(node: any): EditableContent {
+export function getEditableContent(node: { content: unknown; title?: string; node_type?: string; type?: string | number }): EditableContent {
   const nodeType = getNodeType(node);
-  let raw = node.content;
-  if (raw && typeof raw === 'object' && raw.content !== undefined) raw = raw.content;
-  let parsed: any = raw;
+  let raw: unknown = node.content;
+  if (raw && typeof raw === 'object' && (raw as Record<string, unknown>).content !== undefined) raw = (raw as Record<string, unknown>).content;
+  let parsed: unknown = raw;
   if (typeof raw === 'string' && (raw.startsWith('{') || raw.startsWith('['))) {
     try { parsed = JSON.parse(raw); } catch (e) { /* keep as string */ }
   }
@@ -99,7 +99,7 @@ export function buildSavedContent(nodeType: string, title: string, html: string,
 
 // Render a string that may contain HTML or markdown.
 // TipTap / saved HTML always starts with a tag; AI content is markdown.
-export const renderHtmlOrText = (str: any, linkify?: (html: string) => string): React.ReactNode => {
+export const renderHtmlOrText = (str: unknown, linkify?: (html: string) => string): React.ReactNode => {
   if (!str) return null;
   const s = String(str);
   if (s.trim().startsWith('<')) {
@@ -110,10 +110,10 @@ export const renderHtmlOrText = (str: any, linkify?: (html: string) => string): 
 };
 
 // Content renderer (for read-only node pages)
-export const renderContent = (rawContent: any, linkify?: (html: string) => string): React.ReactNode => {
+export const renderContent = (rawContent: unknown, linkify?: (html: string) => string): React.ReactNode => {
   if (!rawContent) return <p className="ar-empty">No content available.</p>;
 
-  let text: any = rawContent;
+  let text: unknown = rawContent;
   if (typeof text === 'object') {
     text = text.content || text.text || JSON.stringify(text, null, 2);
   }
@@ -169,7 +169,7 @@ export const renderContent = (rawContent: any, linkify?: (html: string) => strin
 // Returns a React element (not a string) for structured node content.
 // SourceVerifyBadge is passed in to avoid circular dependency.
 export const formatNodeContent = (
-  node: any,
+  node: { content: unknown; title?: string; node_type?: string; type?: string | number },
   SourceVerifyBadge?: React.FC<{ url: string; claim: string }>,
 ): React.ReactNode => {
   let content = node.content;

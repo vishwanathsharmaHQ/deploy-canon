@@ -2,24 +2,20 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 import QuizMode from './QuizMode';
 import { NODE_TYPES, QUALITY_BUTTONS } from '../constants';
-import type { ReviewCard, ReviewStats, NodeTypeName } from '../types';
+import type { ReviewStats } from '../types';
 import './ReviewMode.css';
 
 interface DueNode {
-  id: number;
+  id: number | null;
   title: string;
   content: string;
-  node_type: NodeTypeName;
+  node_type: string;
 }
 
 interface SessionStats {
   reviewed: number;
   avgQuality: number;
   totalQuality: number;
-}
-
-interface ExtendedReviewStats extends ReviewStats {
-  reviewable?: number;
 }
 
 interface ReviewModeProps {
@@ -31,7 +27,7 @@ const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
   const [dueNodes, setDueNodes] = useState<DueNode[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
-  const [stats, setStats] = useState<ExtendedReviewStats | null>(null);
+  const [stats, setStats] = useState<ReviewStats | null>(null);
   const [sessionStats, setSessionStats] = useState<SessionStats>({ reviewed: 0, avgQuality: 0, totalQuality: 0 });
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<'review' | 'quiz'>('review');
@@ -69,7 +65,7 @@ const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
 
   const handleRate = async (quality: number) => {
     const node = dueNodes[currentIndex];
-    if (!node) return;
+    if (!node || node.id == null) return;
     try {
       await api.submitReview(node.id, quality);
       const newSessionStats: SessionStats = {
@@ -93,7 +89,7 @@ const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
 
   const currentNode = dueNodes[currentIndex];
 
-  const parseContent = (node: DueNode | undefined): { title: string; body: string; nodeType: NodeTypeName } => {
+  const parseContent = (node: DueNode | undefined): { title: string; body: string; nodeType: string } => {
     if (!node) return { title: '', body: '', nodeType: 'ROOT' };
     let body = node.content || '';
     try {

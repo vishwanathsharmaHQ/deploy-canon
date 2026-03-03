@@ -10,6 +10,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { api } from '../services/api';
+import type { GlobalGraphThread } from '../types';
 import './GlobalGraphView.css';
 
 interface ThreadNodeData {
@@ -45,8 +46,8 @@ interface GlobalGraphViewProps {
 }
 
 const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState([] as any[]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([] as any[]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<{ id: string; type: string; position: { x: number; y: number }; data: ThreadNodeData; draggable: boolean }>([] as { id: string; type: string; position: { x: number; y: number }; data: ThreadNodeData; draggable: boolean }[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<{ id: string; source: string; target: string; style: Record<string, unknown>; animated: boolean }>([] as { id: string; source: string; target: string; style: Record<string, unknown>; animated: boolean }[]);
   const [loading, setLoading] = useState(true);
 
   const loadGraph = useCallback(async () => {
@@ -55,11 +56,11 @@ const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => 
       const threads = await api.getGlobalGraphSummary();
 
       // Build nodes in a circle layout
-      const rfNodes: any[] = [];
+      const rfNodes: { id: string; type: string; position: { x: number; y: number }; data: ThreadNodeData; draggable: boolean }[] = [];
       const centerX = 400, centerY = 300;
       const radius = 150 + threads.length * 15;
 
-      threads.forEach((t: any, i: number) => {
+      threads.forEach((t: GlobalGraphThread, i: number) => {
         const angle = (2 * Math.PI * i) / Math.max(threads.length, 1) - Math.PI / 2;
         const titleWords = (t.title || '').split(/\s+/);
         const shortTitle = titleWords.length > 3 ? titleWords.slice(0, 3).join(' ') + '...' : t.title;
@@ -67,16 +68,17 @@ const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => 
           id: `t-${t.id}`,
           type: 'threadNode',
           position: { x: centerX + radius * Math.cos(angle), y: centerY + radius * Math.sin(angle) },
-          data: { label: shortTitle, nodeCount: t.nodeCount, crossLinkCount: t.crossLinkCount, threadId: t.id },
+          data: { label: shortTitle, nodeCount: t.nodeCount ?? 0, crossLinkCount: t.crossLinkCount ?? 0, threadId: t.id ?? 0 },
           draggable: true,
         });
       });
 
       // Build edges for cross-thread links
-      const rfEdges: any[] = [];
+      const rfEdges: { id: string; source: string; target: string; style: Record<string, unknown>; animated: boolean }[] = [];
       const edgeSet = new Set<string>();
-      threads.forEach((t: any) => {
-        (t.linkedThreadIds || []).forEach((otherId: number) => {
+      threads.forEach((t: GlobalGraphThread) => {
+        (t.linkedThreadIds || []).forEach((otherId) => {
+          if (t.id == null || otherId == null) return;
           const key = [Math.min(t.id, otherId), Math.max(t.id, otherId)].join('-');
           if (!edgeSet.has(key)) {
             edgeSet.add(key);
@@ -102,7 +104,7 @@ const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => 
 
   useEffect(() => { loadGraph(); }, [loadGraph]);
 
-  const onNodeDoubleClick = useCallback((_: React.MouseEvent, rfNode: any) => {
+  const onNodeDoubleClick = useCallback((_: React.MouseEvent, rfNode: { data: ThreadNodeData }) => {
     onSelectThread?.(rfNode.data.threadId);
   }, [onSelectThread]);
 

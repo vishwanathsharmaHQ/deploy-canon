@@ -26,13 +26,13 @@ const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, onAd
     }
   };
 
-  const formatContent = (content: any, nodeType: NodeTypeName): React.ReactNode => {
+  const formatContent = (content: unknown, nodeType: NodeTypeName): React.ReactNode => {
     if (!content) {
       return 'No content available';
     }
 
     // If content is an object with a content property, use that
-    let actualContent: any = content.content || content;
+    let actualContent: unknown = (content as Record<string, unknown>)?.content || content;
 
     // If actualContent is a string that looks like JSON, try to parse it
     if (typeof actualContent === 'string' && (actualContent.startsWith('{') || actualContent.startsWith('['))) {

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import type { VerifySourceResult } from '../types';
 
-const _verifyCache: Record<string, any> = {};
+const _verifyCache: Record<string, VerifySourceResult> = {};
 
 interface SourceVerifyBadgeProps {
   url: string;
@@ -9,7 +10,7 @@ interface SourceVerifyBadgeProps {
 }
 
 const SourceVerifyBadge: React.FC<SourceVerifyBadgeProps> = ({ url, claim }) => {
-  const [data, setData] = useState<any>(_verifyCache[url] || null);
+  const [data, setData] = useState<VerifySourceResult | null>(_verifyCache[url] || null);
   const [loading, setLoading] = useState(!_verifyCache[url]);
 
   useEffect(() => {

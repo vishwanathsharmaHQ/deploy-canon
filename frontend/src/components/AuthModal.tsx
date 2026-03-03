@@ -28,8 +28,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose }) => {
         user = await api.register({ name, email, password });
       }
       onSuccess(user);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }

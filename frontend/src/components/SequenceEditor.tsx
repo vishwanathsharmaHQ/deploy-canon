@@ -69,11 +69,12 @@ const SequenceEditor: React.FC<SequenceEditorProps> = ({ thread, onDone }) => {
     setAiLoading(true);
     try {
       const result = await api.suggestSequence(thread.id);
+      const ids = result.sequence || [];
       const nodeMap = Object.fromEntries(items.map(n => [n.id, n]));
-      const orderedNodes = result.orderedIds.map((id: number) => nodeMap[id]).filter(Boolean);
-      const inSuggestion = new Set<number>(result.orderedIds);
+      const orderedNodes = ids.map((id: number) => nodeMap[id]).filter(Boolean);
+      const inSuggestion = new Set<number>(ids);
       const remaining = items.filter(n => !inSuggestion.has(n.id));
-      setAiSuggestion({ reasoning: result.reasoning, orderedNodes: [...orderedNodes, ...remaining] });
+      setAiSuggestion({ reasoning: 'AI-optimized reading order', orderedNodes: [...orderedNodes, ...remaining] });
     } catch (err) {
       console.error('AI suggest failed:', err);
     } finally {
@@ -117,7 +118,7 @@ const SequenceEditor: React.FC<SequenceEditorProps> = ({ thread, onDone }) => {
   const getNodeType = (node: ThreadNode): NodeTypeName => {
     if (node.node_type) return node.node_type;
     if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'ROOT';
-    return (node as any).type || 'ROOT';
+    return (node.type as string) || 'ROOT';
   };
 
   if (loading) {

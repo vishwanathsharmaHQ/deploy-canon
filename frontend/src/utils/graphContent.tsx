@@ -7,16 +7,16 @@ import { createMdComponents } from './markdown';
 const mdComponents = createMdComponents('sidebar-youtube');
 
 // Render a string that may contain HTML tags or markdown
-export const renderText = (text: any): React.ReactNode => {
+export const renderText = (text: unknown): React.ReactNode => {
   if (!text) return null;
   const str = String(text);
   if (/<[a-z][\s\S]*>/i.test(str)) {
     return <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(str) }} />;
   }
-  return <ReactMarkdown components={mdComponents as any}>{str}</ReactMarkdown>;
+  return <ReactMarkdown components={mdComponents as Record<string, React.ComponentType>}>{str}</ReactMarkdown>;
 };
 
-export const formatContent = (content: any, nodeType: string): React.ReactNode => {
+export const formatContent = (content: unknown, nodeType: string): React.ReactNode => {
   if (!content) return 'No content available';
 
   try {
@@ -94,7 +94,7 @@ export const formatContent = (content: any, nodeType: string): React.ReactNode =
     if (/<[a-z][\s\S]*>/i.test(textContent)) {
       return <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(textContent) }} />;
     }
-    return <ReactMarkdown components={mdComponents as any}>{textContent}</ReactMarkdown>;
+    return <ReactMarkdown components={mdComponents as Record<string, React.ComponentType>}>{textContent}</ReactMarkdown>;
   } catch (e) {
     return 'Error displaying content';
   }

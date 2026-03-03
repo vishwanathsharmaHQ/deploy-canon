@@ -13,11 +13,43 @@ import './ThreadGraph.css';
 import { api } from '../services/api';
 import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
 import { formatContent } from '../utils/graphContent';
-import type { Thread, ThreadNode, NodeTypeName } from '../types';
+import type { Thread, ThreadNode, NodeTypeName, LayoutData, DecayDataPoint } from '../types';
 import GraphContentSidebar from './GraphContentSidebar';
 
+interface GraphNodeData {
+  label: string;
+  isThread: boolean;
+  isRoot?: boolean;
+  parentRfId?: string | null;
+  nodeColor: string;
+  isMatteMode: boolean;
+  decayPercent?: number | null;
+  crossLinkCount?: number;
+  originalData: Record<string, unknown>;
+}
+
+interface RFNode {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  data: GraphNodeData;
+  draggable: boolean;
+  hidden?: boolean;
+}
+
+interface RFEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string;
+  targetHandle?: string;
+  style: Record<string, unknown>;
+  animated?: boolean;
+  hidden?: boolean;
+}
+
 // Custom node component with decay visualization
-function GraphNode({ data }: { data: any }) {
+function GraphNode({ data }: { data: GraphNodeData }) {
   const color = data.nodeColor || '#666';
   const isThread = data.isThread;
   const radius = isThread ? 25 : 15;
@@ -79,9 +111,9 @@ const nodeTypes = { graphNode: GraphNode };
 
 interface ThreadGraphProps {
   threads: Thread[];
-  onNodeClick?: (node: any) => void;
-  onAddNode?: (node: any) => void;
-  onOpenEditor?: (node: any) => void;
+  onNodeClick?: (node: ThreadNode) => void;
+  onAddNode?: (data: { newNode: Record<string, unknown> }) => void;
+  onOpenEditor?: (node: ThreadNode) => void;
   onSelectedNodeChange?: (nodeId: number | null) => void;
   onOpenInArticle?: (nodeId: number) => void;
   onNavigateToThread?: (threadId: number) => void;
@@ -89,9 +121,9 @@ interface ThreadGraphProps {
 }
 
 const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onSelectedNodeChange, onOpenInArticle, onNavigateToThread, loading: parentLoading }) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState([] as any[]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([] as any[]);
-  const [selectedNode, setSelectedNode] = useState<any>(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState([] as RFNode[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([] as RFEdge[]);
+  const [selectedNode, setSelectedNode] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [isMatteMode, setIsMatteMode] = useState(true);
   const [isDottedBackground, setIsDottedBackground] = useState(true);
@@ -112,9 +144,9 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
   useEffect(() => {
     if (!threads || threads.length === 0) return;
     const threadId = threads[0].id;
-    api.getDecayData(threadId).then((data: any) => {
+    api.getDecayData(threadId).then((data: DecayDataPoint[]) => {
       const map: Record<number, number> = {};
-      (data || []).forEach((d: any) => { map[d.nodeId] = d.decayPercent; });
+      (data || []).forEach((d) => { map[d.nodeId] = d.decayPercent; });
       setDecayMap(map);
     }).catch(() => {});
     // Load cross-thread link counts for all nodes
@@ -145,7 +177,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
   }
 
   // Track saved layout data
-  const savedLayoutRef = useRef<any>(null);
+  const savedLayoutRef = useRef<LayoutData | null>(null);
   const lastThreadIdRef = useRef<number | null>(null);
   const hasFitRef = useRef(false);
 
@@ -179,15 +211,15 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
   }, [threads]);
 
   // Build React Flow nodes/edges from thread data, merging saved positions
-  const buildGraph = useCallback((threadList: Thread[], savedData: any) => {
+  const buildGraph = useCallback((threadList: Thread[], savedData: LayoutData | null) => {
     if (!threadList || threadList.length === 0) return;
 
     // Also preserve current positions of existing nodes (for when data refreshes after adding a node)
     const currentPosMap: Record<string, { x: number; y: number }> = {};
     nodes.forEach(n => { currentPosMap[n.id] = n.position; });
 
-    const rfNodes: any[] = [];
-    const rfEdges: any[] = [];
+    const rfNodes: RFNode[] = [];
+    const rfEdges: RFEdge[] = [];
     let yOffset = 0;
 
     threadList.forEach(thread => {
@@ -228,7 +260,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         const color = NODE_TYPE_COLORS[typeLabel] || '#666';
 
         // Parse content
-        let parsedContent: any = node.content;
+        let parsedContent: unknown = node.content;
         try {
           if (typeof node.content === 'string' &&
             (node.content.startsWith('{') || node.content.startsWith('['))) {
@@ -350,7 +382,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     return { ...e, hidden: true };
   }), [edges, showAllSecondary, hoveredRootId]);
 
-  const handleNodeClick = useCallback((node: any) => {
+  const handleNodeClick = useCallback((node: Record<string, unknown>) => {
     setSelectedNode(node);
     // Notify parent of selected node id (null for thread-level, numeric id for nodes)
     if (onSelectedNodeChange) {
@@ -358,14 +390,14 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     }
   }, [onSelectedNodeChange]);
 
-  const onNodeClickHandler = useCallback((_event: React.MouseEvent, rfNode: any) => {
+  const onNodeClickHandler = useCallback((_event: React.MouseEvent, rfNode: { data: GraphNodeData }) => {
     handleNodeClick(rfNode.data.originalData);
   }, [handleNodeClick]);
 
-  const onNodeDoubleClickHandler = useCallback((_event: React.MouseEvent, rfNode: any) => {
+  const onNodeDoubleClickHandler = useCallback((_event: React.MouseEvent, rfNode: { data: GraphNodeData }) => {
     const node = rfNode.data.originalData;
     if (node?.type !== 'thread' && onOpenInArticle) {
-      onOpenInArticle(node.id);
+      onOpenInArticle(node.id as number);
     }
   }, [onOpenInArticle]);
 
@@ -379,7 +411,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
   const saveCurrentLayout = useCallback(async () => {
     if (!threads || threads.length === 0) return;
     const threadId = threads[0].id;
-    const currentLayout: any = {
+    const currentLayout: LayoutData = {
       nodes: {},
       settings: { isMatteMode }
     };
@@ -449,7 +481,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           onNodeClick={onNodeClickHandler}
           onNodeDoubleClick={onNodeDoubleClickHandler}
           onNodeDragStop={handleNodeDragStop}
-          onNodeMouseEnter={(_: any, node: any) => {
+          onNodeMouseEnter={(_: React.MouseEvent, node: { id: string; data: GraphNodeData }) => {
             if (!showAllSecondary && node.data.isRoot) setHoveredRootId(node.id);
           }}
           onNodeMouseLeave={() => setHoveredRootId(null)}
@@ -460,7 +492,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           style={{ background: '#1d1d1d' }}
         >
           <Background
-            variant={isDottedBackground ? 'dots' as any : 'lines' as any}
+            variant={isDottedBackground ? ('dots' as 'dots') : ('lines' as 'lines')}
             gap={isDottedBackground ? 40 : 0}
             size={isDottedBackground ? 1 : 0}
             color={isDottedBackground ? 'rgba(255, 255, 255, 0.08)' : 'transparent'}

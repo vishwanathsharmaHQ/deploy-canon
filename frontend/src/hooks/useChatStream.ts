@@ -1,16 +1,17 @@
 import { useState, useRef, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { api } from '../services/api';
+import type { ChatCitation, ChatStreamDoneEvent, ChatExtractResult, ProposedNode } from '../types';
 
 export interface ChatMessage {
   role: string;
   content: string;
-  citations?: any[];
-  extractedNodes?: any[];
-  createdNodes?: any[];
-  newThread?: any;
-  proposedUpdate?: any;
-  proposedNodes?: any[] | null;
+  citations?: ChatCitation[];
+  extractedNodes?: ProposedNode[];
+  createdNodes?: ProposedNode[];
+  newThread?: { id: number; title: string; description: string } | null;
+  proposedUpdate?: { nodeId: number; title: string; description: string; content: string } | null;
+  proposedNodes?: ProposedNode[] | null;
   proposedThreadId?: number;
   streaming?: boolean;
   processing?: boolean;
@@ -29,7 +30,7 @@ export interface ChatHistoryItem {
 interface UseChatStreamOptions {
   initialThreadId?: number | null;
   selectedThreadId: number | null;
-  articleContext?: any;
+  articleContext?: { nodeId: number; nodeType: string; title: string; content: string } | null;
   onThreadCreated?: (threadId: number) => void;
 }
 
@@ -131,7 +132,7 @@ export function useChatStream({
             return updated;
           });
         },
-        onDone: async (data: any) => {
+        onDone: async (data: ChatStreamDoneEvent) => {
           // Streaming finished — show "extracting" spinner while we call /api/chat/extract
           flushSync(() => {
             setMessages(prev => {
@@ -148,7 +149,7 @@ export function useChatStream({
           const streamedCitations = data.citations || [];
 
           // Phase 2: extraction — returns proposed nodes (not yet saved)
-          let extractData: any = { citations: streamedCitations, proposedNodes: [], threadId: activeThreadIdRef.current, newThread: null, proposedUpdate: null };
+          let extractData: ChatExtractResult = { citations: streamedCitations, proposedNodes: [], threadId: activeThreadIdRef.current, newThread: null, proposedUpdate: null };
           try {
             extractData = await api.chatExtract({
               message: userMsg,
@@ -172,7 +173,7 @@ export function useChatStream({
                 processing: false,
                 citations: extractData.citations || streamedCitations,
                 proposedNodes: extractData.proposedNodes?.length > 0 ? extractData.proposedNodes : null,
-                proposedThreadId: extractData.threadId,
+                proposedThreadId: extractData.threadId ?? undefined,
                 newThread: extractData.newThread || null,
                 proposedUpdate: extractData.proposedUpdate || null,
               };
@@ -185,7 +186,7 @@ export function useChatStream({
           // Auto-notify for new thread (thread is created immediately, nodes need accept)
           if (extractData.newThread) {
             activeThreadIdRef.current = extractData.threadId;
-            onThreadCreated?.(extractData.threadId);
+            onThreadCreated?.(extractData.threadId!);
           }
 
           // Persist the conversation to the database
@@ -217,7 +218,7 @@ export function useChatStream({
 
           setLoading(false);
         },
-        onError: (err: any) => {
+        onError: (err: Error) => {
           setMessages(prev => {
             const updated = [...prev];
             updated[assistantIndex] = { role: 'error', content: `Error: ${err.message}` };
@@ -226,10 +227,10 @@ export function useChatStream({
           setLoading(false);
         },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       setMessages(prev => {
         const updated = [...prev];
-        updated[assistantIndex] = { role: 'error', content: `Error: ${err.message}` };
+        updated[assistantIndex] = { role: 'error', content: `Error: ${(err as Error).message}` };
         return updated;
       });
       setLoading(false);

@@ -55,6 +55,41 @@ app.use('/api/links', linkRoutes);
 app.use('/api/graph', graphRoutes);
 app.use('/api/threads', snapshotRoutes); // /api/threads/:threadId/snapshots, confidence, timeline, export
 
+// ── Standalone endpoints ────────────────────────────────────────────────────
+app.post('/api/verify-source', async (req, res, next) => {
+  try {
+    const { url, claim } = req.body;
+    if (!url || !claim) return res.status(400).json({ error: 'url and claim are required' });
+
+    const { getOpenAI } = await import('./services/openai.js');
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You are a source verification assistant. Given a URL and a claim, assess whether the source likely supports the claim.
+Return exactly this JSON:
+{
+  "status": "<one of: verified | partial | unverified | unavailable>",
+  "explanation": "<1-2 sentence explanation>"
+}
+If you cannot access or assess the URL, use "unavailable".`,
+        },
+        {
+          role: 'user',
+          content: `URL: ${url}\nClaim: ${claim}`,
+        },
+      ],
+    });
+    res.json(JSON.parse(completion.choices[0].message.content!));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── Global error handler ────────────────────────────────────────────────────
 app.use(errorHandler);
 

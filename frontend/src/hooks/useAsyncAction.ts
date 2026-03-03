@@ -19,8 +19,8 @@ export function useAsyncAction<T = void>() {
       const data = await fn();
       setState({ data, loading: false, error: null });
       return data;
-    } catch (err: any) {
-      const error = err.message || 'An error occurred';
+    } catch (err: unknown) {
+      const error = (err as Error).message || 'An error occurred';
       setState({ data: null, loading: false, error });
       throw err;
     }

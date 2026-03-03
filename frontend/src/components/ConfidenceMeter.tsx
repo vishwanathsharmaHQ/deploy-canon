@@ -1,14 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
+import type { AnalysisResult } from '../types';
 
-const _analysisCache: Record<number, any> = {};
+interface AnalysisData extends AnalysisResult {
+  nodeCount?: number;
+}
+
+const _analysisCache: Record<number, AnalysisData> = {};
 
 interface ConfidenceMeterProps {
   threadId: number;
 }
 
 const ConfidenceMeter: React.FC<ConfidenceMeterProps> = ({ threadId }) => {
-  const [data, setData] = useState<any>(_analysisCache[threadId] || null);
+  const [data, setData] = useState<AnalysisData | null>(_analysisCache[threadId] || null);
   const [loading, setLoading] = useState(!_analysisCache[threadId]);
   const [expanded, setExpanded] = useState(false);
 

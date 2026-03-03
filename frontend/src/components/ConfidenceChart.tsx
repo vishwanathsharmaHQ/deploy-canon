@@ -38,7 +38,7 @@ const ConfidenceChart: React.FC<ConfidenceChartProps> = ({ data }) => {
     // Axes
     g.append('g')
       .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat('%b %d') as any))
+      .call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat('%b %d') as (d: Date | d3.NumberValue) => string))
       .selectAll('text').attr('fill', '#666').style('font-size', '10px');
     g.append('g')
       .call(d3.axisLeft(y).ticks(5))

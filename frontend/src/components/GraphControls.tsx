@@ -9,7 +9,7 @@ interface GraphSettings {
   linkDistance: number;
   centerForce: number;
   nodeSize: number;
-  [key: string]: any;
+  [key: string]: boolean | number | string;
 }
 
 interface GraphControlsProps {
@@ -21,7 +21,7 @@ const GraphControls: React.FC<GraphControlsProps> = ({ onSettingsChange, default
   const [isExpanded, setIsExpanded] = useState(true);
   const [settings, setSettings] = useState<GraphSettings>(defaultSettings);
 
-  const handleChange = (key: string, value: any) => {
+  const handleChange = (key: string, value: boolean | number | string) => {
     const newSettings = { ...settings, [key]: value };
     setSettings(newSettings);
     onSettingsChange(newSettings);

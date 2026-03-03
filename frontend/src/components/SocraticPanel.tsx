@@ -20,7 +20,7 @@ interface SocraticPanelProps {
   currentUser: User | null | undefined;
   onAuthRequired?: () => void;
   onNodesCreated?: (nodes: ThreadNode[]) => void;
-  nodeContext?: any;
+  nodeContext?: { nodeId: number; nodeType: string; title: string; content: string } | null;
 }
 
 const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAuthRequired, onNodesCreated, nodeContext }) => {

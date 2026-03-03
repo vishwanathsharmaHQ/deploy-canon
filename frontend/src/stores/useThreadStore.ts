@@ -42,7 +42,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             const { nodes, edges } = await api.getThreadNodes(thread.id);
             return {
               ...thread,
-              nodes: nodes.map((node: any) => ({
+              nodes: nodes.map((node: Record<string, unknown>) => ({
                 ...node,
                 node_type:
                   typeof node.node_type === 'number'
