@@ -1,8 +1,9 @@
 {
   "version": 2,
+  "buildCommand": "cd frontend && npm install && npm run build",
   "builds": [
     {
-      "src": "server.js",
+      "src": "server/index.ts",
       "use": "@vercel/node",
       "config": {
         "maxDuration": 60
@@ -14,7 +15,7 @@
     }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "server.js" },
+    { "src": "/api/(.*)", "dest": "server/index.ts" },
     { "src": "/assets/(.*)", "dest": "/dist/assets/$1" },
     { "src": "/(.*)", "dest": "/dist/index.html" }
   ]
