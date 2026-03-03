@@ -1,11 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { api } from '../services/api';
+import { NODE_TYPE_COLORS } from '../constants';
 import './IngestPanel.css';
-
-const NODE_TYPE_COLORS = {
-  ROOT: '#888', EVIDENCE: '#4fc3f7', REFERENCE: '#888', CONTEXT: '#ff8a65',
-  EXAMPLE: '#66bb6a', COUNTERPOINT: '#ef5350', SYNTHESIS: '#fdd835',
-};
 
 const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, onAuthRequired }) => {
   const [url, setUrl] = useState('');

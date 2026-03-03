@@ -3,26 +3,8 @@ import { api } from '../services/api';
 import ConfidenceChart from './ConfidenceChart';
 import SnapshotDiffViewer from './SnapshotDiffViewer';
 import ExportPanel from './ExportPanel';
+import { NODE_TYPE_COLORS, EVENT_ICONS, EVENT_COLORS } from '../constants';
 import './ThreadTimeline.css';
-
-const EVENT_ICONS = {
-  thread_created: 'T',
-  node_added: '+',
-  snapshot: 'S',
-  confidence: 'C',
-};
-
-const EVENT_COLORS = {
-  thread_created: '#00ff9d',
-  node_added: '#00ff9d',
-  snapshot: '#888',
-  confidence: '#fdd835',
-};
-
-const NODE_TYPE_COLORS = {
-  ROOT: '#ffd700', EVIDENCE: '#4fc3f7', REFERENCE: '#aaa',
-  CONTEXT: '#ff8a65', EXAMPLE: '#66bb6a', COUNTERPOINT: '#ef5350', SYNTHESIS: '#fdd835',
-};
 
 const ThreadTimeline = ({ threadId, threadTitle }) => {
   const [events, setEvents] = useState([]);

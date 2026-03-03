@@ -1,17 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 import QuizMode from './QuizMode';
+import { NODE_TYPES, QUALITY_BUTTONS } from '../constants';
 import './ReviewMode.css';
-
-const NODE_TYPES = ['ROOT', 'EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'];
-
-const QUALITY_BUTTONS = [
-  { quality: 0, label: 'Forgot', color: '#ef5350' },
-  { quality: 2, label: 'Hard', color: '#ff8a65' },
-  { quality: 3, label: 'Good', color: '#fdd835' },
-  { quality: 4, label: 'Easy', color: '#66bb6a' },
-  { quality: 5, label: 'Perfect', color: '#00ff9d' },
-];
 
 const ReviewMode = ({ threadId, onClose }) => {
   const [dueNodes, setDueNodes] = useState([]);

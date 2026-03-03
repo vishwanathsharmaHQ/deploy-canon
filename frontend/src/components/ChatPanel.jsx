@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../services/api';
+import { NODE_TYPE_COLORS } from '../constants';
 import './ChatPanel.css';
 
 const YT_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
@@ -23,15 +24,6 @@ const mdComponents = {
     }
     return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
   },
-};
-
-const NODE_COLORS = {
-  EVIDENCE: '#4ade80',
-  EXAMPLE: '#60a5fa',
-  CONTEXT: '#fbbf24',
-  COUNTERPOINT: '#f87171',
-  SYNTHESIS: '#a78bfa',
-  REFERENCE: '#34d399',
 };
 
 function relativeDate(iso) {
@@ -420,7 +412,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                           )}
                           {msg.proposedNodes?.map((n, ni) => (
                             <span key={ni} className="cp-node-chip"
-                              style={{ borderColor: NODE_COLORS[n.type] || '#555', color: NODE_COLORS[n.type] || '#aaa' }}
+                              style={{ borderColor: NODE_TYPE_COLORS[n.type] || '#555', color: NODE_TYPE_COLORS[n.type] || '#aaa' }}
                               title={n.title}>
                               {n.type}
                             </span>
@@ -480,7 +472,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                             {msg.proposedNodes.map((n, ni) => (
                               <span key={ni}
                                 className={`cp-node-chip${excluded.has(ni) ? ' cp-node-chip--excluded' : ''}`}
-                                style={excluded.has(ni) ? {} : { borderColor: NODE_COLORS[n.type] || '#555', color: NODE_COLORS[n.type] || '#aaa' }}
+                                style={excluded.has(ni) ? {} : { borderColor: NODE_TYPE_COLORS[n.type] || '#555', color: NODE_TYPE_COLORS[n.type] || '#aaa' }}
                                 onClick={() => toggleExcludedNode(i, ni)}>
                                 {n.type}: {n.title}
                               </span>

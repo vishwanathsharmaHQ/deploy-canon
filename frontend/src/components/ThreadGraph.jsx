@@ -13,6 +13,7 @@ import '@xyflow/react/dist/style.css';
 import ReactMarkdown from 'react-markdown';
 import './ThreadGraph.css';
 import { api } from '../services/api';
+import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
 import CrossThreadLinkPanel from './CrossThreadLinkPanel';
 
 const YT_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
@@ -34,21 +35,6 @@ const mdComponents = {
     }
     return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
   },
-};
-
-const NODE_TYPE_LABELS = [
-  'ROOT', 'EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'
-];
-
-const NODE_COLORS = {
-  ROOT: '#ffd700',
-  EVIDENCE: '#ff6b6b',
-  REFERENCE: '#4ecdc4',
-  CONTEXT: '#45b7d1',
-  EXAMPLE: '#96ceb4',
-  COUNTERPOINT: '#ff7f50',
-  SYNTHESIS: '#9b59b6',
-  thread: '#00ff9d'
 };
 
 // Custom node component with decay visualization
@@ -232,7 +218,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
         data: {
           label: shortTitle,
           isThread: true,
-          nodeColor: NODE_COLORS.thread,
+          nodeColor: NODE_TYPE_COLORS.thread,
           isMatteMode,
           originalData: {
             ...thread,
@@ -247,9 +233,9 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
       const nodeCount = thread.nodes?.length || 0;
       thread.nodes?.forEach((node, idx) => {
         const nodeType = typeof node.type === 'number' ? node.type :
-          NODE_TYPE_LABELS.indexOf(node.node_type);
-        const typeLabel = NODE_TYPE_LABELS[nodeType] || '';
-        const color = NODE_COLORS[typeLabel] || '#666';
+          NODE_TYPES.indexOf(node.node_type);
+        const typeLabel = NODE_TYPES[nodeType] || '';
+        const color = NODE_TYPE_COLORS[typeLabel] || '#666';
 
         // Parse content
         let parsedContent = node.content;
@@ -414,8 +400,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
   };
 
   const getNodeTypeBadgeColor = (type) => {
-    if (type === 'thread') return NODE_COLORS.thread;
-    return NODE_COLORS[NODE_TYPE_LABELS[type]] || '#666';
+    if (type === 'thread') return NODE_TYPE_COLORS.thread;
+    return NODE_TYPE_COLORS[NODE_TYPES[type]] || '#666';
   };
 
   // Save layout (also updates the ref so rebuilds preserve positions)
@@ -713,9 +699,9 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
                       >
                         <div
                           className="node-card-type"
-                          style={{ backgroundColor: NODE_COLORS[NODE_TYPE_LABELS[node.type]] }}
+                          style={{ backgroundColor: NODE_TYPE_COLORS[NODE_TYPES[node.type]] }}
                         >
-                          {NODE_TYPE_LABELS[node.type]}
+                          {NODE_TYPES[node.type]}
                         </div>
                         <div className="node-card-title">
                           {node.metadata?.title || `Node ${node.id}`}
@@ -733,7 +719,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
                   className="type-badge"
                   style={{ backgroundColor: getNodeTypeBadgeColor(selectedNode.type) }}
                 >
-                  {selectedNode.type === 'thread' ? 'THREAD' : NODE_TYPE_LABELS[selectedNode.type]}
+                  {selectedNode.type === 'thread' ? 'THREAD' : NODE_TYPES[selectedNode.type]}
                 </div>
                 <div className="voting-stats">
                   <div className="stat">
@@ -748,7 +734,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
               </div>
 
               <div className="content-sidebar-content">
-                {formatContent(selectedNode.content, selectedNode.type === 'thread' ? 'thread' : NODE_TYPE_LABELS[selectedNode.type])}
+                {formatContent(selectedNode.content, selectedNode.type === 'thread' ? 'thread' : NODE_TYPES[selectedNode.type])}
               </div>
 
               {selectedNode.type !== 'thread' && threads.length > 0 && (

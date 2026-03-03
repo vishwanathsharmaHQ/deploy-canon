@@ -1,15 +1,7 @@
 import { ethers } from 'ethers';
 import { useState } from 'react';
+import { NODE_TYPES } from '../constants';
 import './NodeDetailsModal.css';
-
-const NODE_TYPES = [
-  { value: 0, label: 'EVIDENCE' },
-  { value: 1, label: 'REFERENCE' },
-  { value: 2, label: 'CONTEXT' },
-  { value: 3, label: 'EXAMPLE' },
-  { value: 4, label: 'COUNTERPOINT' },
-  { value: 5, label: 'SYNTHESIS' }
-];
 
 const NodeDetailsModal = ({ node, onClose, onVote, onCreateProposal, onAddNode, loading, voteAmount, setVoteAmount }) => {
   const [showAddNode, setShowAddNode] = useState(false);

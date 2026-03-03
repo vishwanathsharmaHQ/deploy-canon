@@ -1,11 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
+import { NODE_TYPE_COLORS } from '../constants';
 import './CrossThreadLinkPanel.css';
-
-const NODE_TYPE_COLORS = {
-  ROOT: '#ffd700', EVIDENCE: '#4fc3f7', REFERENCE: '#888',
-  CONTEXT: '#ff8a65', EXAMPLE: '#66bb6a', COUNTERPOINT: '#ef5350', SYNTHESIS: '#fdd835',
-};
 
 const CrossThreadLinkPanel = ({ nodeId, threadId, onNavigateToThread }) => {
   const [links, setLinks] = useState([]);

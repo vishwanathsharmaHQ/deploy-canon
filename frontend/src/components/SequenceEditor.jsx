@@ -1,18 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../services/api';
+import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
 import './SequenceEditor.css';
-
-const NODE_TYPE_COLORS = {
-  ROOT: '#888',
-  EVIDENCE: '#4fc3f7',
-  REFERENCE: '#ab47bc',
-  CONTEXT: '#ff8a65',
-  EXAMPLE: '#66bb6a',
-  COUNTERPOINT: '#ef5350',
-  SYNTHESIS: '#fdd835',
-};
-
-const NODE_TYPES = ['ROOT', 'EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'];
 
 const SequenceEditor = ({ thread, onDone }) => {
   const [items, setItems] = useState([]);

@@ -5,17 +5,10 @@ import Link from '@tiptap/extension-link';
 import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
 import InputModal from './InputModal';
+import { NODE_TYPES } from '../constants';
 import './NodeEditor.css';
 
-const NODE_TYPES = [
-  { value: 0, label: 'ROOT' },
-  { value: 1, label: 'EVIDENCE' },
-  { value: 2, label: 'REFERENCE' },
-  { value: 3, label: 'CONTEXT' },
-  { value: 4, label: 'EXAMPLE' },
-  { value: 5, label: 'COUNTERPOINT' },
-  { value: 6, label: 'SYNTHESIS' }
-];
+const NODE_TYPE_OPTIONS = NODE_TYPES.map((label, value) => ({ value, label }));
 
 const TITLE_PLACEHOLDERS = {
   ROOT: 'Root Title',
@@ -112,7 +105,7 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
   const [keywords, setKeywords] = useState('');
   const [hasContent, setHasContent] = useState(false);
 
-  const currentLabel = NODE_TYPES[Number(nodeType)]?.label || 'EVIDENCE';
+  const currentLabel = NODE_TYPE_OPTIONS[Number(nodeType)]?.label || 'EVIDENCE';
 
   const editor = useEditor({
     extensions: [
@@ -223,7 +216,7 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
             value={nodeType}
             onChange={(e) => setNodeType(e.target.value)}
           >
-            {NODE_TYPES
+            {NODE_TYPE_OPTIONS
               .filter(t => isThread || t.label !== 'ROOT')
               .map(t => (
                 <option key={t.value} value={t.value}>

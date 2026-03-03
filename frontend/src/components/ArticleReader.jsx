@@ -10,9 +10,8 @@ import InputModal from './InputModal';
 import ChatPanel from './ChatPanel';
 import SocraticPanel from './SocraticPanel';
 import { api } from '../services/api';
+import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
 import './ArticleReader.css';
-
-const NODE_TYPES = ['ROOT', 'EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'];
 
 // Convert YouTube <a> links and bare markdown-style URLs into TipTap YouTube embed markup
 function embedYouTubeLinks(html) {
@@ -32,16 +31,6 @@ function embedYouTubeLinks(html) {
   });
   return result;
 }
-
-const NODE_TYPE_COLORS = {
-  ROOT: '#888',
-  EVIDENCE: '#4fc3f7',
-  REFERENCE: '#ab47bc',
-  CONTEXT: '#ff8a65',
-  EXAMPLE: '#66bb6a',
-  COUNTERPOINT: '#ef5350',
-  SYNTHESIS: '#fdd835',
-};
 
 // ── Toolbar (reuse pattern from NodeEditor) ───────────────────────────────────
 const Toolbar = ({ editor }) => {
