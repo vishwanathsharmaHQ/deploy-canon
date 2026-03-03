@@ -1,16 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../services/api';
 import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
+import type { Thread, ThreadNode, NodeTypeName } from '../types';
 import './SequenceEditor.css';
 
-const SequenceEditor = ({ thread, onDone }) => {
-  const [items, setItems] = useState([]);
+interface AiSuggestion {
+  reasoning: string;
+  orderedNodes: ThreadNode[];
+}
+
+interface SequenceEditorProps {
+  thread: Thread;
+  onDone: () => void;
+}
+
+const SequenceEditor: React.FC<SequenceEditorProps> = ({ thread, onDone }) => {
+  const [items, setItems] = useState<ThreadNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiSuggestion, setAiSuggestion] = useState(null);
-  const dragItem = useRef(null);
-  const dragOverItem = useRef(null);
-  const saveTimer = useRef(null);
+  const [aiSuggestion, setAiSuggestion] = useState<AiSuggestion | null>(null);
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!thread?.id) return;
@@ -21,14 +32,14 @@ const SequenceEditor = ({ thread, onDone }) => {
     setLoading(true);
     try {
       const nodes = thread.nodes || [];
-      const saved = await api.loadArticleSequence(thread.id);
+      const saved: number[] | null = await api.loadArticleSequence(thread.id);
 
       if (saved && Array.isArray(saved)) {
         // Build ordered list: saved order first, then any new nodes appended
         const savedSet = new Set(saved);
         const ordered = saved
           .map(id => nodes.find(n => n.id === id))
-          .filter(Boolean);
+          .filter((n): n is ThreadNode => Boolean(n));
         const remaining = nodes.filter(n => !savedSet.has(n.id));
         setItems([...ordered, ...remaining]);
       } else {
@@ -42,7 +53,7 @@ const SequenceEditor = ({ thread, onDone }) => {
     }
   };
 
-  const saveSequence = useCallback((orderedItems) => {
+  const saveSequence = useCallback((orderedItems: ThreadNode[]) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       try {
@@ -59,8 +70,8 @@ const SequenceEditor = ({ thread, onDone }) => {
     try {
       const result = await api.suggestSequence(thread.id);
       const nodeMap = Object.fromEntries(items.map(n => [n.id, n]));
-      const orderedNodes = result.orderedIds.map(id => nodeMap[id]).filter(Boolean);
-      const inSuggestion = new Set(result.orderedIds);
+      const orderedNodes = result.orderedIds.map((id: number) => nodeMap[id]).filter(Boolean);
+      const inSuggestion = new Set<number>(result.orderedIds);
       const remaining = items.filter(n => !inSuggestion.has(n.id));
       setAiSuggestion({ reasoning: result.reasoning, orderedNodes: [...orderedNodes, ...remaining] });
     } catch (err) {
@@ -71,16 +82,17 @@ const SequenceEditor = ({ thread, onDone }) => {
   };
 
   const handleApplySuggestion = () => {
+    if (!aiSuggestion) return;
     setItems(aiSuggestion.orderedNodes);
     saveSequence(aiSuggestion.orderedNodes);
     setAiSuggestion(null);
   };
 
-  const handleDragStart = (index) => {
+  const handleDragStart = (index: number) => {
     dragItem.current = index;
   };
 
-  const handleDragEnter = (index) => {
+  const handleDragEnter = (index: number) => {
     dragOverItem.current = index;
   };
 
@@ -102,10 +114,10 @@ const SequenceEditor = ({ thread, onDone }) => {
     dragOverItem.current = null;
   };
 
-  const getNodeType = (node) => {
+  const getNodeType = (node: ThreadNode): NodeTypeName => {
     if (node.node_type) return node.node_type;
     if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'ROOT';
-    return node.type || 'ROOT';
+    return (node as any).type || 'ROOT';
   };
 
   if (loading) {
@@ -127,7 +139,7 @@ const SequenceEditor = ({ thread, onDone }) => {
               onClick={handleAiOptimize}
               disabled={aiLoading || items.length === 0}
             >
-              {aiLoading ? 'Analysing…' : '✦ AI Optimise'}
+              {aiLoading ? 'Analysing\u2026' : '\u2726 AI Optimise'}
             </button>
             <button className="se-done-btn" onClick={onDone}>Done</button>
           </div>
@@ -137,8 +149,8 @@ const SequenceEditor = ({ thread, onDone }) => {
         {aiSuggestion && (
           <div className="se-ai-suggestion">
             <div className="se-ai-suggestion-header">
-              <span className="se-ai-suggestion-title">✦ AI Suggestion</span>
-              <button className="se-ai-dismiss" onClick={() => setAiSuggestion(null)}>✕</button>
+              <span className="se-ai-suggestion-title">{'\u2726'} AI Suggestion</span>
+              <button className="se-ai-dismiss" onClick={() => setAiSuggestion(null)}>{'\u2715'}</button>
             </div>
             <p className="se-ai-reasoning">{aiSuggestion.reasoning}</p>
             <div className="se-ai-preview">
@@ -173,7 +185,7 @@ const SequenceEditor = ({ thread, onDone }) => {
                   onDragStart={() => handleDragStart(index)}
                   onDragEnter={() => handleDragEnter(index)}
                   onDragEnd={handleDragEnd}
-                  onDragOver={(e) => e.preventDefault()}
+                  onDragOver={(e: React.DragEvent) => e.preventDefault()}
                 >
                   <span className="se-handle">&#x2630;</span>
                   <span className="se-index">{index + 1}</span>

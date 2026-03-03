@@ -2,13 +2,18 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Excalidraw } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 import { api } from '../services/api';
+import type { Thread } from '../types';
 import './ThreadCanvas.css';
 
-const ThreadCanvas = ({ thread }) => {
-  const [initialData, setInitialData] = useState(null);
+interface ThreadCanvasProps {
+  thread: Thread;
+}
+
+const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
+  const [initialData, setInitialData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const saveTimeoutRef = useRef(null);
-  const excalidrawAPIRef = useRef(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const excalidrawAPIRef = useRef<any>(null);
 
   // Load saved canvas data on mount
   useEffect(() => {
@@ -29,7 +34,7 @@ const ThreadCanvas = ({ thread }) => {
   }, [thread.id]);
 
   // Debounced auto-save
-  const handleChange = useCallback((elements, appState) => {
+  const handleChange = useCallback((elements: any, appState: any) => {
     if (loading) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
@@ -42,7 +47,7 @@ const ThreadCanvas = ({ thread }) => {
           scrollY: appState.scrollY,
         },
       };
-      api.saveThreadCanvas(thread.id, scene).catch(e =>
+      api.saveThreadCanvas(thread.id, scene).catch((e: unknown) =>
         console.error('Failed to save canvas:', e)
       );
     }, 2000);

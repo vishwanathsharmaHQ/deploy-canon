@@ -11,10 +11,10 @@ export const api: {
   getThreadNodes(threadId: number): Promise<{ nodes: ThreadNode[]; edges: Edge[] }>;
 
   // Node operations
-  createNode(data: { threadId: number; title: string; content: string; nodeType: string; parentId?: number; metadata?: Record<string, any> }): Promise<ThreadNode>;
-  deleteNode(threadId: number, nodeId: number, force?: boolean): Promise<{ ok: boolean }>;
+  createNode(data: { threadId: number; title: string; content: string; nodeType: string; parentId?: number | null; metadata?: Record<string, any> }): Promise<ThreadNode>;
+  deleteNode(threadId: number, nodeId: number, force?: boolean): Promise<{ ok: boolean; hasChildren?: boolean; childCount?: number }>;
   updateNode(threadId: number, nodeId: number, data: { title?: string; content?: string }): Promise<{ ok: boolean }>;
-  createNodesBatch(threadId: number, nodes: Array<{ title: string; content: string; nodeType: string; parentId?: number }>): Promise<{ created: ThreadNode[] }>;
+  createNodesBatch(threadId: number, nodes: Array<{ title: string; content: string; nodeType: string; parentId?: number | null }>): Promise<{ created: ThreadNode[]; duplicateSkipped?: string[] }>;
   generateNodeSuggestions(data: { nodeId: number; nodeType: string; content: string; title: string }): Promise<any>;
 
   // Edge operations
@@ -34,8 +34,8 @@ export const api: {
   suggestSequence(threadId: number): Promise<any>;
 
   // Chat
-  chatStream(opts: { message: string; history?: any[]; threadId?: number; apiKey?: string; nodeContext?: any; onToken?: (t: string) => void; onProcessing?: () => void; onDone?: (e: any) => void; onError?: (e: Error) => void }): Promise<void>;
-  chatExtract(data: { message: string; reply: string; threadId?: number; apiKey?: string; nodeContext?: any; citations?: any[] }): Promise<any>;
+  chatStream(opts: { message: string; history?: any[]; threadId?: number | null; apiKey?: string; nodeContext?: any; onToken?: (t: string) => void; onProcessing?: () => void; onDone?: (e: any) => void; onError?: (e: Error) => void }): Promise<void>;
+  chatExtract(data: { message: string; reply: string; threadId?: number | null; apiKey?: string; nodeContext?: any; citations?: any[] }): Promise<any>;
   getThreadChats(threadId: number): Promise<any[]>;
   getChat(chatId: number): Promise<any>;
   createChat(data: { threadId: number; title: string; messages: any[] }): Promise<any>;
@@ -87,8 +87,8 @@ export const api: {
   generateQuiz(nodeId: number, quizType?: string): Promise<any>;
 
   // Ingestion
-  ingestUrl(url: string, threadId?: number): Promise<any>;
-  ingestPdf(pdfBase64: string, filename: string, threadId?: number): Promise<any>;
+  ingestUrl(url: string, threadId?: number | null): Promise<any>;
+  ingestPdf(pdfBase64: string, filename: string, threadId?: number | null): Promise<any>;
   getBookmarks(): Promise<any[]>;
   createBookmark(data: { url: string; title?: string; notes?: string; source_type?: string }): Promise<any>;
   updateBookmark(id: number, updates: Record<string, any>): Promise<any>;
@@ -99,7 +99,7 @@ export const api: {
   createSnapshot(threadId: number, trigger: string, triggerDetail?: string): Promise<any>;
   getSnapshots(threadId: number): Promise<any[]>;
   getSnapshotDiff(threadId: number, v1: number, v2: number): Promise<any>;
-  recordConfidence(threadId: number, data: { score: number; breakdown?: any; verdict?: string }): Promise<any>;
+  recordConfidence(threadId: number, data: { score: number; breakdown?: any; verdict?: string; node_count?: number }): Promise<any>;
   getConfidenceHistory(threadId: number): Promise<any[]>;
   getTimeline(threadId: number): Promise<any[]>;
   getNodeHistory(threadId: number, nodeId: number): Promise<{ history: any[] }>;

@@ -335,7 +335,7 @@ function App() {
             onAuthRequired={() => setShowAuthModal(true)}
             onNodesCreated={onNodesCreated}
             onThreadCreated={onThreadCreated}
-            onProposedUpdate={() => {}}
+            onProposedUpdate={async () => {}}
           />
         </div>
 

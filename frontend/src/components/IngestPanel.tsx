@@ -1,15 +1,33 @@
 import React, { useState, useRef } from 'react';
 import { api } from '../services/api';
 import { NODE_TYPE_COLORS } from '../constants';
+import type { User, NodeTypeName } from '../types';
 import './IngestPanel.css';
 
-const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, onAuthRequired }) => {
+interface IngestResult {
+  title: string;
+  summary?: string;
+  truncated?: boolean;
+  sourceUrl?: string;
+  threadId?: number;
+  proposedNodes?: { title: string; content: string; type: NodeTypeName }[];
+}
+
+interface IngestPanelProps {
+  threadId: number | null;
+  onNodesCreated?: (threadId: number) => void;
+  onThreadCreated?: (threadId: number) => void;
+  currentUser: User | null | undefined;
+  onAuthRequired?: () => void;
+}
+
+const IngestPanel: React.FC<IngestPanelProps> = ({ threadId, onNodesCreated, onThreadCreated, currentUser, onAuthRequired }) => {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
-  const [accepted, setAccepted] = useState(new Set());
-  const fileInputRef = useRef(null);
+  const [result, setResult] = useState<IngestResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [accepted, setAccepted] = useState<Set<number>>(new Set());
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUrlIngest = async () => {
     if (!currentUser) { onAuthRequired?.(); return; }
@@ -21,16 +39,16 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
     try {
       const data = await api.ingestUrl(url, threadId);
       setResult(data);
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePdfUpload = async (e) => {
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement> | { target: { files: File[] } }) => {
     if (!currentUser) { onAuthRequired?.(); return; }
-    const file = e.target.files?.[0];
+    const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
     setLoading(true);
     setError(null);
@@ -39,18 +57,18 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
     try {
       const reader = new FileReader();
       reader.onload = async () => {
-        const base64 = reader.result.split(',')[1];
+        const base64 = (reader.result as string).split(',')[1];
         try {
           const data = await api.ingestPdf(base64, file.name, threadId);
           setResult(data);
-        } catch (err) {
+        } catch (err: any) {
           setError(err.message);
         } finally {
           setLoading(false);
         }
       };
       reader.readAsDataURL(file);
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
       setLoading(false);
     }
@@ -72,7 +90,7 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
         const rootNode = result.proposedNodes.find(n => n.type === 'ROOT');
         const otherNodes = result.proposedNodes.filter(n => n.type !== 'ROOT');
 
-        const nodes = [];
+        const nodes: { title: string; content: string; nodeType: string }[] = [];
         if (rootNode) nodes.push({ title: rootNode.title, content: rootNode.content, nodeType: rootNode.type });
         otherNodes.forEach(n => nodes.push({ title: n.title, content: n.content, nodeType: n.type }));
 
@@ -81,7 +99,7 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
       } else {
         const rootNode = result.proposedNodes.find(n => n.type === 'ROOT');
         const otherNodes = result.proposedNodes.filter(n => n.type !== 'ROOT');
-        const nodes = [];
+        const nodes: { title: string; content: string; nodeType: string }[] = [];
         if (rootNode) nodes.push({ title: rootNode.title, content: rootNode.content, nodeType: rootNode.type });
         otherNodes.forEach(n => nodes.push({ title: n.title, content: n.content, nodeType: n.type }));
         await api.createNodesBatch(targetThreadId, nodes);
@@ -89,14 +107,14 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
       }
       setResult(null);
       setUrl('');
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleAccept = (idx) => {
+  const toggleAccept = (idx: number) => {
     setAccepted(prev => {
       const next = new Set(prev);
       next.has(idx) ? next.delete(idx) : next.add(idx);
@@ -108,14 +126,14 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
     if (accepted.size === 0) return;
     setLoading(true);
     try {
-      const selectedNodes = result.proposedNodes.filter((_, i) => accepted.has(i));
-      const targetThreadId = result.threadId || threadId;
+      const selectedNodes = result!.proposedNodes!.filter((_, i) => accepted.has(i));
+      const targetThreadId = result!.threadId || threadId;
       if (!targetThreadId) {
         const newThread = await api.createThread({
-          title: result.title,
-          description: result.summary,
+          title: result!.title,
+          description: result!.summary,
           content: '',
-          metadata: { title: result.title },
+          metadata: { title: result!.title },
         });
         await api.createNodesBatch(newThread.id, selectedNodes.map(n => ({ title: n.title, content: n.content, nodeType: n.type })));
         onThreadCreated?.(newThread.id);
@@ -125,7 +143,7 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
       }
       setResult(null);
       setUrl('');
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
@@ -138,7 +156,7 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
     try {
       await api.createBookmark({ url, title: url, source_type: 'url' });
       setUrl('');
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
     }
   };
@@ -152,9 +170,9 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
           <input
             type="text"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUrl(e.target.value)}
             placeholder="Paste a URL to extract knowledge..."
-            onKeyDown={(e) => e.key === 'Enter' && handleUrlIngest()}
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleUrlIngest()}
           />
           <button onClick={handleUrlIngest} disabled={loading || !url.trim()}>
             {loading ? '...' : 'Extract'}
@@ -166,14 +184,14 @@ const IngestPanel = ({ threadId, onNodesCreated, onThreadCreated, currentUser, o
 
         <div className="ip-pdf-zone"
           onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
+          onDragOver={(e: React.DragEvent<HTMLDivElement>) => e.preventDefault()}
+          onDrop={(e: React.DragEvent<HTMLDivElement>) => {
             e.preventDefault();
             const file = e.dataTransfer.files?.[0];
             if (file?.type === 'application/pdf') {
               const dt = new DataTransfer();
               dt.items.add(file);
-              fileInputRef.current.files = dt.files;
+              fileInputRef.current!.files = dt.files;
               handlePdfUpload({ target: { files: [file] } });
             }
           }}

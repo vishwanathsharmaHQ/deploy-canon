@@ -4,15 +4,32 @@ import ConfidenceChart from './ConfidenceChart';
 import SnapshotDiffViewer from './SnapshotDiffViewer';
 import ExportPanel from './ExportPanel';
 import { NODE_TYPE_COLORS, EVENT_ICONS, EVENT_COLORS } from '../constants';
+import type { TimelineEvent, Snapshot, ConfidenceRecord, NodeTypeName } from '../types';
 import './ThreadTimeline.css';
 
-const ThreadTimeline = ({ threadId, threadTitle }) => {
-  const [events, setEvents] = useState([]);
-  const [confidenceHistory, setConfidenceHistory] = useState([]);
-  const [snapshots, setSnapshots] = useState([]);
+interface TimelineEventItem {
+  type: string;
+  title: string;
+  nodeType?: NodeTypeName;
+  timestamp: string;
+  version?: number;
+  trigger?: string;
+  score?: number;
+  verdict?: string;
+}
+
+interface ThreadTimelineProps {
+  threadId: number;
+  threadTitle: string;
+}
+
+const ThreadTimeline: React.FC<ThreadTimelineProps> = ({ threadId, threadTitle }) => {
+  const [events, setEvents] = useState<TimelineEventItem[]>([]);
+  const [confidenceHistory, setConfidenceHistory] = useState<ConfidenceRecord[]>([]);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
-  const [showDiff, setShowDiff] = useState(null);
+  const [showDiff, setShowDiff] = useState<{ v1: number; v2: number } | null>(null);
   const [showExport, setShowExport] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -46,7 +63,7 @@ const ThreadTimeline = ({ threadId, threadTitle }) => {
 
   const filteredEvents = filter === 'all' ? events : events.filter(e => e.type === filter);
 
-  const formatDate = (ts) => {
+  const formatDate = (ts: string): string => {
     if (!ts) return '';
     const d = new Date(ts);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -88,7 +105,7 @@ const ThreadTimeline = ({ threadId, threadTitle }) => {
       {snapshots.length >= 2 && !showDiff && (
         <div className="tt-diff-select">
           <span>Compare snapshots:</span>
-          <select onChange={(e) => {
+          <select onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
             const [v1, v2] = e.target.value.split('-').map(Number);
             if (v1 && v2) setShowDiff({ v1, v2 });
           }}>
@@ -119,13 +136,13 @@ const ThreadTimeline = ({ threadId, threadTitle }) => {
                 {event.type === 'thread_created' && <span>Thread created: {event.title}</span>}
                 {event.type === 'node_added' && (
                   <span>
-                    <span style={{ color: NODE_TYPE_COLORS[event.nodeType] }}>[{event.nodeType}]</span> {event.title}
+                    <span style={{ color: NODE_TYPE_COLORS[event.nodeType!] }}>[{event.nodeType}]</span> {event.title}
                   </span>
                 )}
                 {event.type === 'snapshot' && <span>Snapshot v{event.version} ({event.trigger})</span>}
                 {event.type === 'confidence' && (
                   <span>
-                    Score: <strong style={{ color: event.score >= 70 ? '#00ff9d' : event.score >= 40 ? '#fdd835' : '#ef5350' }}>{event.score}</strong>
+                    Score: <strong style={{ color: (event.score ?? 0) >= 70 ? '#00ff9d' : (event.score ?? 0) >= 40 ? '#fdd835' : '#ef5350' }}>{event.score}</strong>
                     {event.verdict && <span className="tt-verdict"> &mdash; {event.verdict}</span>}
                   </span>
                 )}

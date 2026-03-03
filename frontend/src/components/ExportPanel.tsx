@@ -2,9 +2,15 @@ import React, { useState } from 'react';
 import { api } from '../services/api';
 import './ExportPanel.css';
 
-const ExportPanel = ({ threadId, threadTitle, onClose }) => {
-  const [format, setFormat] = useState('markdown');
-  const [preview, setPreview] = useState(null);
+interface ExportPanelProps {
+  threadId: number;
+  threadTitle: string;
+  onClose: () => void;
+}
+
+const ExportPanel: React.FC<ExportPanelProps> = ({ threadId, threadTitle, onClose }) => {
+  const [format, setFormat] = useState<'markdown' | 'json'>('markdown');
+  const [preview, setPreview] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   const handleExport = async () => {
@@ -21,7 +27,7 @@ const ExportPanel = ({ threadId, threadTitle, onClose }) => {
 
   const handleDownload = () => {
     if (!preview) return;
-    let content, mimeType, extension;
+    let content: string, mimeType: string, extension: string;
     if (format === 'json') {
       content = JSON.stringify(preview, null, 2);
       mimeType = 'application/json';

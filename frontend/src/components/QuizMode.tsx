@@ -1,13 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import type { NodeTypeName } from '../types';
 import './QuizMode.css';
 
-const QuizMode = ({ node, onBack, onRate }) => {
-  const [quiz, setQuiz] = useState(null);
+interface Quiz {
+  question: string;
+  hint?: string;
+  idealAnswer: string;
+}
+
+interface QuizNode {
+  id: number;
+  title: string;
+  content: string;
+  node_type: NodeTypeName;
+}
+
+interface QuizModeProps {
+  node: QuizNode;
+  onBack: () => void;
+  onRate: (rating: number) => void;
+}
+
+const QuizMode: React.FC<QuizModeProps> = ({ node, onBack, onRate }) => {
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [answer, setAnswer] = useState('');
   const [showAnswer, setShowAnswer] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [quizType, setQuizType] = useState(node.node_type === 'COUNTERPOINT' ? 'steelman' : 'recall');
+  const [quizType, setQuizType] = useState<string>(node.node_type === 'COUNTERPOINT' ? 'steelman' : 'recall');
 
   useEffect(() => {
     loadQuiz();
@@ -50,7 +70,7 @@ const QuizMode = ({ node, onBack, onRate }) => {
       <div className="qm-answer-area">
         <textarea
           value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAnswer(e.target.value)}
           placeholder="Type your answer..."
           rows={4}
           disabled={showAnswer}

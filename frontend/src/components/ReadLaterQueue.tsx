@@ -1,13 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import type { Bookmark, User } from '../types';
 import './ReadLaterQueue.css';
 
-const STATUS_LABELS = { unread: 'Unread', reading: 'Reading', ingested: 'Ingested' };
-const STATUS_COLORS = { unread: '#888', reading: '#4fc3f7', ingested: '#00ff9d' };
+type BookmarkStatus = 'unread' | 'reading' | 'ingested';
 
-const ReadLaterQueue = ({ onIngestUrl, currentUser, onAuthRequired }) => {
-  const [bookmarks, setBookmarks] = useState([]);
-  const [filter, setFilter] = useState('all');
+const STATUS_LABELS: Record<BookmarkStatus, string> = { unread: 'Unread', reading: 'Reading', ingested: 'Ingested' };
+const STATUS_COLORS: Record<BookmarkStatus, string> = { unread: '#888', reading: '#4fc3f7', ingested: '#00ff9d' };
+
+interface ReadLaterQueueProps {
+  onIngestUrl?: (url: string) => void;
+  currentUser: User | null;
+  onAuthRequired: () => void;
+}
+
+const ReadLaterQueue: React.FC<ReadLaterQueueProps> = ({ onIngestUrl, currentUser, onAuthRequired }) => {
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [filter, setFilter] = useState<'all' | BookmarkStatus>('all');
   const [loading, setLoading] = useState(true);
 
   const loadBookmarks = async () => {
@@ -25,7 +34,7 @@ const ReadLaterQueue = ({ onIngestUrl, currentUser, onAuthRequired }) => {
 
   const filteredBookmarks = filter === 'all' ? bookmarks : bookmarks.filter(b => b.status === filter);
 
-  const handleStatusChange = async (id, status) => {
+  const handleStatusChange = async (id: number, status: string) => {
     try {
       await api.updateBookmark(id, { status });
       setBookmarks(prev => prev.map(b => b.id === id ? { ...b, status } : b));
@@ -34,7 +43,7 @@ const ReadLaterQueue = ({ onIngestUrl, currentUser, onAuthRequired }) => {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: number) => {
     try {
       await api.deleteBookmark(id);
       setBookmarks(prev => prev.filter(b => b.id !== id));
@@ -48,7 +57,7 @@ const ReadLaterQueue = ({ onIngestUrl, currentUser, onAuthRequired }) => {
       <div className="rlq-header">
         <h4>Read Later</h4>
         <div className="rlq-filters">
-          {['all', 'unread', 'reading', 'ingested'].map(f => (
+          {(['all', 'unread', 'reading', 'ingested'] as const).map(f => (
             <button
               key={f}
               className={filter === f ? 'active' : ''}
@@ -69,8 +78,8 @@ const ReadLaterQueue = ({ onIngestUrl, currentUser, onAuthRequired }) => {
           filteredBookmarks.map(b => (
             <div key={b.id} className="rlq-item">
               <div className="rlq-item-main">
-                <span className="rlq-status" style={{ color: STATUS_COLORS[b.status] }}>
-                  {STATUS_LABELS[b.status]}
+                <span className="rlq-status" style={{ color: STATUS_COLORS[b.status as BookmarkStatus] }}>
+                  {STATUS_LABELS[b.status as BookmarkStatus]}
                 </span>
                 <a className="rlq-title" href={b.url} target="_blank" rel="noreferrer">{b.title || b.url}</a>
               </div>
@@ -80,7 +89,7 @@ const ReadLaterQueue = ({ onIngestUrl, currentUser, onAuthRequired }) => {
                 )}
                 <select
                   value={b.status}
-                  onChange={(e) => handleStatusChange(b.id, e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleStatusChange(b.id, e.target.value)}
                 >
                   <option value="unread">Unread</option>
                   <option value="reading">Reading</option>

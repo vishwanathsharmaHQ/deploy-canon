@@ -1,13 +1,53 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
 import { NODE_TYPE_COLORS } from '../constants';
+import type { NodeTypeName } from '../types';
 import './SemanticSearchPanel.css';
 
-const SemanticSearchPanel = ({ onSelectThread, onSelectNode, onClose }) => {
+interface SearchSource {
+  nodeId: number;
+  threadId: number;
+  threadTitle: string;
+  nodeTitle: string;
+  relevance: number;
+}
+
+interface SearchAnswer {
+  answer: string;
+  sources?: SearchSource[];
+}
+
+interface SearchResultThread {
+  id: number;
+  title: string;
+  relevance: number;
+}
+
+interface SearchResultNode {
+  id: number;
+  threadId: number;
+  threadTitle: string;
+  title: string;
+  node_type: NodeTypeName;
+  relevance: number;
+}
+
+interface SearchResults {
+  threads?: SearchResultThread[];
+  nodes?: SearchResultNode[];
+}
+
+interface SemanticSearchPanelProps {
+  onSelectThread?: (threadId: number) => void;
+  onSelectNode?: (nodeId: number, threadId: number) => void;
+  onClose?: () => void;
+}
+
+const SemanticSearchPanel: React.FC<SemanticSearchPanelProps> = ({ onSelectThread, onSelectNode, onClose }) => {
   const [query, setQuery] = useState('');
-  const [mode, setMode] = useState('search'); // 'search' | 'ask'
-  const [results, setResults] = useState(null);
-  const [answer, setAnswer] = useState(null);
+  const [mode, setMode] = useState<'search' | 'ask'>('search');
+  const [results, setResults] = useState<SearchResults | null>(null);
+  const [answer, setAnswer] = useState<SearchAnswer | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSearch = async () => {
@@ -31,7 +71,7 @@ const SemanticSearchPanel = ({ onSelectThread, onSelectNode, onClose }) => {
     }
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') handleSearch();
   };
 
@@ -51,7 +91,7 @@ const SemanticSearchPanel = ({ onSelectThread, onSelectNode, onClose }) => {
           <input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={mode === 'ask' ? 'Ask a question about your knowledge...' : 'Search across all threads and nodes...'}
           />
@@ -66,7 +106,7 @@ const SemanticSearchPanel = ({ onSelectThread, onSelectNode, onClose }) => {
           <div className="ssp-answer">
             <h4>Answer</h4>
             <p>{answer.answer}</p>
-            {answer.sources?.length > 0 && (
+            {answer.sources && answer.sources.length > 0 && (
               <div className="ssp-sources">
                 <h5>Sources</h5>
                 {answer.sources.map((s, i) => (
@@ -83,7 +123,7 @@ const SemanticSearchPanel = ({ onSelectThread, onSelectNode, onClose }) => {
 
         {results && (
           <>
-            {results.threads?.length > 0 && (
+            {results.threads && results.threads.length > 0 && (
               <div className="ssp-section">
                 <h4>Threads</h4>
                 {results.threads.map(t => (
@@ -94,7 +134,7 @@ const SemanticSearchPanel = ({ onSelectThread, onSelectNode, onClose }) => {
                 ))}
               </div>
             )}
-            {results.nodes?.length > 0 && (
+            {results.nodes && results.nodes.length > 0 && (
               <div className="ssp-section">
                 <h4>Nodes</h4>
                 {results.nodes.map(n => (

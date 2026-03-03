@@ -11,10 +11,11 @@ import ChatPanel from './ChatPanel';
 import SocraticPanel from './SocraticPanel';
 import { api } from '../services/api';
 import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
+import type { Thread, ThreadNode, NodeTypeName, User } from '../types';
 import './ArticleReader.css';
 
 // Convert YouTube <a> links and bare markdown-style URLs into TipTap YouTube embed markup
-function embedYouTubeLinks(html) {
+function embedYouTubeLinks(html: string): string {
   if (!html) return html;
   const ytPattern = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
   // Replace <a> tags wrapping YouTube URLs
@@ -33,12 +34,16 @@ function embedYouTubeLinks(html) {
 }
 
 // ── Toolbar (reuse pattern from NodeEditor) ───────────────────────────────────
-const Toolbar = ({ editor }) => {
-  const [modal, setModal] = useState(null); // null | 'link' | 'youtube'
+interface ToolbarProps {
+  editor: any;
+}
+
+const Toolbar: React.FC<ToolbarProps> = ({ editor }) => {
+  const [modal, setModal] = useState<null | 'link' | 'youtube'>(null);
 
   if (!editor) return null;
 
-  const Btn = ({ onClick, active, children }) => (
+  const Btn: React.FC<{ onClick: () => void; active?: boolean; children: React.ReactNode }> = ({ onClick, active, children }) => (
     <button type="button" onClick={onClick} className={active ? 'is-active' : ''}>
       {children}
     </button>
@@ -69,7 +74,7 @@ const Toolbar = ({ editor }) => {
         <InputModal
           label="Enter URL"
           placeholder="https://example.com"
-          onSubmit={(url) => {
+          onSubmit={(url: string) => {
             editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
             setModal(null);
           }}
@@ -80,7 +85,7 @@ const Toolbar = ({ editor }) => {
         <InputModal
           label="Enter YouTube URL"
           placeholder="https://youtube.com/watch?v=..."
-          onSubmit={(url) => {
+          onSubmit={(url: string) => {
             editor.commands.setYoutubeVideo({ src: url });
             setModal(null);
           }}
@@ -93,11 +98,17 @@ const Toolbar = ({ editor }) => {
 
 // ── Node edit helpers ─────────────────────────────────────────────────────────
 
-function getEditableContent(node) {
+interface EditableContent {
+  title: string;
+  html: string;
+  keywords?: string;
+}
+
+function getEditableContent(node: any): EditableContent {
   const nodeType = getNodeType(node);
   let raw = node.content;
   if (raw && typeof raw === 'object' && raw.content !== undefined) raw = raw.content;
-  let parsed = raw;
+  let parsed: any = raw;
   if (typeof raw === 'string' && (raw.startsWith('{') || raw.startsWith('['))) {
     try { parsed = JSON.parse(raw); } catch (e) { /* keep as string */ }
   }
@@ -133,7 +144,7 @@ function getEditableContent(node) {
   }
 }
 
-function buildSavedContent(nodeType, title, html, keywords) {
+function buildSavedContent(nodeType: string, title: string, html: string, keywords: string): string {
   switch (nodeType) {
     case 'ROOT':
       return JSON.stringify({
@@ -153,10 +164,10 @@ function buildSavedContent(nodeType, title, html, keywords) {
 }
 
 // ── Content renderer (for read-only node pages) ──────────────────────────────
-const renderContent = (rawContent, linkify) => {
+const renderContent = (rawContent: any, linkify?: (html: string) => string): React.ReactNode => {
   if (!rawContent) return <p className="ar-empty">No content available.</p>;
 
-  let text = rawContent;
+  let text: any = rawContent;
   if (typeof text === 'object') {
     text = text.content || text.text || JSON.stringify(text, null, 2);
   }
@@ -173,10 +184,10 @@ const renderContent = (rawContent, linkify) => {
 
   const paragraphs = text
     .split(/\n{2,}/)
-    .flatMap(p => (p.includes('\n') ? p.split('\n') : [p]))
-    .filter(p => p.trim() !== '');
+    .flatMap((p: string) => (p.includes('\n') ? p.split('\n') : [p]))
+    .filter((p: string) => p.trim() !== '');
 
-  return paragraphs.map((para, pi) => {
+  return paragraphs.map((para: string, pi: number) => {
     const ytMatch = para.trim().match(ytRegex);
     if (ytMatch) {
       return (
@@ -192,9 +203,9 @@ const renderContent = (rawContent, linkify) => {
       );
     }
 
-    const segments = [];
+    const segments: React.ReactNode[] = [];
     let lastIdx = 0;
-    let m;
+    let m: RegExpExecArray | null;
     urlRegex.lastIndex = 0;
     while ((m = urlRegex.exec(para)) !== null) {
       if (m.index > lastIdx) segments.push(para.slice(lastIdx, m.index));
@@ -209,7 +220,7 @@ const renderContent = (rawContent, linkify) => {
   });
 };
 
-const getNodeType = (node) => {
+const getNodeType = (node: any): string => {
   if (node.node_type) return node.node_type;
   if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'ROOT';
   return node.type || 'ROOT';
@@ -218,7 +229,7 @@ const getNodeType = (node) => {
 // Render a string that may contain HTML or markdown.
 // TipTap / saved HTML always starts with a tag; AI content is markdown.
 // Optional linkify fn transforms HTML strings before rendering.
-const renderHtmlOrText = (str, linkify) => {
+const renderHtmlOrText = (str: any, linkify?: (html: string) => string): React.ReactNode => {
   if (!str) return null;
   const s = String(str);
   if (s.trim().startsWith('<')) {
@@ -229,10 +240,15 @@ const renderHtmlOrText = (str, linkify) => {
 };
 
 // ── Source verify badge ───────────────────────────────────────────────────────
-const _verifyCache = {};
+const _verifyCache: Record<string, any> = {};
 
-const SourceVerifyBadge = ({ url, claim }) => {
-  const [data, setData] = React.useState(_verifyCache[url] || null);
+interface SourceVerifyBadgeProps {
+  url: string;
+  claim: string;
+}
+
+const SourceVerifyBadge: React.FC<SourceVerifyBadgeProps> = ({ url, claim }) => {
+  const [data, setData] = React.useState<any>(_verifyCache[url] || null);
   const [loading, setLoading] = React.useState(!_verifyCache[url]);
 
   React.useEffect(() => {
@@ -251,15 +267,19 @@ const SourceVerifyBadge = ({ url, claim }) => {
 
   if (loading) return <span className="sv-badge sv-badge--loading">verifying…</span>;
   if (!data) return null;
-  const labels = { verified: '✓ Verified', partial: '~ Partial', unverified: '✗ Unverified', unavailable: '? Unavailable' };
+  const labels: Record<string, string> = { verified: '✓ Verified', partial: '~ Partial', unverified: '✗ Unverified', unavailable: '? Unavailable' };
   return <span className={`sv-badge sv-badge--${data.status}`} title={data.explanation}>{labels[data.status] || data.status}</span>;
 };
 
 // ── Confidence meter (ROOT pages) ─────────────────────────────────────────────
-const _analysisCache = {};
+const _analysisCache: Record<number, any> = {};
 
-const ConfidenceMeter = ({ threadId }) => {
-  const [data, setData] = React.useState(_analysisCache[threadId] || null);
+interface ConfidenceMeterProps {
+  threadId: number;
+}
+
+const ConfidenceMeter: React.FC<ConfidenceMeterProps> = ({ threadId }) => {
+  const [data, setData] = React.useState<any>(_analysisCache[threadId] || null);
   const [loading, setLoading] = React.useState(!_analysisCache[threadId]);
   const [expanded, setExpanded] = React.useState(false);
 
@@ -367,8 +387,8 @@ const ConfidenceMeter = ({ threadId }) => {
               </button>
               {expanded && (
                 <div className="cm-accordion-content">
-                  {data.strengths?.map((s, i) => <div key={i} className="cm-point cm-point--strength">✓ {s}</div>)}
-                  {data.gaps?.map((g, i) => <div key={i} className="cm-point cm-point--gap">✗ {g}</div>)}
+                  {data.strengths?.map((s: string, i: number) => <div key={i} className="cm-point cm-point--strength">✓ {s}</div>)}
+                  {data.gaps?.map((g: string, i: number) => <div key={i} className="cm-point cm-point--gap">✗ {g}</div>)}
                 </div>
               )}
             </div>
@@ -380,7 +400,7 @@ const ConfidenceMeter = ({ threadId }) => {
 };
 
 // Returns a React element (not a string) for structured node content
-const formatNodeContent = (node) => {
+const formatNodeContent = (node: any): React.ReactNode => {
   let content = node.content;
   if (!content) return null;
 
@@ -473,7 +493,16 @@ const formatNodeContent = (node) => {
 };
 
 // ── Secondary node panel (split-screen right sidebar for ROOT pages) ─────────
-const SecondaryNodePanel = ({ nodes, selectedId, onSelect, label, onAccept, onDiscard }) => {
+interface SecondaryNodePanelProps {
+  nodes: any[];
+  selectedId: number | string | null;
+  onSelect: (id: number | string) => void;
+  label?: string;
+  onAccept?: () => void;
+  onDiscard?: () => void;
+}
+
+const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selectedId, onSelect, label, onAccept, onDiscard }) => {
   if (!nodes || nodes.length === 0) {
     return (
       <div className="ar-snp">
@@ -489,7 +518,7 @@ const SecondaryNodePanel = ({ nodes, selectedId, onSelect, label, onAccept, onDi
 
   const selectedNode = nodes.find(n => n.id === selectedId) || nodes[0];
   const selectedType = getNodeType(selectedNode);
-  const selectedColor = NODE_TYPE_COLORS[selectedType] || '#888';
+  const selectedColor = NODE_TYPE_COLORS[selectedType as NodeTypeName] || '#888';
 
   return (
     <div className="ar-snp">
@@ -499,9 +528,9 @@ const SecondaryNodePanel = ({ nodes, selectedId, onSelect, label, onAccept, onDi
       </div>
 
       <div className="ar-snp-tabs">
-        {nodes.map(node => {
+        {nodes.map((node: any) => {
           const nodeType = getNodeType(node);
-          const color = NODE_TYPE_COLORS[nodeType] || '#888';
+          const color = NODE_TYPE_COLORS[nodeType as NodeTypeName] || '#888';
           const isActive = node.id === selectedId;
           return (
             <button
@@ -561,7 +590,14 @@ const SecondaryNodePanel = ({ nodes, selectedId, onSelect, label, onAccept, onDi
 };
 
 // ── Thread content editor (page 0) ───────────────────────────────────────────
-const ThreadContentEditor = ({ thread, onContentChange, currentUser, onAuthRequired }) => {
+interface ThreadContentEditorProps {
+  thread: Thread;
+  onContentChange?: (html: string) => void;
+  currentUser: User | null | undefined;
+  onAuthRequired?: () => void;
+}
+
+const ThreadContentEditor: React.FC<ThreadContentEditorProps> = ({ thread, onContentChange, currentUser, onAuthRequired }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -617,7 +653,7 @@ const ThreadContentEditor = ({ thread, onContentChange, currentUser, onAuthRequi
   const description = thread.metadata?.description || thread.description || '';
   const hasContent = thread.content && thread.content !== '<p></p>';
 
-  const renderThreadContent = (raw) => {
+  const renderThreadContent = (raw: string): React.ReactNode => {
     if (!raw) return null;
     if (raw.trim().startsWith('<')) {
       return <div className="ar-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(raw) }} />;
@@ -670,27 +706,46 @@ const ThreadContentEditor = ({ thread, onContentChange, currentUser, onAuthRequi
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired }) => {
+
+interface ProposedUpdate {
+  nodeId: number;
+  title: string;
+  description: string;
+}
+
+interface ArticleReaderProps {
+  thread: Thread;
+  initialNodeId?: number | null;
+  onContentChange?: (html: string) => void;
+  onUpdateNode?: (target: { nodeId: number; threadId: number }, data: { title: string; content: string }) => Promise<void>;
+  onNodesCreated?: (threadId: number) => void;
+  onThreadCreated?: (threadId: number) => void;
+  onViewInGraph?: (nodeId: number) => void;
+  currentUser: User | null | undefined;
+  onAuthRequired?: () => void;
+}
+
+const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired }) => {
   const [currentPage, setCurrentPage] = useState(0);
-  const [orderedNodes, setOrderedNodes] = useState([]);
+  const [orderedNodes, setOrderedNodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [secondaryOpen, setSecondaryOpen] = useState(false);
-  const [selectedSecondaryId, setSelectedSecondaryId] = useState(null);
+  const [selectedSecondaryId, setSelectedSecondaryId] = useState<number | string | null>(null);
   const [socraticOpen, setSocraticOpen] = useState(false);
   // Red Team / Steelman — proposals shown in secondary panel with Accept/Discard
   const [redTeamLoading, setRedTeamLoading] = useState(false);
   const [steelmanLoading, setSteelmanLoading] = useState(false);
-  const [secondaryPinnedNodes, setSecondaryPinnedNodes] = useState(null); // overrides currentRootChildren
+  const [secondaryPinnedNodes, setSecondaryPinnedNodes] = useState<any[] | null>(null); // overrides currentRootChildren
   const [secondaryPanelLabel, setSecondaryPanelLabel] = useState('Supporting Nodes');
-  const [pendingProposals, setPendingProposals] = useState(null); // { nodes, parentNodeId, type }
+  const [pendingProposals, setPendingProposals] = useState<{ nodes: any[]; parentNodeId: number; type: string } | null>(null);
   // Fork
   const [forkModalOpen, setForkModalOpen] = useState(false);
   const [forkClaim, setForkClaim] = useState('');
   const [forkLoading, setForkLoading] = useState(false);
-  const [pendingUpdate, setPendingUpdate] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // { nodeId, childCount }
+  const [pendingUpdate, setPendingUpdate] = useState<any>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ nodeId: number; childCount: number } | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editKeywords, setEditKeywords] = useState('');
   const [editSaving, setEditSaving] = useState(false);
@@ -708,7 +763,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
 
   // Map of lowercase node titles → { id, pageIndex, title } for cross-node linking
   const nodeLinkMap = useMemo(() => {
-    const map = new Map();
+    const map = new Map<string, { id: number; pageIndex: number; title: string }>();
     orderedNodes.forEach((n, idx) => {
       const title = n.title || '';
       if (title.trim()) {
@@ -719,10 +774,10 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
   }, [orderedNodes]);
 
   // Replace node title mentions in an HTML string with clickable links (excluding currentNodeId)
-  const linkifyNodeMentions = useCallback((htmlStr, currentNodeId) => {
+  const linkifyNodeMentions = useCallback((htmlStr: string, currentNodeId: number): string => {
     if (!htmlStr || nodeLinkMap.size === 0) return htmlStr;
     // Build sorted entries (longest first to avoid partial matches)
-    const entries = [];
+    const entries: { lower: string; id: number; pageIndex: number; title: string }[] = [];
     nodeLinkMap.forEach((val, key) => {
       if (val.id !== currentNodeId) entries.push({ lower: key, ...val });
     });
@@ -753,12 +808,12 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
   }, [nodeLinkMap]);
 
   // Click delegation for node links in the article body
-  const bodyRef = useRef(null);
+  const bodyRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
-    const handler = (e) => {
-      const link = e.target.closest('.ar-node-link');
+    const handler = (e: MouseEvent) => {
+      const link = (e.target as HTMLElement).closest('.ar-node-link') as HTMLElement | null;
       if (!link) return;
       e.preventDefault();
       const nodeId = link.dataset.nodeId;
@@ -771,13 +826,13 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     return () => body.removeEventListener('click', handler);
   }, [orderedNodes]);
 
-  const handleRedTeam = async (node) => {
+  const handleRedTeam = async (node: any) => {
     if (!currentUser) { onAuthRequired?.(); return; }
     setRedTeamLoading(true);
     try {
       const { proposals, parentNodeId } = await api.redTeamThread(thread.id, node.id);
       // Proposals are not saved yet — show with Accept/Discard in secondary panel
-      const previewNodes = proposals.map((p, i) => ({ ...p, id: `pending-rt-${i}`, node_type: p.nodeType, parent_id: parentNodeId }));
+      const previewNodes = proposals.map((p: any, i: number) => ({ ...p, id: `pending-rt-${i}`, node_type: p.nodeType, parent_id: parentNodeId }));
       setPendingProposals({ nodes: previewNodes, parentNodeId, type: 'redteam' });
       setSecondaryPinnedNodes(previewNodes);
       setSecondaryPanelLabel('⚔ Red Team — Review');
@@ -790,7 +845,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     }
   };
 
-  const handleSteelman = async (nodeId) => {
+  const handleSteelman = async (nodeId: number) => {
     if (!currentUser) { onAuthRequired?.(); return; }
     setSteelmanLoading(true);
     try {
@@ -811,16 +866,16 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
   const handleAcceptProposals = async () => {
     if (!pendingProposals) return;
     try {
-      const { createdNodes } = await api.createNodesBatch(thread.id, pendingProposals.nodes.map(n => ({
+      const { created } = await api.createNodesBatch(thread.id, pendingProposals.nodes.map((n: any) => ({
         title: n.title,
         content: n.content,
         nodeType: n.node_type || n.nodeType,
         parentId: pendingProposals.parentNodeId,
       })));
-      setOrderedNodes(prev => [...prev, ...createdNodes]);
-      setSecondaryPinnedNodes(createdNodes);
+      setOrderedNodes(prev => [...prev, ...created]);
+      setSecondaryPinnedNodes(created);
       setSecondaryPanelLabel(pendingProposals.type === 'redteam' ? '⚔ Red Team' : '▲ Steelmanned');
-      setSelectedSecondaryId(createdNodes[0]?.id ?? null);
+      setSelectedSecondaryId(created[0]?.id ?? null);
       setPendingProposals(null);
       onNodesCreated?.(thread.id);
     } catch (err) {
@@ -877,7 +932,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     setSecondaryPanelLabel('Supporting Nodes');
     if (currentRootChildren.length > 0) {
       setSecondaryOpen(true);
-      setSelectedSecondaryId(id =>
+      setSelectedSecondaryId((id: number | string | null) =>
         id && currentRootChildren.some(n => n.id === id) ? id : currentRootChildren[0].id
       );
     } else {
@@ -906,10 +961,10 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
       const nodes = thread.nodes || [];
       const saved = await api.loadArticleSequence(thread.id);
 
-      let ordered;
+      let ordered: any[];
       if (saved && Array.isArray(saved)) {
         const savedSet = new Set(saved);
-        const savedOrdered = saved.map(id => nodes.find(n => n.id === id)).filter(Boolean);
+        const savedOrdered = saved.map((id: number) => nodes.find(n => n.id === id)).filter(Boolean);
         const remaining = nodes.filter(n => !savedSet.has(n.id));
         ordered = [...savedOrdered, ...remaining];
       } else {
@@ -957,19 +1012,19 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     };
   })();
 
-  const handleProposedUpdate = async (update) => {
+  const handleProposedUpdate = async (update: ProposedUpdate) => {
     if (!update || !update.nodeId || !onUpdateNode) return;
     const node = orderedNodes.find(n => n.id === update.nodeId);
     if (!node) return;
     const nodeType = getNodeType(node);
 
     // Preserve existing fields (e.g. keywords for ROOT), only replace title + body
-    let existingParsed = {};
+    let existingParsed: any = {};
     if (typeof node.content === 'string') {
       try { existingParsed = JSON.parse(node.content); } catch (e) { /* ignore */ }
     }
 
-    let newContent;
+    let newContent: string;
     if (nodeType === 'ROOT') {
       newContent = JSON.stringify({
         title: update.title,
@@ -1002,11 +1057,11 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     }
   };
 
-  const handleDeleteNode = async (nodeId) => {
+  const handleDeleteNode = async (nodeId: number) => {
     try {
       const result = await api.deleteNode(thread.id, nodeId);
       if (result.hasChildren) {
-        setDeleteConfirm({ nodeId, childCount: result.childCount });
+        setDeleteConfirm({ nodeId, childCount: result.childCount ?? 0 });
         return;
       }
       // Deleted — remove from ordered nodes and navigate
@@ -1031,7 +1086,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     }
   };
 
-  const renderPage = () => {
+  const renderPage = (): React.ReactNode => {
     if (currentPage === 0) {
       return <ThreadContentEditor thread={thread} onContentChange={onContentChange} currentUser={currentUser} onAuthRequired={onAuthRequired} />;
     }
@@ -1040,7 +1095,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
     if (!node) return <p className="ar-empty">Node not found.</p>;
 
     const nodeType = getNodeType(node);
-    const color = NODE_TYPE_COLORS[nodeType] || '#888';
+    const color = NODE_TYPE_COLORS[nodeType as NodeTypeName] || '#888';
     const nodeTitle = node.title || `Node ${node.id}`;
     const nodeRendered = formatNodeContent(node);
     const isReactElement = React.isValidElement(nodeRendered);
@@ -1153,7 +1208,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
               className="ar-edit-title"
               type="text"
               value={editTitle}
-              onChange={e => setEditTitle(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTitle(e.target.value)}
               placeholder="Title"
             />
             {nodeType === 'ROOT' && (
@@ -1161,7 +1216,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
                 className="ar-edit-keywords"
                 type="text"
                 value={editKeywords}
-                onChange={e => setEditKeywords(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditKeywords(e.target.value)}
                 placeholder="Keywords (comma-separated)"
               />
             )}
@@ -1264,7 +1319,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
               thread={thread}
               currentUser={currentUser}
               onAuthRequired={onAuthRequired}
-              onNodesCreated={(nodes) => {
+              onNodesCreated={(nodes: any[]) => {
                 setOrderedNodes(prev => [...prev, ...nodes]);
                 onNodesCreated?.(thread.id);
               }}
@@ -1289,7 +1344,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
       {/* ── Fork modal ── */}
       {forkModalOpen && (
         <div className="ar-modal-overlay" onClick={() => setForkModalOpen(false)}>
-          <div className="ar-modal" onClick={e => e.stopPropagation()}>
+          <div className="ar-modal" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <h3 className="ar-modal-title">⑂ Fork Thread</h3>
             <p className="ar-modal-desc">Create an independent copy of this thread to explore an alternative claim. Both versions coexist separately.</p>
             <input
@@ -1297,8 +1352,8 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
               type="text"
               placeholder="Alternative claim (leave blank to keep original title)"
               value={forkClaim}
-              onChange={e => setForkClaim(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleFork(); if (e.key === 'Escape') setForkModalOpen(false); }}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForkClaim(e.target.value)}
+              onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') handleFork(); if (e.key === 'Escape') setForkModalOpen(false); }}
               autoFocus
             />
             <div className="ar-modal-actions">
@@ -1316,7 +1371,7 @@ const ArticleReader = ({ thread, initialNodeId, onContentChange, onUpdateNode, o
       {/* ── Delete confirmation modal ── */}
       {deleteConfirm && (
         <div className="ar-modal-overlay" onClick={() => setDeleteConfirm(null)}>
-          <div className="ar-modal ar-delete-modal" onClick={e => e.stopPropagation()}>
+          <div className="ar-modal ar-delete-modal" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <h3 className="ar-modal-title" style={{ color: '#ef5350' }}>Delete Node</h3>
             <p className="ar-modal-desc">
               This node has <strong style={{ color: '#fff' }}>{deleteConfirm.childCount}</strong> child node{deleteConfirm.childCount !== 1 ? 's' : ''}. Their parent link will be removed. Delete anyway?

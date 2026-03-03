@@ -1,9 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
+import type { ConfidenceRecord } from '../types';
 import './ConfidenceChart.css';
 
-const ConfidenceChart = ({ data }) => {
-  const svgRef = useRef(null);
+interface ConfidenceChartProps {
+  data: ConfidenceRecord[];
+}
+
+const ConfidenceChart: React.FC<ConfidenceChartProps> = ({ data }) => {
+  const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
     if (!data?.length || !svgRef.current) return;
@@ -18,7 +23,7 @@ const ConfidenceChart = ({ data }) => {
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
     const x = d3.scaleTime()
-      .domain(d3.extent(data, d => new Date(d.created_at)))
+      .domain(d3.extent(data, (d: ConfidenceRecord) => new Date(d.created_at)) as [Date, Date])
       .range([0, width]);
 
     const y = d3.scaleLinear()
@@ -33,7 +38,7 @@ const ConfidenceChart = ({ data }) => {
     // Axes
     g.append('g')
       .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat('%b %d')))
+      .call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat('%b %d') as any))
       .selectAll('text').attr('fill', '#666').style('font-size', '10px');
     g.append('g')
       .call(d3.axisLeft(y).ticks(5))
@@ -41,7 +46,7 @@ const ConfidenceChart = ({ data }) => {
     g.selectAll('.domain, .tick line').attr('stroke', '#333');
 
     // Line
-    const line = d3.line()
+    const line = d3.line<ConfidenceRecord>()
       .x(d => x(new Date(d.created_at)))
       .y(d => y(d.score))
       .curve(d3.curveMonotoneX);
@@ -57,10 +62,10 @@ const ConfidenceChart = ({ data }) => {
     g.selectAll('.dot')
       .data(data)
       .join('circle')
-      .attr('cx', d => x(new Date(d.created_at)))
-      .attr('cy', d => y(d.score))
+      .attr('cx', (d: ConfidenceRecord) => x(new Date(d.created_at)))
+      .attr('cy', (d: ConfidenceRecord) => y(d.score))
       .attr('r', 4)
-      .attr('fill', d => d.score >= 70 ? '#00ff9d' : d.score >= 40 ? '#fdd835' : '#ef5350')
+      .attr('fill', (d: ConfidenceRecord) => d.score >= 70 ? '#00ff9d' : d.score >= 40 ? '#fdd835' : '#ef5350')
       .attr('stroke', '#1a1a1a')
       .attr('stroke-width', 2);
 
@@ -68,12 +73,12 @@ const ConfidenceChart = ({ data }) => {
     g.selectAll('.label')
       .data(data)
       .join('text')
-      .attr('x', d => x(new Date(d.created_at)))
-      .attr('y', d => y(d.score) - 10)
+      .attr('x', (d: ConfidenceRecord) => x(new Date(d.created_at)))
+      .attr('y', (d: ConfidenceRecord) => y(d.score) - 10)
       .attr('text-anchor', 'middle')
       .attr('fill', '#aaa')
       .style('font-size', '10px')
-      .text(d => d.score);
+      .text((d: ConfidenceRecord) => d.score);
 
   }, [data]);
 

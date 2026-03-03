@@ -4,7 +4,7 @@ import { ErrorBoundary } from './components/common/ErrorBoundary'
 import './index.css'
 import App from './App'
 
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <App />

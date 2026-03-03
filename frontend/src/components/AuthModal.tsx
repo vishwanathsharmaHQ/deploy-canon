@@ -1,43 +1,49 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { api } from '../services/api';
+import type { User } from '../types';
 import './AuthModal.css';
 
-export default function AuthModal({ onSuccess, onClose }) {
-  const [tab, setTab] = useState('signin');
+interface AuthModalProps {
+  onSuccess: (user: User) => void;
+  onClose: () => void;
+}
+
+const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose }) => {
+  const [tab, setTab] = useState<'signin' | 'register'>('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      let user;
+      let user: User;
       if (tab === 'signin') {
         user = await api.login({ email, password });
       } else {
         user = await api.register({ name, email, password });
       }
       onSuccess(user);
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const switchTab = (newTab) => {
+  const switchTab = (newTab: 'signin' | 'register') => {
     setTab(newTab);
     setError('');
   };
 
   return (
     <div className="auth-overlay" onClick={onClose}>
-      <div className="auth-modal" onClick={e => e.stopPropagation()}>
-        <button className="auth-close" onClick={onClose}>×</button>
+      <div className="auth-modal" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+        <button className="auth-close" onClick={onClose}>x</button>
         <div className="auth-tabs">
           <button
             className={`auth-tab${tab === 'signin' ? ' auth-tab--active' : ''}`}
@@ -61,7 +67,7 @@ export default function AuthModal({ onSuccess, onClose }) {
               type="text"
               placeholder="Name"
               value={name}
-              onChange={e => setName(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
               autoComplete="name"
             />
           )}
@@ -70,7 +76,7 @@ export default function AuthModal({ onSuccess, onClose }) {
             type="email"
             placeholder="Email"
             value={email}
-            onChange={e => setEmail(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
             required
             autoComplete="email"
           />
@@ -79,7 +85,7 @@ export default function AuthModal({ onSuccess, onClose }) {
             type="password"
             placeholder="Password"
             value={password}
-            onChange={e => setPassword(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
             required
             autoComplete={tab === 'signin' ? 'current-password' : 'new-password'}
           />
@@ -91,4 +97,6 @@ export default function AuthModal({ onSuccess, onClose }) {
       </div>
     </div>
   );
-}
+};
+
+export default AuthModal;

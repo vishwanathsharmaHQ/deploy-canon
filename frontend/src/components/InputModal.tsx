@@ -1,9 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './InputModal.css';
 
-const InputModal = ({ label, placeholder, onSubmit, onCancel }) => {
+interface InputModalProps {
+  label: string;
+  placeholder: string;
+  onSubmit: (value: string) => void;
+  onCancel: () => void;
+}
+
+const InputModal: React.FC<InputModalProps> = ({ label, placeholder, onSubmit, onCancel }) => {
   const [value, setValue] = useState('');
-  const inputRef = useRef(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -15,7 +22,7 @@ const InputModal = ({ label, placeholder, onSubmit, onCancel }) => {
     }
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleSubmit();
@@ -34,7 +41,7 @@ const InputModal = ({ label, placeholder, onSubmit, onCancel }) => {
           type="text"
           placeholder={placeholder}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
         />
         <div className="im-actions">

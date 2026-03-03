@@ -2,16 +2,39 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 import QuizMode from './QuizMode';
 import { NODE_TYPES, QUALITY_BUTTONS } from '../constants';
+import type { ReviewCard, ReviewStats, NodeTypeName } from '../types';
 import './ReviewMode.css';
 
-const ReviewMode = ({ threadId, onClose }) => {
-  const [dueNodes, setDueNodes] = useState([]);
+interface DueNode {
+  id: number;
+  title: string;
+  content: string;
+  node_type: NodeTypeName;
+}
+
+interface SessionStats {
+  reviewed: number;
+  avgQuality: number;
+  totalQuality: number;
+}
+
+interface ExtendedReviewStats extends ReviewStats {
+  reviewable?: number;
+}
+
+interface ReviewModeProps {
+  threadId: number;
+  onClose?: () => void;
+}
+
+const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
+  const [dueNodes, setDueNodes] = useState<DueNode[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
-  const [stats, setStats] = useState(null);
-  const [sessionStats, setSessionStats] = useState({ reviewed: 0, avgQuality: 0, totalQuality: 0 });
+  const [stats, setStats] = useState<ExtendedReviewStats | null>(null);
+  const [sessionStats, setSessionStats] = useState<SessionStats>({ reviewed: 0, avgQuality: 0, totalQuality: 0 });
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState('review'); // 'review' | 'quiz'
+  const [mode, setMode] = useState<'review' | 'quiz'>('review');
   const [initialized, setInitialized] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -44,12 +67,12 @@ const ReviewMode = ({ threadId, onClose }) => {
     }
   };
 
-  const handleRate = async (quality) => {
+  const handleRate = async (quality: number) => {
     const node = dueNodes[currentIndex];
     if (!node) return;
     try {
       await api.submitReview(node.id, quality);
-      const newSessionStats = {
+      const newSessionStats: SessionStats = {
         reviewed: sessionStats.reviewed + 1,
         totalQuality: sessionStats.totalQuality + quality,
         avgQuality: Math.round(((sessionStats.totalQuality + quality) / (sessionStats.reviewed + 1)) * 10) / 10,
@@ -70,8 +93,8 @@ const ReviewMode = ({ threadId, onClose }) => {
 
   const currentNode = dueNodes[currentIndex];
 
-  const parseContent = (node) => {
-    if (!node) return { title: '', body: '' };
+  const parseContent = (node: DueNode | undefined): { title: string; body: string; nodeType: NodeTypeName } => {
+    if (!node) return { title: '', body: '', nodeType: 'ROOT' };
     let body = node.content || '';
     try {
       const parsed = JSON.parse(body);

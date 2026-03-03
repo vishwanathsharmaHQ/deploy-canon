@@ -3,12 +3,13 @@ import { flushSync } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../services/api';
 import { NODE_TYPE_COLORS } from '../constants';
+import type { User, NodeTypeName } from '../types';
 import './ChatPanel.css';
 
 const YT_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
 
 const mdComponents = {
-  a: ({ href, children }) => {
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
     const yt = href?.match(YT_REGEX);
     if (yt) {
       return (
@@ -26,7 +27,7 @@ const mdComponents = {
   },
 };
 
-function relativeDate(iso) {
+function relativeDate(iso: string): string {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();
   const days = Math.floor(diff / 86400000);
@@ -36,30 +37,72 @@ function relativeDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate, defaultSidebarCollapsed = false, currentUser, onAuthRequired }) {
-  const [messages, setMessages] = useState([]);
+interface ChatMessage {
+  role: string;
+  content: string;
+  citations?: any[];
+  extractedNodes?: any[];
+  createdNodes?: any[];
+  newThread?: any;
+  proposedUpdate?: any;
+  proposedNodes?: any[] | null;
+  proposedThreadId?: number;
+  streaming?: boolean;
+  processing?: boolean;
+  nodesAccepted?: boolean;
+  duplicateSkipped?: string[] | null;
+  updateApplied?: boolean;
+}
+
+interface ChatHistoryItem {
+  id: number;
+  title: string;
+  messageCount: number;
+  created_at: string;
+}
+
+interface ProposedUpdate {
+  nodeId: number;
+  title: string;
+  description: string;
+}
+
+interface ChatPanelProps {
+  selectedThreadId: number | null;
+  initialThreadId?: number | null;
+  onNodesCreated?: (threadId: number) => void;
+  onThreadCreated?: (threadId: number) => void;
+  articleContext?: any;
+  onProposedUpdate?: (update: ProposedUpdate) => Promise<void>;
+  defaultSidebarCollapsed?: boolean;
+  currentUser: User | null | undefined;
+  onAuthRequired?: () => void;
+}
+
+export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate, defaultSidebarCollapsed = false, currentUser, onAuthRequired }: ChatPanelProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [chatHistory, setChatHistory] = useState([]);
-  const [activeChatId, setActiveChatId] = useState(null);
+  const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
+  const [activeChatId, setActiveChatId] = useState<number | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
-  const [excludedNodes, setExcludedNodes] = useState({}); // { [msgIndex]: Set<nodeIndex> }
+  const [excludedNodes, setExcludedNodes] = useState<Record<number, Set<number>>>({}); // { [msgIndex]: Set<nodeIndex> }
 
   // Use refs for values needed inside streaming callbacks (avoid stale closures)
   // initialThreadId pins the chat to a specific thread (e.g. when embedded in ArticleReader)
-  const activeThreadIdRef = useRef(initialThreadId || null);
-  const savedChatIdRef = useRef(null);
+  const activeThreadIdRef = useRef<number | null>(initialThreadId || null);
+  const savedChatIdRef = useRef<number | null>(null);
   const accReplyRef = useRef('');
 
-  const messagesEndRef = useRef(null);
-  const textareaRef = useRef(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
   // Load chat history whenever the active thread changes
-  const loadChatHistory = useCallback(async (threadId) => {
+  const loadChatHistory = useCallback(async (threadId: number | null) => {
     if (!threadId) { setChatHistory([]); return; }
     try {
       const chats = await api.getThreadChats(threadId);
@@ -85,7 +128,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     setActiveChatId(null);
   };
 
-  const handleLoadChat = async (chatId) => {
+  const handleLoadChat = async (chatId: number) => {
     try {
       const chat = await api.getChat(chatId);
       setMessages(chat.messages || []);
@@ -127,7 +170,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
         history: historySnapshot,
         threadId: activeThreadIdRef.current,
         nodeContext: articleContext || null,
-        onToken: (token) => {
+        onToken: (token: string) => {
           accReplyRef.current += token;
           setMessages(prev => {
             const updated = [...prev];
@@ -138,7 +181,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
             return updated;
           });
         },
-        onDone: async (data) => {
+        onDone: async (data: any) => {
           // Streaming finished — show "extracting" spinner while we call /api/chat/extract
           flushSync(() => {
             setMessages(prev => {
@@ -155,7 +198,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
           const streamedCitations = data.citations || [];
 
           // Phase 2: extraction — returns proposed nodes (not yet saved)
-          let extractData = { citations: streamedCitations, proposedNodes: [], threadId: activeThreadIdRef.current, newThread: null, proposedUpdate: null };
+          let extractData: any = { citations: streamedCitations, proposedNodes: [], threadId: activeThreadIdRef.current, newThread: null, proposedUpdate: null };
           try {
             extractData = await api.chatExtract({
               message: userMsg,
@@ -224,7 +267,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
 
           setLoading(false);
         },
-        onError: (err) => {
+        onError: (err: any) => {
           setMessages(prev => {
             const updated = [...prev];
             updated[assistantIndex] = { role: 'error', content: `Error: ${err.message}` };
@@ -233,7 +276,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
           setLoading(false);
         },
       });
-    } catch (err) {
+    } catch (err: any) {
       setMessages(prev => {
         const updated = [...prev];
         updated[assistantIndex] = { role: 'error', content: `Error: ${err.message}` };
@@ -243,7 +286,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     }
   }, [input, loading, messages, loadChatHistory, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate]);
 
-  const toggleExcludedNode = useCallback((msgIndex, nodeIndex) => {
+  const toggleExcludedNode = useCallback((msgIndex: number, nodeIndex: number) => {
     setExcludedNodes(prev => {
       const set = new Set(prev[msgIndex] || []);
       if (set.has(nodeIndex)) set.delete(nodeIndex);
@@ -252,27 +295,27 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     });
   }, []);
 
-  const handleAcceptNodes = useCallback(async (msgIndex, proposedNodes, threadId) => {
+  const handleAcceptNodes = useCallback(async (msgIndex: number, proposedNodes: any[], threadId: number) => {
     try {
       const excluded = excludedNodes[msgIndex] || new Set();
-      const filteredNodes = proposedNodes.filter((_, idx) => !excluded.has(idx));
+      const filteredNodes = proposedNodes.filter((_: any, idx: number) => !excluded.has(idx));
       if (filteredNodes.length === 0) return;
 
-      const rootNode = filteredNodes.find(n => n.type === 'ROOT');
-      const secondaryNodes = filteredNodes.filter(n => n.type !== 'ROOT');
-      let rootNodeId = null;
-      let allDuplicateSkipped = [];
+      const rootNode = filteredNodes.find((n: any) => n.type === 'ROOT');
+      const secondaryNodes = filteredNodes.filter((n: any) => n.type !== 'ROOT');
+      let rootNodeId: number | null = null;
+      let allDuplicateSkipped: string[] = [];
 
       if (rootNode) {
         const created = await api.createNode({ threadId, title: rootNode.title, content: rootNode.content, nodeType: 'ROOT', parentId: null });
         rootNodeId = created.id;
       }
       if (secondaryNodes.length > 0) {
-        const batchResult = await api.createNodesBatch(threadId, secondaryNodes.map(n => ({
+        const batchResult = await api.createNodesBatch(threadId, secondaryNodes.map((n: any) => ({
           title: n.title, content: n.content, nodeType: n.type, parentId: rootNodeId,
         })));
-        if (batchResult.duplicateSkipped?.length > 0) {
-          allDuplicateSkipped = batchResult.duplicateSkipped;
+        if ((batchResult.duplicateSkipped?.length ?? 0) > 0) {
+          allDuplicateSkipped = batchResult.duplicateSkipped ?? [];
         }
       }
 
@@ -286,14 +329,14 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     }
   }, [onNodesCreated, excludedNodes]);
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
-  const handleInputChange = (e) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
@@ -373,7 +416,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                   ) : (
                     <>
                       <div className="cp-markdown">
-                        <ReactMarkdown components={mdComponents}>{msg.content}</ReactMarkdown>
+                        <ReactMarkdown components={mdComponents as any}>{msg.content}</ReactMarkdown>
                       </div>
 
                       {msg.processing && (
@@ -385,10 +428,10 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                         </div>
                       )}
 
-                      {msg.citations?.length > 0 && (
+                      {msg.citations && msg.citations.length > 0 && (
                         <div className="cp-citations">
                           <span className="cp-citations-label">Sources</span>
-                          {msg.citations.map((c, ci) => (
+                          {msg.citations.map((c: any, ci: number) => (
                             <a key={ci} href={c.url} target="_blank" rel="noopener noreferrer"
                                className="cp-citation" title={c.url}>
                               [{ci + 1}] {(c.title || c.url).substring(0, 60)}
@@ -405,14 +448,14 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                           {msg.nodesAccepted && (
                             <span className="cp-nodes-saved">✓ Nodes saved</span>
                           )}
-                          {msg.duplicateSkipped?.length > 0 && (
+                          {msg.duplicateSkipped && msg.duplicateSkipped.length > 0 && (
                             <span className="cp-duplicates-skipped">
                               Skipped {msg.duplicateSkipped.length} duplicate{msg.duplicateSkipped.length !== 1 ? 's' : ''}: {msg.duplicateSkipped.join(', ')}
                             </span>
                           )}
-                          {msg.proposedNodes?.map((n, ni) => (
+                          {msg.proposedNodes?.map((n: any, ni: number) => (
                             <span key={ni} className="cp-node-chip"
-                              style={{ borderColor: NODE_TYPE_COLORS[n.type] || '#555', color: NODE_TYPE_COLORS[n.type] || '#aaa' }}
+                              style={{ borderColor: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#555', color: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#aaa' }}
                               title={n.title}>
                               {n.type}
                             </span>
@@ -469,10 +512,10 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                             ✦ {msg.proposedNodes.length} node{msg.proposedNodes.length !== 1 ? 's' : ''} ready to save
                           </div>
                           <div className="cp-proposed-nodes-list">
-                            {msg.proposedNodes.map((n, ni) => (
+                            {msg.proposedNodes.map((n: any, ni: number) => (
                               <span key={ni}
                                 className={`cp-node-chip${excluded.has(ni) ? ' cp-node-chip--excluded' : ''}`}
-                                style={excluded.has(ni) ? {} : { borderColor: NODE_TYPE_COLORS[n.type] || '#555', color: NODE_TYPE_COLORS[n.type] || '#aaa' }}
+                                style={excluded.has(ni) ? {} : { borderColor: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#555', color: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#aaa' }}
                                 onClick={() => toggleExcludedNode(i, ni)}>
                                 {n.type}: {n.title}
                               </span>
@@ -481,7 +524,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                           <div className="cp-proposed-update-actions">
                             <button
                               className="cp-accept-btn"
-                              onClick={() => handleAcceptNodes(i, msg.proposedNodes, msg.proposedThreadId)}
+                              onClick={() => handleAcceptNodes(i, msg.proposedNodes!, msg.proposedThreadId!)}
                               disabled={acceptCount === 0}
                             >
                               Accept{acceptCount < msg.proposedNodes.length ? ` (${acceptCount})` : ''}

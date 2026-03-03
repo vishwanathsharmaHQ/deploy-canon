@@ -1,11 +1,27 @@
 import React, { useState } from 'react';
 import './GraphControls.css';
 
-const GraphControls = ({ onSettingsChange, defaultSettings }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
-  const [settings, setSettings] = useState(defaultSettings);
+interface GraphSettings {
+  isStatic: boolean;
+  animate: boolean;
+  showLabels: boolean;
+  repelForce: number;
+  linkDistance: number;
+  centerForce: number;
+  nodeSize: number;
+  [key: string]: any;
+}
 
-  const handleChange = (key, value) => {
+interface GraphControlsProps {
+  onSettingsChange: (settings: GraphSettings) => void;
+  defaultSettings: GraphSettings;
+}
+
+const GraphControls: React.FC<GraphControlsProps> = ({ onSettingsChange, defaultSettings }) => {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [settings, setSettings] = useState<GraphSettings>(defaultSettings);
+
+  const handleChange = (key: string, value: any) => {
     const newSettings = { ...settings, [key]: value };
     setSettings(newSettings);
     onSettingsChange(newSettings);
@@ -20,40 +36,40 @@ const GraphControls = ({ onSettingsChange, defaultSettings }) => {
     <div className={`graph-controls ${isExpanded ? '' : 'collapsed'}`}>
       <h3>
         Graph Controls
-        <button 
+        <button
           className="toggle-button"
           onClick={() => setIsExpanded(!isExpanded)}
           aria-label={isExpanded ? 'Collapse controls' : 'Expand controls'}
         >
-          {isExpanded ? '−' : '+'}
+          {isExpanded ? '\u2212' : '+'}
         </button>
       </h3>
-      
+
       <div className="controls-content">
         <div className="control-group">
           <label>
             <input
               type="checkbox"
               checked={settings.isStatic}
-              onChange={(e) => handleChange('isStatic', e.target.checked)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('isStatic', e.target.checked)}
             />
             Static Layout
           </label>
-          
+
           <label>
             <input
               type="checkbox"
               checked={settings.animate}
-              onChange={(e) => handleChange('animate', e.target.checked)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('animate', e.target.checked)}
             />
             Animate Changes
           </label>
-          
+
           <label>
             <input
               type="checkbox"
               checked={settings.showLabels}
-              onChange={(e) => handleChange('showLabels', e.target.checked)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('showLabels', e.target.checked)}
             />
             Show Labels
           </label>
@@ -67,7 +83,7 @@ const GraphControls = ({ onSettingsChange, defaultSettings }) => {
               min="-1000"
               max="-100"
               value={settings.repelForce}
-              onChange={(e) => handleChange('repelForce', parseInt(e.target.value))}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('repelForce', parseInt(e.target.value))}
             />
           </label>
         </div>
@@ -80,7 +96,7 @@ const GraphControls = ({ onSettingsChange, defaultSettings }) => {
               min="50"
               max="300"
               value={settings.linkDistance}
-              onChange={(e) => handleChange('linkDistance', parseInt(e.target.value))}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('linkDistance', parseInt(e.target.value))}
             />
           </label>
         </div>
@@ -94,7 +110,7 @@ const GraphControls = ({ onSettingsChange, defaultSettings }) => {
               max="1"
               step="0.1"
               value={settings.centerForce}
-              onChange={(e) => handleChange('centerForce', parseFloat(e.target.value))}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('centerForce', parseFloat(e.target.value))}
             />
           </label>
         </div>
@@ -107,7 +123,7 @@ const GraphControls = ({ onSettingsChange, defaultSettings }) => {
               min="5"
               max="20"
               value={settings.nodeSize}
-              onChange={(e) => handleChange('nodeSize', parseInt(e.target.value))}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('nodeSize', parseInt(e.target.value))}
             />
           </label>
         </div>
@@ -120,4 +136,4 @@ const GraphControls = ({ onSettingsChange, defaultSettings }) => {
   );
 };
 
-export default GraphControls; 
+export default GraphControls;

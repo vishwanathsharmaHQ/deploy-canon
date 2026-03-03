@@ -6,11 +6,12 @@ import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
 import InputModal from './InputModal';
 import { NODE_TYPES } from '../constants';
+import type { Thread, NodeTypeName } from '../types';
 import './NodeEditor.css';
 
 const NODE_TYPE_OPTIONS = NODE_TYPES.map((label, value) => ({ value, label }));
 
-const TITLE_PLACEHOLDERS = {
+const TITLE_PLACEHOLDERS: Record<string, string> = {
   ROOT: 'Root Title',
   EVIDENCE: 'Source',
   EXAMPLE: 'Example Title',
@@ -20,7 +21,7 @@ const TITLE_PLACEHOLDERS = {
   SYNTHESIS: 'Title'
 };
 
-const CONTENT_PLACEHOLDERS = {
+const CONTENT_PLACEHOLDERS: Record<string, string> = {
   ROOT: 'Describe this root node...',
   EVIDENCE: 'Present your evidence...',
   EXAMPLE: 'Describe this example...',
@@ -31,12 +32,16 @@ const CONTENT_PLACEHOLDERS = {
 };
 
 // ── Toolbar ──────────────────────────────────────────────────────────────────
-const Toolbar = ({ editor }) => {
-  const [modal, setModal] = useState(null); // null | 'link' | 'youtube'
+interface ToolbarProps {
+  editor: any;
+}
+
+const Toolbar: React.FC<ToolbarProps> = ({ editor }) => {
+  const [modal, setModal] = useState<null | 'link' | 'youtube'>(null);
 
   if (!editor) return null;
 
-  const Btn = ({ onClick, active, children }) => (
+  const Btn: React.FC<{ onClick: () => void; active?: boolean; children: React.ReactNode }> = ({ onClick, active, children }) => (
     <button
       type="button"
       onClick={onClick}
@@ -71,7 +76,7 @@ const Toolbar = ({ editor }) => {
         <InputModal
           label="Enter URL"
           placeholder="https://example.com"
-          onSubmit={(url) => {
+          onSubmit={(url: string) => {
             editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
             setModal(null);
           }}
@@ -82,7 +87,7 @@ const Toolbar = ({ editor }) => {
         <InputModal
           label="Enter YouTube URL"
           placeholder="https://youtube.com/watch?v=..."
-          onSubmit={(url) => {
+          onSubmit={(url: string) => {
             editor.commands.setYoutubeVideo({ src: url });
             setModal(null);
           }}
@@ -94,10 +99,38 @@ const Toolbar = ({ editor }) => {
 };
 
 // ── NodeEditor ───────────────────────────────────────────────────────────────
-const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
+
+interface SelectedNodeData {
+  id: number | string;
+  type: string | number;
+}
+
+interface NewNodeData {
+  title: string;
+  content: string;
+  description: string;
+  type: number;
+  parentId: number | null;
+  threadId: number;
+  metadata: {
+    title: string;
+    description: string;
+    content: string;
+    type: string;
+  };
+}
+
+interface NodeEditorProps {
+  thread: Thread;
+  selectedNode: SelectedNodeData | null;
+  onSubmit: (payload: { id: number | string; type: string | number; newNode: NewNodeData }) => void;
+  onCancel: () => void;
+}
+
+const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit, onCancel }) => {
   const isThread = selectedNode?.type === 'thread';
 
-  const [nodeType, setNodeType] = useState(() => {
+  const [nodeType, setNodeType] = useState<string>(() => {
     // Default to EVIDENCE (1) unless parent is thread, then allow ROOT (0)
     return isThread ? '0' : '1';
   });
@@ -117,7 +150,7 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
       }),
     ],
     content: '',
-    onUpdate: ({ editor }) => {
+    onUpdate: ({ editor }: any) => {
       setHasContent(!editor.isEmpty);
     },
   });
@@ -128,8 +161,8 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
     const html = editor.getHTML();
 
     // Structure content the same way ThreadGraph.handleAddNode did
-    let structuredContent;
-    let shortDescription;
+    let structuredContent: string;
+    let shortDescription: string;
 
     switch (currentLabel) {
       case 'ROOT':
@@ -170,11 +203,11 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
 
     const parentId = isThread
       ? null
-      : parseInt(String(selectedNode.id).replace('node-', ''), 10);
+      : parseInt(String(selectedNode!.id).replace('node-', ''), 10);
 
     onSubmit({
-      id: selectedNode.id,
-      type: selectedNode.type,
+      id: selectedNode!.id,
+      type: selectedNode!.type,
       newNode: {
         title,
         content: structuredContent,
@@ -214,7 +247,7 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
           <select
             className="ne-select"
             value={nodeType}
-            onChange={(e) => setNodeType(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodeType(e.target.value)}
           >
             {NODE_TYPE_OPTIONS
               .filter(t => isThread || t.label !== 'ROOT')
@@ -230,7 +263,7 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
             type="text"
             placeholder={TITLE_PLACEHOLDERS[currentLabel] || 'Title'}
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
           />
 
           {currentLabel === 'ROOT' && (
@@ -239,7 +272,7 @@ const NodeEditor = ({ thread, selectedNode, onSubmit, onCancel }) => {
               type="text"
               placeholder="Keywords (comma-separated)"
               value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setKeywords(e.target.value)}
             />
           )}
 

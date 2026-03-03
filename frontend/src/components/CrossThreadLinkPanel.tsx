@@ -1,11 +1,42 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 import { NODE_TYPE_COLORS } from '../constants';
+import type { NodeTypeName } from '../types';
 import './CrossThreadLinkPanel.css';
 
-const CrossThreadLinkPanel = ({ nodeId, threadId, onNavigateToThread }) => {
-  const [links, setLinks] = useState([]);
-  const [suggestions, setSuggestions] = useState([]);
+interface LinkOtherNode {
+  id: number;
+  title: string;
+  node_type: NodeTypeName;
+}
+
+interface LinkItem {
+  id: number;
+  direction: 'outgoing' | 'incoming';
+  threadId: number;
+  threadTitle: string;
+  otherNode: LinkOtherNode;
+}
+
+interface LinkSuggestion {
+  sourceNodeId: number;
+  targetNodeId: number;
+  sourceNodeTitle: string;
+  targetNodeTitle: string;
+  targetNodeType: NodeTypeName;
+  threadTitle: string;
+  similarity: number;
+}
+
+interface CrossThreadLinkPanelProps {
+  nodeId: number | null;
+  threadId: number | null;
+  onNavigateToThread?: (threadId: number) => void;
+}
+
+const CrossThreadLinkPanel: React.FC<CrossThreadLinkPanelProps> = ({ nodeId, threadId, onNavigateToThread }) => {
+  const [links, setLinks] = useState<LinkItem[]>([]);
+  const [suggestions, setSuggestions] = useState<LinkSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
@@ -37,7 +68,7 @@ const CrossThreadLinkPanel = ({ nodeId, threadId, onNavigateToThread }) => {
     }
   };
 
-  const handleAcceptSuggestion = async (suggestion) => {
+  const handleAcceptSuggestion = async (suggestion: LinkSuggestion) => {
     try {
       await api.createLink({
         sourceNodeId: suggestion.sourceNodeId,
@@ -54,7 +85,7 @@ const CrossThreadLinkPanel = ({ nodeId, threadId, onNavigateToThread }) => {
     }
   };
 
-  const handleDeleteLink = async (linkId) => {
+  const handleDeleteLink = async (linkId: number) => {
     try {
       await api.deleteLink(linkId);
       setLinks(prev => prev.filter(l => l.id !== linkId));
@@ -81,7 +112,7 @@ const CrossThreadLinkPanel = ({ nodeId, threadId, onNavigateToThread }) => {
           {links.map(link => (
             <div key={link.id} className="ctlp-link">
               <div className="ctlp-link-info">
-                <span className="ctlp-link-direction">{link.direction === 'outgoing' ? '→' : '←'}</span>
+                <span className="ctlp-link-direction">{link.direction === 'outgoing' ? '\u2192' : '\u2190'}</span>
                 <span
                   className="ctlp-link-node"
                   style={{ color: NODE_TYPE_COLORS[link.otherNode.node_type] }}

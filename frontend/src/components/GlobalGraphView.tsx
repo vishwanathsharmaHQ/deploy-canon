@@ -6,12 +6,20 @@ import {
   Handle,
   Position,
   Background,
+  BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { api } from '../services/api';
 import './GlobalGraphView.css';
 
-function ThreadNode({ data }) {
+interface ThreadNodeData {
+  label: string;
+  nodeCount: number;
+  crossLinkCount: number;
+  threadId: number;
+}
+
+function ThreadNode({ data }: { data: ThreadNodeData }) {
   const size = 30 + Math.min(data.nodeCount || 0, 20) * 2;
   return (
     <div className="gg-thread-node" style={{ width: size, height: size }}>
@@ -32,9 +40,13 @@ function ThreadNode({ data }) {
 
 const nodeTypes = { threadNode: ThreadNode };
 
-const GlobalGraphView = ({ onSelectThread }) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+interface GlobalGraphViewProps {
+  onSelectThread?: (threadId: number) => void;
+}
+
+const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => {
+  const [nodes, setNodes, onNodesChange] = useNodesState([] as any[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([] as any[]);
   const [loading, setLoading] = useState(true);
 
   const loadGraph = useCallback(async () => {
@@ -43,11 +55,11 @@ const GlobalGraphView = ({ onSelectThread }) => {
       const threads = await api.getGlobalGraphSummary();
 
       // Build nodes in a circle layout
-      const rfNodes = [];
+      const rfNodes: any[] = [];
       const centerX = 400, centerY = 300;
       const radius = 150 + threads.length * 15;
 
-      threads.forEach((t, i) => {
+      threads.forEach((t: any, i: number) => {
         const angle = (2 * Math.PI * i) / Math.max(threads.length, 1) - Math.PI / 2;
         const titleWords = (t.title || '').split(/\s+/);
         const shortTitle = titleWords.length > 3 ? titleWords.slice(0, 3).join(' ') + '...' : t.title;
@@ -61,10 +73,10 @@ const GlobalGraphView = ({ onSelectThread }) => {
       });
 
       // Build edges for cross-thread links
-      const rfEdges = [];
-      const edgeSet = new Set();
-      threads.forEach(t => {
-        (t.linkedThreadIds || []).forEach(otherId => {
+      const rfEdges: any[] = [];
+      const edgeSet = new Set<string>();
+      threads.forEach((t: any) => {
+        (t.linkedThreadIds || []).forEach((otherId: number) => {
           const key = [Math.min(t.id, otherId), Math.max(t.id, otherId)].join('-');
           if (!edgeSet.has(key)) {
             edgeSet.add(key);
@@ -90,7 +102,7 @@ const GlobalGraphView = ({ onSelectThread }) => {
 
   useEffect(() => { loadGraph(); }, [loadGraph]);
 
-  const onNodeDoubleClick = useCallback((_, rfNode) => {
+  const onNodeDoubleClick = useCallback((_: React.MouseEvent, rfNode: any) => {
     onSelectThread?.(rfNode.data.threadId);
   }, [onSelectThread]);
 
@@ -110,7 +122,7 @@ const GlobalGraphView = ({ onSelectThread }) => {
         proOptions={{ hideAttribution: true }}
         style={{ background: '#1d1d1d' }}
       >
-        <Background variant="dots" gap={40} size={1} color="rgba(255,255,255,0.05)" />
+        <Background variant={BackgroundVariant.Dots} gap={40} size={1} color="rgba(255,255,255,0.05)" />
       </ReactFlow>
       <div className="gg-legend">
         <span className="gg-legend-item"><span className="gg-dot" style={{ background: '#00ff9d' }} /> Connected</span>

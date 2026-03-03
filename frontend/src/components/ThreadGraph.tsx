@@ -14,12 +14,13 @@ import ReactMarkdown from 'react-markdown';
 import './ThreadGraph.css';
 import { api } from '../services/api';
 import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
+import type { Thread, ThreadNode, NodeTypeName } from '../types';
 import CrossThreadLinkPanel from './CrossThreadLinkPanel';
 
 const YT_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
 
 const mdComponents = {
-  a: ({ href, children }) => {
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
     const yt = href?.match(YT_REGEX);
     if (yt) {
       return (
@@ -38,12 +39,12 @@ const mdComponents = {
 };
 
 // Custom node component with decay visualization
-function GraphNode({ data }) {
+function GraphNode({ data }: { data: any }) {
   const color = data.nodeColor || '#666';
   const isThread = data.isThread;
   const radius = isThread ? 25 : 15;
   const matteClass = data.isMatteMode ? 'matte' : '';
-  const decay = data.decayPercent;
+  const decay: number | null = data.decayPercent;
   const hasLinks = data.crossLinkCount > 0;
 
   // Decay: reduce opacity, add colored ring
@@ -98,18 +99,29 @@ function GraphNode({ data }) {
 
 const nodeTypes = { graphNode: GraphNode };
 
-const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onSelectedNodeChange, onOpenInArticle, onNavigateToThread, loading: parentLoading }) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [selectedNode, setSelectedNode] = useState(null);
+interface ThreadGraphProps {
+  threads: Thread[];
+  onNodeClick?: (node: any) => void;
+  onAddNode?: (node: any) => void;
+  onOpenEditor?: (node: any) => void;
+  onSelectedNodeChange?: (nodeId: number | null) => void;
+  onOpenInArticle?: (nodeId: number) => void;
+  onNavigateToThread?: (threadId: number) => void;
+  loading?: boolean;
+}
+
+const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onSelectedNodeChange, onOpenInArticle, onNavigateToThread, loading: parentLoading }) => {
+  const [nodes, setNodes, onNodesChange] = useNodesState([] as any[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([] as any[]);
+  const [selectedNode, setSelectedNode] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isMatteMode, setIsMatteMode] = useState(true);
   const [isDottedBackground, setIsDottedBackground] = useState(true);
   const [layoutLoading, setLayoutLoading] = useState(false);
   const [showAllSecondary, setShowAllSecondary] = useState(false);
-  const [hoveredRootId, setHoveredRootId] = useState(null);
-  const [decayMap, setDecayMap] = useState({});
-  const [linkCountMap, setLinkCountMap] = useState({});
+  const [hoveredRootId, setHoveredRootId] = useState<string | null>(null);
+  const [decayMap, setDecayMap] = useState<Record<number, number>>({});
+  const [linkCountMap, setLinkCountMap] = useState<Record<number, number>>({});
   const { fitView } = useReactFlow();
 
   useEffect(() => {
@@ -122,14 +134,14 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
   useEffect(() => {
     if (!threads || threads.length === 0) return;
     const threadId = threads[0].id;
-    api.getDecayData(threadId).then(data => {
-      const map = {};
-      (data || []).forEach(d => { map[d.nodeId] = d.decayPercent; });
+    api.getDecayData(threadId).then((data: any) => {
+      const map: Record<number, number> = {};
+      (data || []).forEach((d: any) => { map[d.nodeId] = d.decayPercent; });
       setDecayMap(map);
     }).catch(() => {});
     // Load cross-thread link counts for all nodes
     const nodeIds = (threads[0].nodes || []).map(n => n.id);
-    const counts = {};
+    const counts: Record<number, number> = {};
     Promise.all(nodeIds.slice(0, 30).map(async (nid) => {
       try {
         const links = await api.getNodeLinks(nid);
@@ -139,7 +151,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
   }, [threads]);
 
   // Pick best handle pair based on relative positions of source & target
-  function getBestHandles(srcPos, tgtPos) {
+  function getBestHandles(srcPos: { x: number; y: number }, tgtPos: { x: number; y: number }) {
     const dx = tgtPos.x - srcPos.x;
     const dy = tgtPos.y - srcPos.y;
     if (Math.abs(dx) > Math.abs(dy)) {
@@ -155,8 +167,8 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
   }
 
   // Track saved layout data
-  const savedLayoutRef = useRef(null);
-  const lastThreadIdRef = useRef(null);
+  const savedLayoutRef = useRef<any>(null);
+  const lastThreadIdRef = useRef<number | null>(null);
   const hasFitRef = useRef(false);
 
   // Load saved layout when thread changes
@@ -189,15 +201,15 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
   }, [threads]);
 
   // Build React Flow nodes/edges from thread data, merging saved positions
-  const buildGraph = useCallback((threadList, savedData) => {
+  const buildGraph = useCallback((threadList: Thread[], savedData: any) => {
     if (!threadList || threadList.length === 0) return;
 
     // Also preserve current positions of existing nodes (for when data refreshes after adding a node)
-    const currentPosMap = {};
+    const currentPosMap: Record<string, { x: number; y: number }> = {};
     nodes.forEach(n => { currentPosMap[n.id] = n.position; });
 
-    const rfNodes = [];
-    const rfEdges = [];
+    const rfNodes: any[] = [];
+    const rfEdges: any[] = [];
     let yOffset = 0;
 
     threadList.forEach(thread => {
@@ -238,7 +250,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
         const color = NODE_TYPE_COLORS[typeLabel] || '#666';
 
         // Parse content
-        let parsedContent = node.content;
+        let parsedContent: any = node.content;
         try {
           if (typeof node.content === 'string' &&
             (node.content.startsWith('{') || node.content.startsWith('['))) {
@@ -251,7 +263,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
         const savedPos = savedData?.nodes?.[nodeId];
         const currentPos = currentPosMap[nodeId];
 
-        let position;
+        let position: { x: number; y: number };
         if (savedPos) {
           position = { x: savedPos.x, y: savedPos.y };
         } else if (currentPos) {
@@ -292,11 +304,11 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
       });
 
       // Build edges with best handle pairs based on positions
-      const posMap = {};
+      const posMap: Record<string, { x: number; y: number }> = {};
       rfNodes.forEach(n => { posMap[n.id] = n.position; });
 
       thread.nodes?.forEach(node => {
-        let sourceId, targetId;
+        let sourceId: string, targetId: string;
         targetId = `node-${node.id}`;
 
         if (node.parent_id) {
@@ -360,7 +372,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     return { ...e, hidden: true };
   }), [edges, showAllSecondary, hoveredRootId]);
 
-  const handleNodeClick = useCallback((node) => {
+  const handleNodeClick = useCallback((node: any) => {
     setSelectedNode(node);
     // Notify parent of selected node id (null for thread-level, numeric id for nodes)
     if (onSelectedNodeChange) {
@@ -368,11 +380,11 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     }
   }, [onSelectedNodeChange]);
 
-  const onNodeClickHandler = useCallback((event, rfNode) => {
+  const onNodeClickHandler = useCallback((_event: React.MouseEvent, rfNode: any) => {
     handleNodeClick(rfNode.data.originalData);
   }, [handleNodeClick]);
 
-  const onNodeDoubleClickHandler = useCallback((event, rfNode) => {
+  const onNodeDoubleClickHandler = useCallback((_event: React.MouseEvent, rfNode: any) => {
     const node = rfNode.data.originalData;
     if (node?.type !== 'thread' && onOpenInArticle) {
       onOpenInArticle(node.id);
@@ -384,7 +396,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     if (onSelectedNodeChange) onSelectedNodeChange(null);
   };
 
-  const getChildNodes = (nodeId) => {
+  const getChildNodes = (nodeId: string) => {
     if (!threads.length) return [];
     const thread = threads[0];
     if (nodeId.startsWith('thread-')) {
@@ -395,21 +407,21 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     }
   };
 
-  const handleChildNodeClick = (node) => {
+  const handleChildNodeClick = (node: any) => {
     handleNodeClick(node);
   };
 
-  const getNodeTypeBadgeColor = (type) => {
+  const getNodeTypeBadgeColor = (type: string | number) => {
     if (type === 'thread') return NODE_TYPE_COLORS.thread;
-    return NODE_TYPE_COLORS[NODE_TYPES[type]] || '#666';
+    return NODE_TYPE_COLORS[NODE_TYPES[type as number] as NodeTypeName] || '#666';
   };
 
   // Save layout (also updates the ref so rebuilds preserve positions)
-  const layoutSaveTimer = useRef(null);
+  const layoutSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveCurrentLayout = useCallback(async () => {
     if (!threads || threads.length === 0) return;
     const threadId = threads[0].id;
-    const currentLayout = {
+    const currentLayout: any = {
       nodes: {},
       settings: { isMatteMode }
     };
@@ -469,16 +481,16 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
   };
 
   // Render a string that may contain HTML tags or markdown
-  const renderText = (text) => {
+  const renderText = (text: any): React.ReactNode => {
     if (!text) return null;
     const str = String(text);
     if (/<[a-z][\s\S]*>/i.test(str)) {
       return <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(str) }} />;
     }
-    return <ReactMarkdown components={mdComponents}>{str}</ReactMarkdown>;
+    return <ReactMarkdown components={mdComponents as any}>{str}</ReactMarkdown>;
   };
 
-  const formatContent = (content, nodeType) => {
+  const formatContent = (content: any, nodeType: string): React.ReactNode => {
     if (!content) return 'No content available';
 
     try {
@@ -556,7 +568,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
       if (/<[a-z][\s\S]*>/i.test(textContent)) {
         return <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(textContent) }} />;
       }
-      return <ReactMarkdown components={mdComponents}>{textContent}</ReactMarkdown>;
+      return <ReactMarkdown components={mdComponents as any}>{textContent}</ReactMarkdown>;
     } catch (e) {
       return 'Error displaying content';
     }
@@ -573,7 +585,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
           onNodeClick={onNodeClickHandler}
           onNodeDoubleClick={onNodeDoubleClickHandler}
           onNodeDragStop={handleNodeDragStop}
-          onNodeMouseEnter={(_, node) => {
+          onNodeMouseEnter={(_: any, node: any) => {
             if (!showAllSecondary && node.data.isRoot) setHoveredRootId(node.id);
           }}
           onNodeMouseLeave={() => setHoveredRootId(null)}
@@ -584,7 +596,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
           style={{ background: '#1d1d1d' }}
         >
           <Background
-            variant={isDottedBackground ? 'dots' : 'lines'}
+            variant={isDottedBackground ? 'dots' as any : 'lines' as any}
             gap={isDottedBackground ? 40 : 0}
             size={isDottedBackground ? 1 : 0}
             color={isDottedBackground ? 'rgba(255, 255, 255, 0.08)' : 'transparent'}
@@ -691,7 +703,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
                 <h3>Connected Nodes</h3>
                 {getChildNodes(`${selectedNode.type === 'thread' ? 'thread-' : 'node-'}${selectedNode.id}`).length > 0 ? (
                   <div className="nodes-grid">
-                    {getChildNodes(`${selectedNode.type === 'thread' ? 'thread-' : 'node-'}${selectedNode.id}`).map(node => (
+                    {getChildNodes(`${selectedNode.type === 'thread' ? 'thread-' : 'node-'}${selectedNode.id}`).map((node: any) => (
                       <div
                         key={node.id}
                         className="node-card"
@@ -699,7 +711,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
                       >
                         <div
                           className="node-card-type"
-                          style={{ backgroundColor: NODE_TYPE_COLORS[NODE_TYPES[node.type]] }}
+                          style={{ backgroundColor: NODE_TYPE_COLORS[NODE_TYPES[node.type] as NodeTypeName] }}
                         >
                           {NODE_TYPES[node.type]}
                         </div>

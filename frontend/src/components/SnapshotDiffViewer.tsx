@@ -1,10 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { NODE_TYPE_COLORS } from '../constants';
+import type { NodeTypeName } from '../types';
 import './SnapshotDiffViewer.css';
 
-const SnapshotDiffViewer = ({ threadId, v1, v2, onClose }) => {
-  const [diff, setDiff] = useState(null);
+interface DiffNode {
+  id: number;
+  title: string;
+  node_type: NodeTypeName;
+  content?: string;
+}
+
+interface SnapshotDiff {
+  v1NodeCount: number;
+  v2NodeCount: number;
+  added?: DiffNode[];
+  removed?: DiffNode[];
+  modified?: DiffNode[];
+}
+
+interface SnapshotDiffViewerProps {
+  threadId: number;
+  v1: number;
+  v2: number;
+  onClose: () => void;
+}
+
+const SnapshotDiffViewer: React.FC<SnapshotDiffViewerProps> = ({ threadId, v1, v2, onClose }) => {
+  const [diff, setDiff] = useState<SnapshotDiff | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,10 +46,10 @@ const SnapshotDiffViewer = ({ threadId, v1, v2, onClose }) => {
   if (loading) return <div className="snapshot-diff-viewer"><p className="sdv-loading">Computing diff...</p></div>;
   if (!diff) return null;
 
-  const truncateContent = (content) => {
+  const truncateContent = (content: string | undefined): string => {
     if (!content) return '';
     let text = content;
-    try { const p = JSON.parse(text); text = p.description || p.point || p.explanation || text; } catch (e) {}
+    try { const p = JSON.parse(text); text = p.description || p.point || p.explanation || text; } catch (e) { /* ignore */ }
     return text.replace(/<[^>]+>/g, '').substring(0, 120);
   };
 
@@ -40,7 +63,7 @@ const SnapshotDiffViewer = ({ threadId, v1, v2, onClose }) => {
         <button className="sdv-close" onClick={onClose}>&times;</button>
       </div>
 
-      {diff.added?.length > 0 && (
+      {diff.added && diff.added.length > 0 && (
         <div className="sdv-section sdv-added">
           <h5>Added ({diff.added.length})</h5>
           {diff.added.map(n => (
@@ -52,7 +75,7 @@ const SnapshotDiffViewer = ({ threadId, v1, v2, onClose }) => {
         </div>
       )}
 
-      {diff.removed?.length > 0 && (
+      {diff.removed && diff.removed.length > 0 && (
         <div className="sdv-section sdv-removed">
           <h5>Removed ({diff.removed.length})</h5>
           {diff.removed.map(n => (
@@ -64,7 +87,7 @@ const SnapshotDiffViewer = ({ threadId, v1, v2, onClose }) => {
         </div>
       )}
 
-      {diff.modified?.length > 0 && (
+      {diff.modified && diff.modified.length > 0 && (
         <div className="sdv-section sdv-modified">
           <h5>Modified ({diff.modified.length})</h5>
           {diff.modified.map(n => (

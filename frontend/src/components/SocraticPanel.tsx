@@ -1,15 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
+import type { Thread, ThreadNode, User } from '../types';
 import './SocraticPanel.css';
 
-const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, nodeContext }) => {
-  const [history, setHistory] = useState([]);          // [{question, answer}]
+interface SocraticExchange {
+  question: string;
+  answer: string;
+}
+
+interface CapturedNode {
+  type: string;
+  title: string;
+  content: string;
+  saved: boolean;
+}
+
+interface SocraticPanelProps {
+  thread: Thread;
+  currentUser: User | null | undefined;
+  onAuthRequired?: () => void;
+  onNodesCreated?: (nodes: ThreadNode[]) => void;
+  nodeContext?: any;
+}
+
+const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAuthRequired, onNodesCreated, nodeContext }) => {
+  const [history, setHistory] = useState<SocraticExchange[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [currentAnswer, setCurrentAnswer] = useState('');
-  const [loading, setLoading] = useState(true);        // true while fetching first question
-  const [captures, setCaptures] = useState([]);        // [{type,title,content,saved}]
-  const historyEndRef = useRef(null);
-  const textareaRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [captures, setCaptures] = useState<CapturedNode[]>([]);
+  const historyEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load persisted history on mount, then fetch next question
   useEffect(() => {
@@ -34,7 +55,7 @@ const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, no
     historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history]);
 
-  const fetchNextQuestion = async (answer, currentHistory) => {
+  const fetchNextQuestion = async (answer: string, currentHistory: SocraticExchange[]) => {
     setLoading(true);
     try {
       const result = await api.socraticQuestion({
@@ -67,11 +88,11 @@ const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, no
     await fetchNextQuestion(answer, newHistory);
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSubmit();
   };
 
-  const handleSaveNode = async (capture, idx) => {
+  const handleSaveNode = async (capture: CapturedNode, idx: number) => {
     if (!currentUser) { onAuthRequired?.(); return; }
     try {
       const node = await api.createNode({
@@ -106,7 +127,7 @@ const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, no
             <span className="sp-exchanges">{history.length} exchange{history.length !== 1 ? 's' : ''}</span>
           )}
         </div>
-        <button className="sp-reset" onClick={handleReset} title="Start over">↺</button>
+        <button className="sp-reset" onClick={handleReset} title="Start over">{'\u21BA'}</button>
       </div>
 
       {/* Scrollable body: history + current question */}
@@ -141,9 +162,9 @@ const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, no
           ref={textareaRef}
           className="sp-textarea"
           value={currentAnswer}
-          onChange={e => setCurrentAnswer(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCurrentAnswer(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Your answer… (⌘↵ to send)"
+          placeholder="Your answer\u2026 (\u2318\u21B5 to send)"
           disabled={loading}
           rows={3}
         />
@@ -153,7 +174,7 @@ const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, no
           disabled={loading || !currentAnswer.trim()}
           title="Send answer"
         >
-          →
+          {'\u2192'}
         </button>
       </div>
 
@@ -166,7 +187,7 @@ const SocraticPanel = ({ thread, currentUser, onAuthRequired, onNodesCreated, no
               <span className="sp-capture-type">{c.type}</span>
               <span className="sp-capture-title">{c.title}</span>
               {c.saved ? (
-                <span className="sp-capture-done">✓</span>
+                <span className="sp-capture-done">{'\u2713'}</span>
               ) : (
                 <button className="sp-capture-add" onClick={() => handleSaveNode(c, i)}>+ Add</button>
               )}

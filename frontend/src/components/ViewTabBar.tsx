@@ -1,7 +1,8 @@
 import React from 'react';
+import type { ViewName } from '../types';
 import './ViewTabBar.css';
 
-const TABS = [
+const TABS: { key: ViewName; label: string }[] = [
   { key: 'graph', label: 'Graph' },
   { key: 'global', label: 'Global' },
   { key: 'article', label: 'Article' },
@@ -13,7 +14,17 @@ const TABS = [
   { key: 'timeline', label: 'Timeline' },
 ];
 
-const ViewTabBar = ({
+interface ViewTabBarProps {
+  view: ViewName;
+  onChangeView: (view: ViewName) => void;
+  threadTitle: string;
+  onPrevThread: () => void;
+  onNextThread: () => void;
+  hasPrev: boolean;
+  hasNext: boolean;
+}
+
+const ViewTabBar: React.FC<ViewTabBarProps> = ({
   view,
   onChangeView,
   threadTitle,
