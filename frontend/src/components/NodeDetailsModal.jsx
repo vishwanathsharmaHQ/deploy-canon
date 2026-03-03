@@ -29,13 +29,8 @@ const NodeDetailsModal = ({ node, onClose, onVote, onCreateProposal, onAddNode, 
 
   const formatContent = (content, nodeType) => {
     if (!content) {
-      console.log('No content provided for node type:', nodeType);
       return 'No content available';
     }
-    
-    console.log('Formatting content for node type:', nodeType);
-    console.log('Raw content:', content);
-    console.log('Content type:', typeof content);
     
     // If content is an object with a content property, use that
     let actualContent = content.content || content;
@@ -45,7 +40,7 @@ const NodeDetailsModal = ({ node, onClose, onVote, onCreateProposal, onAddNode, 
       try {
         actualContent = JSON.parse(actualContent);
       } catch (e) {
-        console.log('Failed to parse JSON content:', e);
+        // not valid JSON, use as-is
       }
     }
     

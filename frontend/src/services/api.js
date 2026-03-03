@@ -55,16 +55,13 @@ export const api = {
   },
 
   async createNode({ threadId, title, content, nodeType, parentId, metadata }) {
-    console.log('API createNode request:', { threadId, title, content, nodeType, parentId, metadata });
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ title, content, nodeType, parentId, metadata }),
     });
     if (!response.ok) throw new Error('Failed to create node');
-    const data = await response.json();
-    console.log('API createNode response:', data);
-    return data;
+    return response.json();
   },
 
   // Edge operations
@@ -464,7 +461,7 @@ export const api = {
     return response.json();
   },
   async getNodeLinks(nodeId) {
-    const response = await fetch(`${API_BASE_URL}/nodes/${nodeId}/links`);
+    const response = await fetch(`${API_BASE_URL}/links/node/${nodeId}`);
     if (!response.ok) return [];
     return response.json();
   },
@@ -489,17 +486,17 @@ export const api = {
     return response.json();
   },
   async getConcepts() {
-    const response = await fetch(`${API_BASE_URL}/concepts`);
+    const response = await fetch(`${API_BASE_URL}/graph/concepts`);
     if (!response.ok) throw new Error('Failed to fetch concepts');
     return response.json();
   },
   async getConceptNodes(conceptId) {
-    const response = await fetch(`${API_BASE_URL}/concepts/${conceptId}/nodes`);
+    const response = await fetch(`${API_BASE_URL}/graph/concepts/${conceptId}/nodes`);
     if (!response.ok) throw new Error('Failed to fetch concept nodes');
     return response.json();
   },
   async extractConcepts(nodeId) {
-    const response = await fetch(`${API_BASE_URL}/concepts/extract`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ nodeId }) });
+    const response = await fetch(`${API_BASE_URL}/graph/concepts/extract`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ nodeId }) });
     if (!response.ok) throw new Error('Concept extraction failed');
     return response.json();
   },
@@ -550,12 +547,12 @@ export const api = {
     return response.json();
   },
   async getBookmarks() {
-    const response = await fetch(`${API_BASE_URL}/bookmarks`, { headers: authHeaders() });
+    const response = await fetch(`${API_BASE_URL}/ingest/bookmarks`, { headers: authHeaders() });
     if (!response.ok) throw new Error('Failed to fetch bookmarks');
     return response.json();
   },
   async createBookmark({ url, title, notes, source_type }) {
-    const response = await fetch(`${API_BASE_URL}/bookmarks`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ url, title, notes, source_type }) });
+    const response = await fetch(`${API_BASE_URL}/ingest/bookmarks`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ url, title, notes, source_type }) });
     if (!response.ok) throw new Error('Failed to create bookmark');
     return response.json();
   },

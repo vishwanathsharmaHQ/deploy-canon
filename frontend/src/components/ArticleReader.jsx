@@ -5,6 +5,7 @@ import Link from '@tiptap/extension-link';
 import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
 import ReactMarkdown from 'react-markdown';
+import { sanitizeHtml } from '../utils/sanitize';
 import InputModal from './InputModal';
 import ChatPanel from './ChatPanel';
 import SocraticPanel from './SocraticPanel';
@@ -175,7 +176,7 @@ const renderContent = (rawContent, linkify) => {
   // Raw HTML — render directly
   if (text.trim().startsWith('<')) {
     const html = linkify ? linkify(text) : text;
-    return <div className="ar-html" dangerouslySetInnerHTML={{ __html: html }} />;
+    return <div className="ar-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }} />;
   }
 
   const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
@@ -233,7 +234,7 @@ const renderHtmlOrText = (str, linkify) => {
   const s = String(str);
   if (s.trim().startsWith('<')) {
     const html = linkify ? linkify(s) : s;
-    return <div className="ar-html" dangerouslySetInnerHTML={{ __html: html }} />;
+    return <div className="ar-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }} />;
   }
   return <div className="ar-markdown"><ReactMarkdown>{s}</ReactMarkdown></div>;
 };
@@ -630,7 +631,7 @@ const ThreadContentEditor = ({ thread, onContentChange, currentUser, onAuthRequi
   const renderThreadContent = (raw) => {
     if (!raw) return null;
     if (raw.trim().startsWith('<')) {
-      return <div className="ar-html" dangerouslySetInnerHTML={{ __html: raw }} />;
+      return <div className="ar-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(raw) }} />;
     }
     return <div className="ar-markdown"><ReactMarkdown>{raw}</ReactMarkdown></div>;
   };

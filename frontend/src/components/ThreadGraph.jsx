@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef, memo } from 'react';
+import { sanitizeHtml } from '../utils/sanitize';
 import {
   ReactFlow,
   useNodesState,
@@ -486,7 +487,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
     if (!text) return null;
     const str = String(text);
     if (/<[a-z][\s\S]*>/i.test(str)) {
-      return <span dangerouslySetInnerHTML={{ __html: str }} />;
+      return <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(str) }} />;
     }
     return <ReactMarkdown components={mdComponents}>{str}</ReactMarkdown>;
   };
@@ -567,7 +568,7 @@ const ThreadGraph = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEdit
       const textContent = typeof actualContent === 'object' ?
         JSON.stringify(actualContent, null, 2) : String(actualContent);
       if (/<[a-z][\s\S]*>/i.test(textContent)) {
-        return <div dangerouslySetInnerHTML={{ __html: textContent }} />;
+        return <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(textContent) }} />;
       }
       return <ReactMarkdown components={mdComponents}>{textContent}</ReactMarkdown>;
     } catch (e) {
