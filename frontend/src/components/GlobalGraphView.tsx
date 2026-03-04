@@ -46,8 +46,8 @@ interface GlobalGraphViewProps {
 }
 
 const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState<{ id: string; type: string; position: { x: number; y: number }; data: ThreadNodeData; draggable: boolean }>([] as { id: string; type: string; position: { x: number; y: number }; data: ThreadNodeData; draggable: boolean }[]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<{ id: string; source: string; target: string; style: Record<string, unknown>; animated: boolean }>([] as { id: string; source: string; target: string; style: Record<string, unknown>; animated: boolean }[]);
+  const [nodes, setNodes, onNodesChange] = useNodesState([] as any[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([] as any[]);
   const [loading, setLoading] = useState(true);
 
   const loadGraph = useCallback(async () => {
@@ -56,7 +56,7 @@ const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => 
       const threads = await api.getGlobalGraphSummary();
 
       // Build nodes in a circle layout
-      const rfNodes: { id: string; type: string; position: { x: number; y: number }; data: ThreadNodeData; draggable: boolean }[] = [];
+      const rfNodes: any[] = [];
       const centerX = 400, centerY = 300;
       const radius = 150 + threads.length * 15;
 
@@ -74,7 +74,7 @@ const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => 
       });
 
       // Build edges for cross-thread links
-      const rfEdges: { id: string; source: string; target: string; style: Record<string, unknown>; animated: boolean }[] = [];
+      const rfEdges: any[] = [];
       const edgeSet = new Set<string>();
       threads.forEach((t: GlobalGraphThread) => {
         (t.linkedThreadIds || []).forEach((otherId) => {
@@ -104,7 +104,7 @@ const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => 
 
   useEffect(() => { loadGraph(); }, [loadGraph]);
 
-  const onNodeDoubleClick = useCallback((_: React.MouseEvent, rfNode: { data: ThreadNodeData }) => {
+  const onNodeDoubleClick = useCallback((_: React.MouseEvent, rfNode: any) => {
     onSelectThread?.(rfNode.data.threadId);
   }, [onSelectThread]);
 

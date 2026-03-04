@@ -5,25 +5,26 @@ import type { NodeTypeName } from '../types';
 import './CrossThreadLinkPanel.css';
 
 interface LinkOtherNode {
-  id: number;
+  id: number | null;
   title: string;
-  node_type: NodeTypeName;
+  node_type: string;
 }
 
 interface LinkItem {
-  id: number;
-  direction: 'outgoing' | 'incoming';
-  threadId: number;
+  id: number | null;
+  direction: string;
+  threadId: number | null;
   threadTitle: string;
   otherNode: LinkOtherNode;
 }
 
 interface LinkSuggestion {
-  sourceNodeId: number;
-  targetNodeId: number;
+  sourceNodeId: number | null;
+  targetNodeId: number | null;
   sourceNodeTitle: string;
   targetNodeTitle: string;
-  targetNodeType: NodeTypeName;
+  targetNodeType: string;
+  threadId?: number | null;
   threadTitle: string;
   similarity: number;
 }
@@ -71,8 +72,8 @@ const CrossThreadLinkPanel: React.FC<CrossThreadLinkPanelProps> = ({ nodeId, thr
   const handleAcceptSuggestion = async (suggestion: LinkSuggestion) => {
     try {
       await api.createLink({
-        sourceNodeId: suggestion.sourceNodeId,
-        targetNodeId: suggestion.targetNodeId,
+        sourceNodeId: suggestion.sourceNodeId!,
+        targetNodeId: suggestion.targetNodeId!,
         type: 'ai_suggested',
         description: `Linked: "${suggestion.sourceNodeTitle}" <-> "${suggestion.targetNodeTitle}"`,
         confidence: suggestion.similarity,
@@ -115,14 +116,14 @@ const CrossThreadLinkPanel: React.FC<CrossThreadLinkPanelProps> = ({ nodeId, thr
                 <span className="ctlp-link-direction">{link.direction === 'outgoing' ? '\u2192' : '\u2190'}</span>
                 <span
                   className="ctlp-link-node"
-                  style={{ color: NODE_TYPE_COLORS[link.otherNode.node_type] }}
-                  onClick={() => onNavigateToThread?.(link.threadId)}
+                  style={{ color: NODE_TYPE_COLORS[link.otherNode.node_type as NodeTypeName] }}
+                  onClick={() => onNavigateToThread?.(link.threadId!)}
                 >
                   {link.otherNode.title}
                 </span>
                 <span className="ctlp-link-thread">{link.threadTitle}</span>
               </div>
-              <button className="ctlp-delete" onClick={() => handleDeleteLink(link.id)}>&times;</button>
+              <button className="ctlp-delete" onClick={() => handleDeleteLink(link.id!)}>&times;</button>
             </div>
           ))}
         </div>
@@ -136,7 +137,7 @@ const CrossThreadLinkPanel: React.FC<CrossThreadLinkPanelProps> = ({ nodeId, thr
           {suggestions.map((s, i) => (
             <div key={i} className="ctlp-suggestion">
               <div className="ctlp-suggestion-info">
-                <span style={{ color: NODE_TYPE_COLORS[s.targetNodeType] }}>[{s.targetNodeType}]</span>
+                <span style={{ color: NODE_TYPE_COLORS[s.targetNodeType as NodeTypeName] }}>[{s.targetNodeType}]</span>
                 <span className="ctlp-suggestion-title">{s.targetNodeTitle}</span>
                 <span className="ctlp-suggestion-thread">{s.threadTitle}</span>
                 <span className="ctlp-similarity">{Math.round(s.similarity * 100)}%</span>

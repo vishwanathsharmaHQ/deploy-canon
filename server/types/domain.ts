@@ -65,6 +65,7 @@ export interface ProposedNode {
   type: string;
   title: string;
   content: string;
+  chronological_order?: number;
 }
 
 export interface ChatMessage {

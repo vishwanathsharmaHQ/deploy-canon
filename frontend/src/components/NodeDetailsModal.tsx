@@ -6,11 +6,10 @@ import './NodeDetailsModal.css';
 interface NodeDetailsModalProps {
   node: ThreadNode;
   onClose: () => void;
-  onAddNode?: (parentId: number) => void;
   loading?: boolean;
 }
 
-const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, onAddNode, loading }) => {
+const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, loading }) => {
   const [showAddNode, setShowAddNode] = useState(false);
 
   const formatTitle = (title: string, nodeType: NodeTypeName): string => {
@@ -86,7 +85,7 @@ const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, onAd
       // For non-JSON content (Summary, Context, Synthesis), format with paragraphs
       if (['SYNTHESIS', 'CONTEXT'].includes(nodeType)) {
         const textContent: string = typeof actualContent === 'object' ?
-                          JSON.stringify(actualContent, null, 2) : actualContent;
+                          JSON.stringify(actualContent, null, 2) : String(actualContent);
         return (
           <div className="text-content">
             {textContent.split('\n').map((paragraph: string, index: number) => (
@@ -98,13 +97,13 @@ const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, onAd
 
       // Default case
       const textContent: string = typeof actualContent === 'object' ?
-                        JSON.stringify(actualContent, null, 2) : actualContent;
+                        JSON.stringify(actualContent, null, 2) : String(actualContent);
       return <div className="text-content">{textContent}</div>;
     } catch (e) {
       console.error('Error formatting content:', e);
       // If JSON parsing fails, return content with paragraph formatting
       const textContent: string = typeof actualContent === 'object' ?
-                        JSON.stringify(actualContent, null, 2) : actualContent;
+                        JSON.stringify(actualContent, null, 2) : String(actualContent);
       return (
         <div className="text-content">
           {textContent.split('\n').map((paragraph: string, index: number) => (

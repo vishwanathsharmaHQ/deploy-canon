@@ -22,7 +22,7 @@ interface ChatPanelProps {
   initialThreadId?: number | null;
   onNodesCreated?: (threadId: number) => void;
   onThreadCreated?: (threadId: number) => void;
-  articleContext?: { nodeId: number; nodeType: string; title: string; content: string } | null;
+  articleContext?: Record<string, unknown> | null;
   onProposedUpdate?: (update: ProposedUpdate) => Promise<void>;
   defaultSidebarCollapsed?: boolean;
   currentUser: User | null | undefined;
@@ -50,12 +50,30 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
   const [input, setInput] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
   const [excludedNodes, setExcludedNodes] = useState<Record<number, Set<number>>>({}); // { [msgIndex]: Set<nodeIndex> }
+  const [acceptingIndex, setAcceptingIndex] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Track whether user is near bottom of chat
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
+    };
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Only auto-scroll if user is near bottom
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, loading]);
 
   // When the selected thread changes from the sidebar, refresh the chat list
@@ -67,6 +85,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     if (!input.trim() || loading) return;
     const userMsg = input.trim();
     setInput('');
+    isNearBottomRef.current = true;
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     await sendMessage(userMsg);
   }, [input, loading, sendMessage]);
@@ -81,23 +100,36 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
   }, []);
 
   const handleAcceptNodes = useCallback(async (msgIndex: number, proposedNodes: ProposedNode[], threadId: number) => {
+    setAcceptingIndex(msgIndex);
     try {
       const excluded = excludedNodes[msgIndex] || new Set();
       const filteredNodes = proposedNodes.filter((_, idx) => !excluded.has(idx));
       if (filteredNodes.length === 0) return;
 
-      const rootNode = filteredNodes.find(n => n.type === 'ROOT');
+      const rootNodes = filteredNodes.filter(n => n.type === 'ROOT');
       const secondaryNodes = filteredNodes.filter(n => n.type !== 'ROOT');
-      let rootNodeId: number | null = null;
+      let firstRootNodeId: number | null = null;
       let allDuplicateSkipped: string[] = [];
 
-      if (rootNode) {
-        const created = await api.createNode({ threadId, title: rootNode.title, content: rootNode.content, nodeType: 'ROOT', parentId: null });
-        rootNodeId = created.id;
+      // Create all ROOT nodes (each as a top-level node with no parent)
+      for (const rootNode of rootNodes) {
+        const metadata = rootNode.chronological_order != null
+          ? { chronological_order: rootNode.chronological_order }
+          : undefined;
+        const created = await api.createNode({ threadId, title: rootNode.title, content: rootNode.content, nodeType: 'ROOT', parentId: null, metadata });
+        if (!firstRootNodeId) firstRootNodeId = created.id;
       }
+
+      // Create non-ROOT nodes as children of:
+      // 1. First newly created ROOT (if any)
+      // 2. The contextual node the user was asking about (if articleContext has nodeId)
+      // 3. null (fallback, shouldn't normally happen)
+      const contextualParentId = articleContext && 'nodeId' in articleContext ? (articleContext.nodeId as number) : null;
+      const parentForSecondary = firstRootNodeId || contextualParentId;
+
       if (secondaryNodes.length > 0) {
         const batchResult = await api.createNodesBatch(threadId, secondaryNodes.map(n => ({
-          title: n.title, content: n.content, nodeType: n.type, parentId: rootNodeId,
+          title: n.title, content: n.content, nodeType: n.type, parentId: parentForSecondary,
         })));
         if ((batchResult.duplicateSkipped?.length ?? 0) > 0) {
           allDuplicateSkipped = batchResult.duplicateSkipped ?? [];
@@ -111,8 +143,10 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
       onNodesCreated?.(threadId);
     } catch (err) {
       console.error('Accept nodes failed:', err);
+    } finally {
+      setAcceptingIndex(null);
     }
-  }, [onNodesCreated, excludedNodes, setMessages]);
+  }, [onNodesCreated, excludedNodes, setMessages, articleContext]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -156,7 +190,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
             <button
               key={chat.id}
               className={`cp-chat-item${chat.id === activeChatId ? ' cp-chat-item--active' : ''}`}
-              onClick={() => handleLoadChat(chat.id)}
+              onClick={() => chat.id != null && handleLoadChat(chat.id)}
             >
               <span className="cp-chat-item-title">{chat.title}</span>
               <span className="cp-chat-item-meta">
@@ -173,7 +207,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
           <span className="cp-title">Research Chat</span>
         </div>
 
-        <div className="cp-messages">
+        <div className="cp-messages" ref={messagesContainerRef}>
           {messages.length === 0 && (
             <div className="cp-empty">
               <p>
@@ -265,7 +299,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                               className="cp-accept-btn"
                               onClick={async () => {
                                 try {
-                                  await onProposedUpdate(msg.proposedUpdate);
+                                  await onProposedUpdate(msg.proposedUpdate!);
                                   setMessages(prev => prev.map((m, mi) =>
                                     mi === i ? { ...m, proposedUpdate: null, updateApplied: true } : m
                                   ));
@@ -310,9 +344,9 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                             <button
                               className="cp-accept-btn"
                               onClick={() => handleAcceptNodes(i, msg.proposedNodes!, msg.proposedThreadId!)}
-                              disabled={acceptCount === 0}
+                              disabled={acceptCount === 0 || acceptingIndex !== null}
                             >
-                              Accept{acceptCount < msg.proposedNodes.length ? ` (${acceptCount})` : ''}
+                              {acceptingIndex === i ? 'Saving...' : `Accept${acceptCount < msg.proposedNodes.length ? ` (${acceptCount})` : ''}`}
                             </button>
                             <button
                               className="cp-dismiss-btn"

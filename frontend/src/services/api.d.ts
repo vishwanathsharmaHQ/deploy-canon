@@ -54,6 +54,9 @@ export const api: {
   updateNode(threadId: number, nodeId: number, data: { title?: string; content?: string }): Promise<ThreadNode>;
   createNodesBatch(threadId: number, nodes: Array<{ title: string; content: string; nodeType: string; parentId?: number | null }>): Promise<{ createdNodes: ThreadNode[]; duplicateSkipped: string[] }>;
   generateNodeSuggestions(data: { nodeId: number; nodeType: string; content: string; title: string }): Promise<{ suggestions: NodeSuggestion[] }>;
+  reparentNode(threadId: number, nodeId: number, newParentId: number | null): Promise<{ ok: boolean; newParentId: number | null }>;
+  updateNodeOrder(threadId: number, nodeId: number, chronological_order: number): Promise<{ ok: boolean; chronological_order: number }>;
+  enrichNode(threadId: number, nodeId: number): Promise<{ enrichedContent: string; children: ThreadNode[] }>;
 
   // Edge operations
   createEdge(data: { sourceId: number; targetId: number; relationshipType?: string; metadata?: Record<string, unknown> }): Promise<Edge>;
@@ -77,7 +80,7 @@ export const api: {
     history?: Array<{ role: string; content: string }>;
     threadId?: number | null;
     apiKey?: string;
-    nodeContext?: { nodeId: number; nodeType: string; title: string; content: string } | null;
+    nodeContext?: Record<string, unknown> | null;
     onToken?: (t: string) => void;
     onProcessing?: () => void;
     onDone?: (e: ChatStreamDoneEvent) => void;
@@ -88,7 +91,7 @@ export const api: {
     reply: string;
     threadId?: number | null;
     apiKey?: string;
-    nodeContext?: { nodeId: number; nodeType: string; title: string; content: string } | null;
+    nodeContext?: Record<string, unknown> | null;
     citations?: ChatCitation[];
   }): Promise<ChatExtractResult>;
   getThreadChats(threadId: number): Promise<ChatHistoryItem[]>;

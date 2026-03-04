@@ -30,7 +30,8 @@ const SourceVerifyBadge: React.FC<SourceVerifyBadgeProps> = ({ url, claim }) => 
   if (loading) return <span className="sv-badge sv-badge--loading">verifying…</span>;
   if (!data) return null;
   const labels: Record<string, string> = { verified: '✓ Verified', partial: '~ Partial', unverified: '✗ Unverified', unavailable: '? Unavailable' };
-  return <span className={`sv-badge sv-badge--${data.status}`} title={data.explanation}>{labels[data.status] || data.status}</span>;
+  const st = data.status || 'unavailable';
+  return <span className={`sv-badge sv-badge--${st}`} title={data.explanation}>{labels[st] || st}</span>;
 };
 
 export default SourceVerifyBadge;

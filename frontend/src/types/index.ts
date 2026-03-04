@@ -12,12 +12,15 @@ export interface Thread {
   edges?: Edge[];
 }
 
+export type ThreadType = 'standard' | 'historical' | 'debate' | 'comparison';
+
 export interface ThreadMetadata {
   title: string;
   description?: string;
   content?: string;
   createdAt?: string;
   version?: number;
+  thread_type?: ThreadType;
   [key: string]: unknown;
 }
 
@@ -216,6 +219,7 @@ export interface ProposedNode {
   type: string;
   title: string;
   content: string;
+  chronological_order?: number;
 }
 
 export interface RedTeamResult {
@@ -378,6 +382,7 @@ export interface NodeHistoryEntry {
 export interface ExportResult {
   // Markdown format
   markdown?: string;
+  content?: string;
   title?: string;
   // JSON format
   thread?: { id: number | null; title: string; description: string };
@@ -388,6 +393,7 @@ export interface VerifySourceResult {
   verified: boolean;
   confidence: number;
   explanation: string;
+  status?: string;
 }
 
 export interface ChatRecord {

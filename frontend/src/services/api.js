@@ -378,6 +378,41 @@ export const api = {
     return response.json();
   },
 
+  async reparentNode(threadId, nodeId, newParentId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}/parent`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ newParentId }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to reparent node');
+    }
+    return response.json();
+  },
+
+  async updateNodeOrder(threadId, nodeId, chronological_order) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}/order`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ chronological_order }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update node order');
+    }
+    return response.json();
+  },
+
+  async enrichNode(threadId, nodeId) {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}/enrich`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error('Failed to enrich node');
+    return response.json();
+  },
+
   // Auth methods
   async register({ name, email, password }) {
     const response = await fetch(`${API_BASE_URL}/auth/register`, {

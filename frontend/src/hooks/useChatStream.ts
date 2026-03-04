@@ -1,7 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { api } from '../services/api';
-import type { ChatCitation, ChatStreamDoneEvent, ChatExtractResult, ProposedNode } from '../types';
+import type { ChatCitation, ChatStreamDoneEvent, ChatExtractResult, ProposedNode, ChatHistoryItem } from '../types';
+
+export type { ChatHistoryItem };
 
 export interface ChatMessage {
   role: string;
@@ -20,17 +22,10 @@ export interface ChatMessage {
   updateApplied?: boolean;
 }
 
-export interface ChatHistoryItem {
-  id: number;
-  title: string;
-  messageCount: number;
-  created_at: string;
-}
-
 interface UseChatStreamOptions {
   initialThreadId?: number | null;
   selectedThreadId: number | null;
-  articleContext?: { nodeId: number; nodeType: string; title: string; content: string } | null;
+  articleContext?: Record<string, unknown> | null;
   onThreadCreated?: (threadId: number) => void;
 }
 

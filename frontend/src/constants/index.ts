@@ -1,4 +1,4 @@
-import type { NodeTypeName } from '../types';
+import type { NodeTypeName, ThreadType } from '../types';
 
 export const NODE_TYPES: NodeTypeName[] = [
   'ROOT',
@@ -8,6 +8,20 @@ export const NODE_TYPES: NodeTypeName[] = [
   'EXAMPLE',
   'COUNTERPOINT',
   'SYNTHESIS',
+];
+
+/** Node types that can have children (expandable in the graph). */
+export const EXPANDABLE_NODE_TYPES: NodeTypeName[] = ['ROOT', 'CONTEXT', 'SYNTHESIS'];
+
+/** Node types that are leaf-level — no children allowed. */
+export const LEAF_NODE_TYPES: NodeTypeName[] = ['EVIDENCE', 'REFERENCE', 'EXAMPLE', 'COUNTERPOINT'];
+
+/** Available thread layout types. */
+export const THREAD_TYPES: { key: ThreadType; label: string; description: string }[] = [
+  { key: 'standard', label: 'Standard', description: 'Free-form circular knowledge graph' },
+  { key: 'historical', label: 'Historical', description: 'Left-to-right timeline layout' },
+  { key: 'debate', label: 'Debate', description: 'Central claim with pro/con sides' },
+  { key: 'comparison', label: 'Comparison', description: 'Side-by-side columns for comparison' },
 ];
 
 /** Canonical color mapping for node types. */

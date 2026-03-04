@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import InputModal from './InputModal';
 
 interface EditorToolbarProps {
-  editor: { chain: () => Record<string, (...args: unknown[]) => { run: () => void }> } | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editor: any;
   classPrefix: string; // 'ar' or 'ne'
 }
 

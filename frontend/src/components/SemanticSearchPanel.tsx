@@ -5,8 +5,8 @@ import type { NodeTypeName } from '../types';
 import './SemanticSearchPanel.css';
 
 interface SearchSource {
-  nodeId: number;
-  threadId: number;
+  nodeId: number | null;
+  threadId: number | null;
   threadTitle: string;
   nodeTitle: string;
   relevance: number;
@@ -14,7 +14,7 @@ interface SearchSource {
 
 interface SearchAnswer {
   answer: string;
-  sources?: SearchSource[];
+  sources: SearchSource[];
 }
 
 interface SearchResultThread {
@@ -110,7 +110,7 @@ const SemanticSearchPanel: React.FC<SemanticSearchPanelProps> = ({ onSelectThrea
               <div className="ssp-sources">
                 <h5>Sources</h5>
                 {answer.sources.map((s, i) => (
-                  <div key={i} className="ssp-source" onClick={() => onSelectNode?.(s.nodeId, s.threadId)}>
+                  <div key={i} className="ssp-source" onClick={() => s.nodeId != null && s.threadId != null && onSelectNode?.(s.nodeId, s.threadId)}>
                     <span className="ssp-source-thread">{s.threadTitle}</span>
                     <span className="ssp-source-node">{s.nodeTitle}</span>
                     <span className="ssp-relevance">{Math.round(s.relevance * 100)}%</span>

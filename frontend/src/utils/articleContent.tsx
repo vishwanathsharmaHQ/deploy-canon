@@ -42,7 +42,7 @@ export function getEditableContent(node: { content: unknown; title?: string; nod
   const nodeType = getNodeType(node);
   let raw: unknown = node.content;
   if (raw && typeof raw === 'object' && (raw as Record<string, unknown>).content !== undefined) raw = (raw as Record<string, unknown>).content;
-  let parsed: unknown = raw;
+  let parsed: any = raw;
   if (typeof raw === 'string' && (raw.startsWith('{') || raw.startsWith('['))) {
     try { parsed = JSON.parse(raw); } catch (e) { /* keep as string */ }
   }
@@ -114,8 +114,9 @@ export const renderContent = (rawContent: unknown, linkify?: (html: string) => s
   if (!rawContent) return <p className="ar-empty">No content available.</p>;
 
   let text: unknown = rawContent;
-  if (typeof text === 'object') {
-    text = text.content || text.text || JSON.stringify(text, null, 2);
+  if (typeof text === 'object' && text !== null) {
+    const obj = text as Record<string, any>;
+    text = obj.content || obj.text || JSON.stringify(text, null, 2);
   }
   if (typeof text !== 'string') return <p className="ar-empty">No content available.</p>;
 
@@ -182,29 +183,30 @@ export const formatNodeContent = (
     } catch (e) { /* not JSON */ }
   }
 
-  if (typeof content === 'object') {
+  if (typeof content === 'object' && content !== null) {
+    const c = content as Record<string, any>;
     // ROOT: { title, description, keywords }
-    if (content.title && content.description && 'keywords' in content) {
+    if (c.title && c.description && 'keywords' in c) {
       return (
         <div>
-          <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{content.title}</h3>
-          {renderHtmlOrText(content.description)}
-          {content.keywords?.length > 0 && (
+          <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{c.title}</h3>
+          {renderHtmlOrText(c.description)}
+          {c.keywords?.length > 0 && (
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', marginTop: 16 }}>
-              <em>Keywords: {Array.isArray(content.keywords) ? content.keywords.join(', ') : content.keywords}</em>
+              <em>Keywords: {Array.isArray(c.keywords) ? c.keywords.join(', ') : c.keywords}</em>
             </p>
           )}
         </div>
       );
     }
     // EVIDENCE: { point, source }
-    if (content.point) {
-      const src = content.source;
+    if (c.point) {
+      const src = c.source;
       const ytMatch = src?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
       const isUrl = src && /^https?:\/\//.test(src);
       return (
         <div>
-          {renderHtmlOrText(content.point)}
+          {renderHtmlOrText(c.point)}
           {src && (
             ytMatch ? (
               <div className="ar-youtube" style={{ marginTop: 20 }}>
@@ -228,7 +230,7 @@ export const formatNodeContent = (
                 {isUrl && SourceVerifyBadge && (
                   <SourceVerifyBadge
                     url={src}
-                    claim={typeof content.point === 'string' ? content.point.replace(/<[^>]+>/g, '').substring(0, 300) : String(content.point || '').substring(0, 300)}
+                    claim={typeof c.point === 'string' ? c.point.replace(/<[^>]+>/g, '').substring(0, 300) : String(c.point || '').substring(0, 300)}
                   />
                 )}
               </p>
@@ -238,27 +240,27 @@ export const formatNodeContent = (
       );
     }
     // EXAMPLE: { title, description }
-    if (content.title && content.description) {
+    if (c.title && c.description) {
       return (
         <div>
-          <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{content.title}</h3>
-          {renderHtmlOrText(content.description)}
+          <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{c.title}</h3>
+          {renderHtmlOrText(c.description)}
         </div>
       );
     }
     // COUNTERPOINT: { argument, explanation }
-    if (content.argument) {
+    if (c.argument) {
       return (
         <div>
-          <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{content.argument}</h3>
-          {content.explanation && renderHtmlOrText(content.explanation)}
+          <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{c.argument}</h3>
+          {c.explanation && renderHtmlOrText(c.explanation)}
         </div>
       );
     }
-    if (content.content) return content.content;
-    if (content.text) return content.text;
-    return JSON.stringify(content, null, 2);
+    if (c.content) return c.content;
+    if (c.text) return c.text;
+    return JSON.stringify(c, null, 2);
   }
 
-  return content;
+  return content as React.ReactNode;
 };

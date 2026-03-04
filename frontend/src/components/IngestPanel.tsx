@@ -9,8 +9,9 @@ interface IngestResult {
   summary?: string;
   truncated?: boolean;
   sourceUrl?: string;
-  threadId?: number;
+  threadId?: number | null;
   proposedNodes?: { title: string; content: string; type: NodeTypeName }[];
+  pageCount?: number;
 }
 
 interface IngestPanelProps {

@@ -7,6 +7,8 @@ import { getOpenAI, generateEmbedding, getEmbeddingText } from '../services/open
 import config from '../config.js';
 import type { NodeData } from '../types/domain.js';
 
+const LEAF_NODE_TYPES = ['EVIDENCE', 'REFERENCE', 'EXAMPLE', 'COUNTERPOINT'];
+
 const router = Router();
 
 // GET /threads/:threadId/nodes - get thread nodes and edges
@@ -55,6 +57,22 @@ router.post(
     const threadId = parseInt(req.params.threadId);
     const { title, content, nodeType, parentId, metadata } = req.body;
     const tx = req.neo4jTx!;
+
+    // Enforce leaf constraint: leaf nodes cannot have children
+    if (parentId) {
+      const parentResult = await tx.run(
+        'MATCH (n:Node {id: $id}) RETURN n.node_type AS nodeType',
+        { id: getNeo4j().int(parentId) }
+      );
+      if (parentResult.records.length) {
+        const parentType = parentResult.records[0].get('nodeType');
+        if (LEAF_NODE_TYPES.includes(parentType)) {
+          return res.status(400).json({
+            error: `Cannot add children to a ${parentType} node. Only ROOT, CONTEXT, and SYNTHESIS nodes can have children.`
+          });
+        }
+      }
+    }
 
     const normalizedNodeType = typeof nodeType === 'number'
       ? NODE_TYPES[nodeType]
@@ -153,6 +171,22 @@ router.post(
       const createdNodes: NodeData[] = [];
       const duplicateSkipped: string[] = [];
       const now = new Date().toISOString();
+
+      // Enforce leaf constraint for batch: check parent type once if parentId provided
+      if (nodes.length > 0 && nodes[0].parentId) {
+        const parentCheck = await tx.run(
+          'MATCH (n:Node {id: $id}) RETURN n.node_type AS nodeType',
+          { id: getNeo4j().int(nodes[0].parentId) }
+        );
+        if (parentCheck.records.length) {
+          const parentType = parentCheck.records[0].get('nodeType');
+          if (LEAF_NODE_TYPES.includes(parentType)) {
+            return res.status(400).json({
+              error: `Cannot add children to a ${parentType} node. Only ROOT, CONTEXT, and SYNTHESIS nodes can have children.`
+            });
+          }
+        }
+      }
 
       for (const n of nodes) {
         // Duplicate detection: skip if title matches or is substring of existing
@@ -291,6 +325,124 @@ router.delete(
   })
 );
 
+// PATCH /threads/:threadId/nodes/:nodeId/parent - reparent a node
+router.patch(
+  '/threads/:threadId/nodes/:nodeId/parent',
+  requireAuth,
+  withTransaction(async (req, res) => {
+    const threadId = parseInt(req.params.threadId);
+    const nodeId = parseInt(req.params.nodeId);
+    const { newParentId } = req.body; // number | null
+    const tx = req.neo4jTx!;
+
+    // Validate node exists in this thread
+    const nodeCheck = await tx.run(
+      `MATCH (t:Thread {id: $tid})-[:HAS_NODE]->(n:Node {id: $nid})
+       RETURN n.node_type AS nodeType`,
+      { tid: getNeo4j().int(threadId), nid: getNeo4j().int(nodeId) }
+    );
+    if (!nodeCheck.records.length) {
+      return res.status(404).json({ error: 'Node not found in this thread' });
+    }
+
+    if (newParentId != null) {
+      // Validate parent exists in this thread
+      const parentCheck = await tx.run(
+        `MATCH (t:Thread {id: $tid})-[:HAS_NODE]->(p:Node {id: $pid})
+         RETURN p.node_type AS nodeType`,
+        { tid: getNeo4j().int(threadId), pid: getNeo4j().int(newParentId) }
+      );
+      if (!parentCheck.records.length) {
+        return res.status(404).json({ error: 'Parent node not found in this thread' });
+      }
+
+      // Enforce leaf constraint on new parent
+      const parentType = parentCheck.records[0].get('nodeType');
+      if (LEAF_NODE_TYPES.includes(parentType)) {
+        return res.status(400).json({
+          error: `Cannot reparent under a ${parentType} node. Only ROOT, CONTEXT, and SYNTHESIS nodes can have children.`
+        });
+      }
+
+      // Check circular reference: newParentId must not be a descendant of nodeId
+      const circularCheck = await tx.run(
+        `MATCH path = (n:Node {id: $nid})-[:PARENT_OF*]->(d:Node {id: $pid})
+         RETURN count(path) AS cnt`,
+        { nid: getNeo4j().int(nodeId), pid: getNeo4j().int(newParentId) }
+      );
+      const cnt = circularCheck.records[0]?.get('cnt');
+      const circCount = typeof cnt?.toNumber === 'function' ? cnt.toNumber() : (cnt ?? 0);
+      if (circCount > 0) {
+        return res.status(400).json({ error: 'Cannot reparent: would create a circular reference' });
+      }
+    }
+
+    // Delete existing PARENT_OF relationship pointing to this node
+    await tx.run(
+      `MATCH (parent:Node)-[r:PARENT_OF]->(n:Node {id: $nid})
+       DELETE r`,
+      { nid: getNeo4j().int(nodeId) }
+    );
+
+    if (newParentId != null) {
+      // Create new PARENT_OF relationship
+      await tx.run(
+        `MATCH (p:Node {id: $pid}), (n:Node {id: $nid})
+         CREATE (p)-[:PARENT_OF]->(n)`,
+        { pid: getNeo4j().int(newParentId), nid: getNeo4j().int(nodeId) }
+      );
+    } else {
+      // Detaching to ROOT — update node_type
+      await tx.run(
+        `MATCH (n:Node {id: $nid})
+         SET n.node_type = 'ROOT', n.updated_at = $now`,
+        { nid: getNeo4j().int(nodeId), now: new Date().toISOString() }
+      );
+    }
+
+    res.json({ ok: true, newParentId: newParentId ?? null });
+  })
+);
+
+// PATCH /threads/:threadId/nodes/:nodeId/order - update chronological_order
+router.patch(
+  '/threads/:threadId/nodes/:nodeId/order',
+  requireAuth,
+  withSession(async (req, res) => {
+    const nodeId = parseInt(req.params.nodeId);
+    const { chronological_order } = req.body;
+    const session = req.neo4jSession!;
+
+    if (chronological_order == null || typeof chronological_order !== 'number') {
+      return res.status(400).json({ error: 'chronological_order (number) is required' });
+    }
+
+    // Fetch current metadata, merge chronological_order, save back
+    const result = await session.run(
+      'MATCH (n:Node {id: $nid}) RETURN n.metadata AS meta',
+      { nid: getNeo4j().int(nodeId) }
+    );
+    if (!result.records.length) {
+      return res.status(404).json({ error: 'Node not found' });
+    }
+
+    let meta: Record<string, unknown> = {};
+    try {
+      meta = JSON.parse(result.records[0].get('meta') || '{}');
+    } catch { /* ignore */ }
+
+    meta.chronological_order = chronological_order;
+
+    await session.run(
+      `MATCH (n:Node {id: $nid})
+       SET n.metadata = $meta, n.updated_at = $now`,
+      { nid: getNeo4j().int(nodeId), meta: JSON.stringify(meta), now: new Date().toISOString() }
+    );
+
+    res.json({ ok: true, chronological_order });
+  })
+);
+
 // POST /nodes/suggest - suggest nodes with AI
 router.post(
   '/nodes/suggest',
@@ -330,14 +482,21 @@ router.post(
           role: 'system',
           content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
 For the given content, suggest 3-4 relevant nodes that would enrich the discussion.
-Each node should have:
-1. A type (one of: EVIDENCE, REFERENCE, CONTEXT, EXAMPLE, COUNTERPOINT, SYNTHESIS)
-2. A title (concise but descriptive)
-3. Content that follows the format for that node type:
-   - EVIDENCE: point and source
-   - EXAMPLE: title and description
-   - COUNTERPOINT: argument and explanation
-   - Others: regular text content
+
+Node types fall into two categories:
+
+EXPANDABLE types (can have children — use for broad topics):
+- ROOT: Broad topics or claims that deserve sub-exploration with their own child nodes.
+- CONTEXT: Background information that could have supporting details.
+- SYNTHESIS: Summary or conclusions tying together multiple points.
+
+LEAF types (terminal knowledge — no children):
+- EVIDENCE: ONLY for specific, verifiable factual claims with identifiable sources. Content format: point and source.
+- REFERENCE: Cited sources, URLs, papers. Content format: source details.
+- EXAMPLE: Specific illustrative examples. Content format: title and description.
+- COUNTERPOINT: Opposing views or critiques. Content format: argument and explanation.
+
+KEY: If a suggestion describes a broad sub-topic with potential sub-points, use ROOT — not EVIDENCE. EVIDENCE is strictly for specific facts with concrete sources.
 
 Respond with only the JSON array — no preamble, no explanation.
 
@@ -363,6 +522,135 @@ Format your response as a JSON array of node suggestions:
       res.status(500).json({ error: (err as Error).message });
     }
   }
+);
+
+// POST /threads/:threadId/nodes/:nodeId/enrich — enrich a ROOT node with more detail + generate children
+router.post(
+  '/threads/:threadId/nodes/:nodeId/enrich',
+  requireAuth,
+  withTransaction(async (req, res) => {
+    const threadId = parseInt(req.params.threadId);
+    const nodeId = parseInt(req.params.nodeId);
+    const tx = req.neo4jTx!;
+
+    // Fetch the node
+    const nodeResult = await tx.run(
+      'MATCH (n:Node {id: $id}) RETURN n',
+      { id: getNeo4j().int(nodeId) }
+    );
+    if (!nodeResult.records.length) {
+      return res.status(404).json({ error: 'Node not found' });
+    }
+    const nodeProps = nodeResult.records[0].get('n').properties;
+    const nodeTitle = nodeProps.title;
+    const nodeContent = nodeProps.content || '';
+    const nodeType = nodeProps.node_type;
+
+    // Fetch thread context
+    let threadTitle = '';
+    const threadResult = await tx.run(
+      'MATCH (t:Thread {id: $id}) RETURN t.title AS title',
+      { id: getNeo4j().int(threadId) }
+    );
+    if (threadResult.records.length) {
+      threadTitle = threadResult.records[0].get('title') || '';
+    }
+
+    // Ask AI to enrich
+    const response = await getOpenAI().chat.completions.create({
+      model: config.openai.chatModel,
+      messages: [{
+        role: 'system',
+        content: `You are a research expert enriching a knowledge graph node.
+
+Given a node from a knowledge thread, do TWO things:
+1. Write a richer, more detailed version of the node's content (2-3 paragraphs, include specific facts, dates, names, and sources where possible).
+2. Generate 3-5 child nodes that break down this topic into specific sub-points.
+
+Child node types (LEAF types only — they won't have their own children):
+- EVIDENCE: Specific verifiable facts with sources
+- EXAMPLE: Concrete illustrative examples
+- CONTEXT: Background information
+- COUNTERPOINT: Opposing views or nuances
+- REFERENCE: Key sources or citations
+
+Return ONLY valid JSON (no markdown fencing):
+{
+  "enrichedContent": "the enriched content for the parent node (plain text or HTML)",
+  "children": [
+    { "type": "EVIDENCE|EXAMPLE|CONTEXT|COUNTERPOINT|REFERENCE", "title": "short title", "content": "detailed content" }
+  ]
+}`,
+      }, {
+        role: 'user',
+        content: `Thread: "${threadTitle}"\nNode type: ${nodeType}\nNode title: "${nodeTitle}"\nCurrent content: ${nodeContent}`,
+      }],
+      temperature: 0.7,
+    });
+
+    const raw = response.choices[0].message.content || '{}';
+    const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+    const parsed = JSON.parse(cleaned);
+
+    // Update the node's content with enriched version
+    const now = new Date().toISOString();
+    if (parsed.enrichedContent) {
+      await tx.run(
+        `MATCH (n:Node {id: $id})
+         SET n.content = $content, n.updated_at = $now,
+             n.metadata = $meta`,
+        {
+          id: getNeo4j().int(nodeId),
+          content: parsed.enrichedContent,
+          now,
+          meta: JSON.stringify({ title: nodeTitle, description: String(parsed.enrichedContent).substring(0, 100) }),
+        }
+      );
+    }
+
+    // Create child nodes
+    const createdChildren: NodeData[] = [];
+    for (const child of parsed.children || []) {
+      if (!child.title || !child.content || !NODE_TYPES.includes(child.type)) continue;
+      const childId = await getNextId('node', tx);
+      await tx.run(
+        `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:$type, metadata:$meta, created_at:$now, updated_at:$now })`,
+        { id: getNeo4j().int(childId), title: child.title, content: child.content, type: child.type, meta: JSON.stringify({ title: child.title }), now }
+      );
+      await tx.run(
+        `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(n)`,
+        { tid: getNeo4j().int(threadId), nid: getNeo4j().int(childId) }
+      );
+      await tx.run(
+        `MATCH (p:Node {id:$pid}),(n:Node {id:$nid}) CREATE (p)-[:PARENT_OF]->(n)`,
+        { pid: getNeo4j().int(nodeId), nid: getNeo4j().int(childId) }
+      );
+      createdChildren.push(formatNode(
+        { id: childId, title: child.title, content: child.content, node_type: child.type, created_at: now, updated_at: now, metadata: '{}' },
+        nodeId
+      ));
+    }
+
+    // Generate embeddings asynchronously
+    for (const cn of createdChildren) {
+      const embText = getEmbeddingText({ title: cn.title, content: cn.content, node_type: cn.node_type }, 'node');
+      if (embText.trim()) {
+        generateEmbedding(embText).then(embedding => {
+          if (embedding) {
+            const s = getSession();
+            s.run('MATCH (n:Node {id: $id}) SET n.embedding = $embedding, n.embedding_text = $text',
+              { id: getNeo4j().int(cn.id!), embedding, text: embText })
+              .finally(() => s.close());
+          }
+        }).catch(e => console.warn('Enrich node embedding failed:', e.message));
+      }
+    }
+
+    res.json({
+      enrichedContent: parsed.enrichedContent || nodeContent,
+      children: createdChildren,
+    });
+  })
 );
 
 export default router;

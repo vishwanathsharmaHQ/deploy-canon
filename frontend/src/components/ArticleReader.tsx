@@ -59,6 +59,8 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   const [secondaryPinnedNodes, setSecondaryPinnedNodes] = useState<ThreadNode[] | null>(null);
   const [secondaryPanelLabel, setSecondaryPanelLabel] = useState('Supporting Nodes');
   const [pendingProposals, setPendingProposals] = useState<{ nodes: ThreadNode[]; parentNodeId: number; type: string } | null>(null);
+  // Enrich
+  const [enrichLoading, setEnrichLoading] = useState(false);
   // Fork
   const [forkModalOpen, setForkModalOpen] = useState(false);
   const [forkClaim, setForkClaim] = useState('');
@@ -151,7 +153,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     try {
       const { proposals, parentNodeId } = await api.redTeamThread(thread.id, node.id);
       // Proposals are not saved yet — show with Accept/Discard in secondary panel
-      const previewNodes = proposals.map((p: { title: string; content: string; nodeType: string }, i: number) => ({ ...p, id: `pending-rt-${i}` as unknown as number, node_type: p.nodeType, parent_id: parentNodeId } as ThreadNode));
+      const previewNodes = proposals.map((p: { title: string; content: string; nodeType: string }, i: number) => ({ ...p, id: `pending-rt-${i}` as unknown as number, node_type: p.nodeType, parent_id: parentNodeId } as unknown as ThreadNode));
       setPendingProposals({ nodes: previewNodes, parentNodeId, type: 'redteam' });
       setSecondaryPinnedNodes(previewNodes);
       setSecondaryPanelLabel('⚔ Red Team — Review');
@@ -169,8 +171,8 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     setSteelmanLoading(true);
     try {
       const { proposal, parentId } = await api.steelmanNode(thread.id, nodeId);
-      const previewNode = { ...proposal, id: 'pending-steelman' as unknown as number, node_type: proposal.nodeType, parent_id: parentId } as ThreadNode;
-      setPendingProposals({ nodes: [previewNode], parentNodeId: parentId, type: 'steelman' });
+      const previewNode = { ...proposal, id: 'pending-steelman' as unknown as number, node_type: proposal.nodeType, parent_id: parentId } as unknown as ThreadNode;
+      setPendingProposals({ nodes: [previewNode], parentNodeId: parentId ?? 0, type: 'steelman' });
       setSecondaryPinnedNodes([previewNode]);
       setSecondaryPanelLabel('▲ Steelmanned — Review');
       setSecondaryOpen(true);
@@ -182,19 +184,32 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     }
   };
 
+  const handleEnrich = async (nodeId: number) => {
+    if (!currentUser) { onAuthRequired?.(); return; }
+    setEnrichLoading(true);
+    try {
+      await api.enrichNode(thread.id, nodeId);
+      onNodesCreated?.(thread.id);
+    } catch (err) {
+      console.error('Enrich failed:', err);
+    } finally {
+      setEnrichLoading(false);
+    }
+  };
+
   const handleAcceptProposals = async () => {
     if (!pendingProposals) return;
     try {
-      const { created } = await api.createNodesBatch(thread.id, pendingProposals.nodes.map(n => ({
+      const { createdNodes } = await api.createNodesBatch(thread.id, pendingProposals.nodes.map(n => ({
         title: n.title,
         content: n.content,
-        nodeType: n.node_type || n.nodeType,
+        nodeType: n.node_type,
         parentId: pendingProposals.parentNodeId,
       })));
-      setOrderedNodes(prev => [...prev, ...created]);
-      setSecondaryPinnedNodes(created);
+      setOrderedNodes(prev => [...prev, ...createdNodes]);
+      setSecondaryPinnedNodes(createdNodes);
       setSecondaryPanelLabel(pendingProposals.type === 'redteam' ? '⚔ Red Team' : '▲ Steelmanned');
-      setSelectedSecondaryId(created[0]?.id ?? null);
+      setSelectedSecondaryId(createdNodes[0]?.id ?? null);
       setPendingProposals(null);
       onNodesCreated?.(thread.id);
     } catch (err) {
@@ -283,7 +298,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
       let ordered: ThreadNode[];
       if (saved && Array.isArray(saved)) {
         const savedSet = new Set(saved);
-        const savedOrdered = saved.map((id: number) => nodes.find(n => n.id === id)).filter(Boolean);
+        const savedOrdered = saved.map((id: number) => nodes.find(n => n.id === id)).filter((n): n is ThreadNode => Boolean(n));
         const remaining = nodes.filter(n => !savedSet.has(n.id));
         ordered = [...savedOrdered, ...remaining];
       } else {
@@ -487,13 +502,23 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
                   {redTeamLoading ? '…' : '⚔ Red Team'}
                 </button>
                 {nodeType === 'ROOT' && (
-                  <button
-                    className="ar-action-btn ar-action-btn--fork"
-                    onClick={() => setForkModalOpen(true)}
-                    title="Clone this thread to explore an alternative claim"
-                  >
-                    ⑂ Fork
-                  </button>
+                  <>
+                    <button
+                      className="ar-action-btn ar-action-btn--fork"
+                      onClick={() => setForkModalOpen(true)}
+                      title="Clone this thread to explore an alternative claim"
+                    >
+                      ⑂ Fork
+                    </button>
+                    <button
+                      className="ar-action-btn ar-action-btn--enrich"
+                      onClick={() => handleEnrich(node.id)}
+                      disabled={enrichLoading}
+                      title="Generate child nodes and enrich this node with more detail"
+                    >
+                      {enrichLoading ? 'Enriching...' : '✦ Enrich'}
+                    </button>
+                  </>
                 )}
               </>
             )}
@@ -541,7 +566,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             )}
             <hr className="ar-divider" />
             <div className="ar-editor-section">
-              <EditorToolbar editor={nodeEditEditor} classPrefix="ar" />
+              <EditorToolbar editor={nodeEditEditor as any} classPrefix="ar" />
               <div className="ar-editor-wrapper">
                 <EditorContent editor={nodeEditEditor} />
               </div>
@@ -562,7 +587,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
                   onClick={async () => {
                     try {
                       const result = await api.exportThread(thread.id, 'markdown');
-                      const blob = new Blob([result.content], { type: 'text/markdown' });
+                      const blob = new Blob([result.content || result.markdown || ''], { type: 'text/markdown' });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement('a');
                       a.href = url;

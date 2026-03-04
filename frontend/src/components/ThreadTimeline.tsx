@@ -9,13 +9,14 @@ import './ThreadTimeline.css';
 
 interface TimelineEventItem {
   type: string;
-  title: string;
+  title?: string;
   nodeType?: NodeTypeName;
   timestamp: string;
-  version?: number;
+  version?: number | null;
   trigger?: string;
-  score?: number;
+  score?: unknown;
   verdict?: string;
+  nodeId?: number | null;
 }
 
 interface ThreadTimelineProps {
@@ -40,7 +41,7 @@ const ThreadTimeline: React.FC<ThreadTimelineProps> = ({ threadId, threadTitle }
         api.getConfidenceHistory(threadId),
         api.getSnapshots(threadId),
       ]);
-      setEvents(timelineData);
+      setEvents(timelineData as TimelineEventItem[]);
       setConfidenceHistory(confData);
       setSnapshots(snapData);
     } catch (err) {
@@ -142,7 +143,7 @@ const ThreadTimeline: React.FC<ThreadTimelineProps> = ({ threadId, threadTitle }
                 {event.type === 'snapshot' && <span>Snapshot v{event.version} ({event.trigger})</span>}
                 {event.type === 'confidence' && (
                   <span>
-                    Score: <strong style={{ color: (event.score ?? 0) >= 70 ? '#00ff9d' : (event.score ?? 0) >= 40 ? '#fdd835' : '#ef5350' }}>{event.score}</strong>
+                    Score: <strong style={{ color: (Number(event.score) || 0) >= 70 ? '#00ff9d' : (Number(event.score) || 0) >= 40 ? '#fdd835' : '#ef5350' }}>{String(event.score)}</strong>
                     {event.verdict && <span className="tt-verdict"> &mdash; {event.verdict}</span>}
                   </span>
                 )}

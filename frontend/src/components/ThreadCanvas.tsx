@@ -73,7 +73,7 @@ const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
       <Excalidraw
         initialData={initialData || undefined}
         theme="dark"
-        onChange={handleChange}
+        onChange={handleChange as any}
         UIOptions={{
           canvasActions: {
             loadScene: false,

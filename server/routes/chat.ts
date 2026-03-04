@@ -48,21 +48,35 @@ router.post('/chat', requireAuth, async (req, res) => {
     const model = config.openai.chatModel;
 
     // Build messages array for the LLM
-    const systemPrompt =
+    // Detect context type: node-specific vs thread-level
+    const isNodeSpecific = nodeContext && typeof nodeContext === 'object' && 'nodeId' in nodeContext;
+    const isThreadLevel = nodeContext && typeof nodeContext === 'object' && 'threadTitle' in nodeContext;
+
+    let systemPrompt =
       'You are a research assistant. Provide thorough, well-sourced answers. ' +
       'When citing web sources, include the URL. Use markdown formatting.';
+
+    // Enhance system prompt with thread/node awareness
+    if (isThreadLevel) {
+      const ctx = nodeContext as Record<string, unknown>;
+      systemPrompt += `\n\nYou are currently helping the user explore the thread "${ctx.threadTitle}".`;
+      if (ctx.threadDescription) systemPrompt += ` Thread description: ${ctx.threadDescription}.`;
+      if (ctx.threadType && ctx.threadType !== 'standard') systemPrompt += ` This is a ${ctx.threadType} thread.`;
+      if (ctx.nodesSummary) systemPrompt += `\nExisting knowledge nodes: ${ctx.nodesSummary}`;
+      systemPrompt += '\n\nWhen the user says "this" or "it", they are referring to this thread topic. Provide relevant, in-depth information about the thread subject.';
+    } else if (isNodeSpecific) {
+      const ctx = nodeContext as Record<string, unknown>;
+      systemPrompt += `\n\nThe user is currently viewing the node "${ctx.title}" (type: ${ctx.nodeType}). When they say "this" or "it", they are referring to this specific topic. Provide detailed information about this subject.`;
+    }
 
     const llmMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       ...history,
     ];
 
-    // If we have article/node context, inject it
-    if (nodeContext) {
-      const contextText =
-        typeof nodeContext === 'string'
-          ? nodeContext
-          : JSON.stringify(nodeContext);
+    // If we have node-specific context, inject the content
+    if (isNodeSpecific) {
+      const contextText = JSON.stringify(nodeContext);
       llmMessages.push({
         role: 'system',
         content: `Current article/node context:\n${contextText}`,
@@ -203,11 +217,88 @@ router.post(
     }
 
     // ── Ask GPT to extract nodes and detect topic shift ────────────────────
+    // Read thread_type from metadata for type-specific extraction
+    let threadType = 'standard';
+    if (threadId) {
+      try {
+        const metaResult = await session.run(
+          'MATCH (t:Thread {id: $id}) RETURN t.metadata AS meta',
+          { id: getNeo4j().int(threadId) }
+        );
+        if (metaResult.records.length) {
+          const raw = metaResult.records[0].get('meta');
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              threadType = parsed.thread_type || 'standard';
+            } catch { /* ignore */ }
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    // For historical threads, fetch existing ROOT nodes with chronological_order
+    let existingRootsContext = '';
+    if (threadType === 'historical' && threadId) {
+      try {
+        const rootsResult = await session.run(
+          `MATCH (t:Thread {id: $id})-[:HAS_NODE]->(n:Node {node_type: 'ROOT'})
+           RETURN n.title AS title, n.metadata AS metadata
+           ORDER BY n.created_at`,
+          { id: getNeo4j().int(threadId) }
+        );
+        if (rootsResult.records.length > 0) {
+          const rootsList = rootsResult.records.map((r, idx) => {
+            const title = r.get('title') || 'Untitled';
+            let order = idx + 1;
+            try {
+              const meta = JSON.parse(r.get('metadata') || '{}');
+              if (meta.chronological_order != null) order = meta.chronological_order;
+            } catch { /* ignore */ }
+            return `  - "${title}" (chronological_order: ${order})`;
+          });
+          existingRootsContext = `\n\nExisting ROOT nodes in chronological order:\n${rootsList.join('\n')}`;
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Detect if the question is about a specific existing node vs broad thread topic
+    const isNodeSpecific = nodeContext && typeof nodeContext === 'object' && 'nodeId' in nodeContext;
+
+    // Thread-type-specific extraction guidance
+    let threadTypeInstructions = '';
+    if (threadType === 'historical') {
+      if (isNodeSpecific) {
+        const ctx = nodeContext as Record<string, unknown>;
+        threadTypeInstructions = `\nThis is a HISTORICAL/TIMELINE thread. The user is asking about a specific existing node: "${ctx.title}" (type: ${ctx.nodeType}).
+Generate CHILD nodes (EVIDENCE, CONTEXT, EXAMPLE, REFERENCE) that provide supporting details, evidence, or context about this specific topic.
+Do NOT generate new ROOT timeline events — the user wants to explore this existing event in depth.
+Only generate ROOT if the reply explicitly introduces an entirely new historical period/event not already in the timeline.`;
+      } else {
+        threadTypeInstructions = `\nThis is a HISTORICAL/TIMELINE thread. The user is asking broadly about the thread topic — generate ROOT nodes for each distinct event, era, or time period mentioned in the reply. Chronological order matters. Supporting details about each event should be EVIDENCE or CONTEXT.
+For each ROOT node, include a "chronological_order" field (number) indicating where it belongs in the timeline.
+Use decimals to insert between existing positions (e.g. 2.5 to place between positions 2 and 3).${existingRootsContext}`;
+      }
+    } else if (threadType === 'debate') {
+      threadTypeInstructions = `\nThis is a DEBATE thread. Extract the central claim as ROOT. Supporting evidence stays EVIDENCE. Critiques and opposing views should be COUNTERPOINT. Final assessments should be SYNTHESIS.`;
+    } else if (threadType === 'comparison') {
+      threadTypeInstructions = `\nThis is a COMPARISON thread. Extract each comparison subject as its own ROOT node. Details about each subject should be child nodes (EVIDENCE, EXAMPLE, CONTEXT).`;
+    }
+
+    // For any thread type: if asking about a specific node, prefer child nodes
+    if (isNodeSpecific && threadType !== 'historical') {
+      const ctx = nodeContext as Record<string, unknown>;
+      threadTypeInstructions += `\nThe user is asking about a specific existing node: "${ctx.title}" (type: ${ctx.nodeType}). Generate supporting child nodes (EVIDENCE, CONTEXT, EXAMPLE, COUNTERPOINT) that elaborate on this topic. Only use ROOT if the reply introduces an entirely new top-level subject.`;
+    }
+
     const extractionPrompt = `You are a knowledge-graph extraction engine.
 
 Given a user question, an assistant reply, and optional thread context, do two things:
 1. Decide if the conversation represents a TOPIC SHIFT from the current thread.
-   A topic shift means the user is asking about something fundamentally different from the thread's subject.
+   A topic shift means the user is asking about an ENTIRELY UNRELATED domain — not just a sub-topic, aspect, event, or detail within the thread's subject.
+   Be VERY conservative: sub-topics, related events, specific aspects, causes, effects, people, and places within the thread's domain are NOT topic shifts.
+   Examples of NOT a topic shift: "Pearl Harbor" within a "World War 2" thread, "React hooks" within a "React" thread.
+   Examples of a topic shift: "Italian cooking" within a "World War 2" thread, "Quantum physics" within a "React" thread.
    If there is no existing thread (threadTitle is empty), this is always a new topic.
 2. Extract structured knowledge nodes from the reply.
 
@@ -225,19 +316,31 @@ Return ONLY valid JSON (no markdown fencing) in this exact format:
     {
       "type": "ROOT|EVIDENCE|REFERENCE|CONTEXT|EXAMPLE|COUNTERPOINT|SYNTHESIS",
       "title": "short title",
-      "content": "detailed content from the reply"
+      "content": "detailed content from the reply",
+      "chronological_order": null
     }
   ]
 }
 
-Rules for node extraction:
-- Extract the MAIN POINT as a ROOT node (if it introduces a new claim/thesis).
-- Extract supporting facts as EVIDENCE nodes.
-- Extract cited sources as REFERENCE nodes.
-- Extract background info as CONTEXT nodes.
-- Extract specific examples as EXAMPLE nodes.
-- Extract opposing views as COUNTERPOINT nodes.
-- Extract summary/conclusions as SYNTHESIS nodes.
+Note: "chronological_order" is only needed for ROOT nodes in HISTORICAL threads. Use null otherwise.
+
+Node types fall into two categories:
+
+EXPANDABLE types (can have children):
+- ROOT: Broad topics, claims, or theses that deserve sub-exploration. Use ROOT for any subject that has potential sub-points, facets, or dimensions to explore. NOT just "the main point" — any broad topic warrants ROOT.
+- CONTEXT: Background information, historical context, or framing that could have supporting details.
+- SYNTHESIS: Summary or conclusions that tie together multiple points.
+
+LEAF types (cannot have children — terminal knowledge):
+- EVIDENCE: ONLY for specific, verifiable factual claims with identifiable sources. Must cite or reference concrete data, studies, or statistics.
+- REFERENCE: Cited sources, URLs, papers, or links.
+- EXAMPLE: Specific illustrative examples or case studies.
+- COUNTERPOINT: Opposing views, critiques, or rebuttals.
+
+KEY DISTINCTION: If content describes a TOPIC with potential sub-points, use ROOT. EVIDENCE is ONLY for specific facts with identifiable sources. A broad sub-topic like "Economic Impact" or "Environmental Effects" should be ROOT, not EVIDENCE.
+${threadTypeInstructions}
+
+Additional rules:
 - Each node's content should be self-contained and meaningful.
 - Only include nodes that add real knowledge value — skip trivial/filler.
 - If the reply is a simple acknowledgment or clarification, return an empty nodes array.
@@ -265,13 +368,19 @@ Rules for node extraction:
       extracted = { topicShift: false, newThreadTitle: '', newThreadDescription: '', proposedUpdate: null, nodes: [] };
     }
 
-    // ── Handle topic shift: create a new thread ────────────────────────────
+    // ── Handle topic shift ──────────────────────────────────────────────────
+    // If no threadId at all, we must create a thread so the chat can be saved.
+    // If topicShift is detected but a thread already exists, DON'T auto-create —
+    // just flag it so the frontend can create the thread when the user accepts nodes.
     let resolvedThreadId = threadId;
     let newThread: { id: number; title: string; description: string } | null = null;
+    let pendingNewThread: { title: string; description: string } | null = null;
 
-    const isTopicShift = extracted.topicShift || !threadId;
+    const needsThread = !threadId; // no thread at all — must create one
+    const isTopicShift = extracted.topicShift && !!threadId; // has thread but different topic
 
-    if (isTopicShift) {
+    if (needsThread) {
+      // Create thread immediately since we need one for chat persistence
       try {
         const newTitle = extracted.newThreadTitle || message.substring(0, 80);
         const newDesc = extracted.newThreadDescription || reply.substring(0, 200);
@@ -291,7 +400,6 @@ Rules for node extraction:
           }
         );
 
-        // Link thread to user
         await session.run(
           `MATCH (u:User {id: $uid}), (t:Thread {id: $tid})
            CREATE (u)-[:OWNS]->(t)`,
@@ -303,6 +411,13 @@ Rules for node extraction:
       } catch (threadErr) {
         console.error('Failed to create thread from chat:', threadErr);
       }
+    } else if (isTopicShift) {
+      // Flag topic shift but DON'T auto-create — nodes stay in current thread
+      // The frontend can show a suggestion to create a new thread
+      pendingNewThread = {
+        title: extracted.newThreadTitle || message.substring(0, 80),
+        description: extracted.newThreadDescription || reply.substring(0, 200),
+      };
     }
 
     // ── Build proposed nodes (not yet saved — frontend decides) ────────────
@@ -312,6 +427,7 @@ Rules for node extraction:
         type: n.type,
         title: n.title,
         content: n.content,
+        ...(n.chronological_order != null ? { chronological_order: n.chronological_order } : {}),
       }));
 
     // ── Add citations as REFERENCE nodes if not already covered ────────────

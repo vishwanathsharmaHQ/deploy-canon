@@ -16,7 +16,7 @@ import IngestPanel from './components/IngestPanel'
 import ReadLaterQueue from './components/ReadLaterQueue'
 import ThreadTimeline from './components/ThreadTimeline'
 import { api } from './services/api'
-import { NODE_TYPES } from './constants'
+import { NODE_TYPES, THREAD_TYPES } from './constants'
 import type { ThreadNode, ViewName } from './types'
 import { useAuthStore } from './stores/useAuthStore'
 import { useUIStore } from './stores/useUIStore'
@@ -38,6 +38,7 @@ function App() {
   const {
     threads, selectedThreadId, setSelectedThreadId,
     title, setTitle, description, setDescription,
+    threadType, setThreadType,
     setThreads, loadThreads, createThread,
   } = useThreadStore()
   const {
@@ -107,10 +108,21 @@ function App() {
 
   // ── Graph chat context ──────────────────────────────────────────────────────
   const graphChatContext = useMemo(() => {
-    if (!graphSelectedNodeId || !threadToShow) return null
-    const node = (threadToShow.nodes || []).find(n => n.id === graphSelectedNodeId)
-    if (!node) return null
-    return { nodeId: node.id, nodeType: node.node_type, title: node.title || node.metadata?.title, content: typeof node.content === 'string' ? node.content.substring(0, 600) : '' }
+    if (!threadToShow) return null
+    // Node-specific context when a non-thread node is selected
+    if (graphSelectedNodeId) {
+      const node = (threadToShow.nodes || []).find(n => n.id === graphSelectedNodeId)
+      if (node) return { nodeId: node.id, nodeType: node.node_type, title: node.title || node.metadata?.title, content: typeof node.content === 'string' ? node.content.substring(0, 600) : '' }
+    }
+    // Thread-level context when thread is selected but no specific node
+    const nodes = threadToShow.nodes || []
+    const nodeSummary = nodes.slice(0, 15).map(n => `[${n.node_type}] ${n.title || n.metadata?.title || 'Untitled'}`).join('; ')
+    return {
+      threadTitle: threadToShow.metadata?.title || threadToShow.title || `Thread ${threadToShow.id}`,
+      threadDescription: threadToShow.description || '',
+      threadType: (threadToShow.metadata?.thread_type as string) || 'standard',
+      nodesSummary: nodeSummary || 'No nodes yet',
+    }
   }, [graphSelectedNodeId, threadToShow])
 
   // ── Search ──────────────────────────────────────────────────────────────────
@@ -407,6 +419,16 @@ function App() {
                 <div className="create-thread-form">
                   <input type="text" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} className="thread-input" />
                   <input type="text" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} className="thread-input" />
+                  <select
+                    value={threadType}
+                    onChange={(e) => setThreadType(e.target.value)}
+                    className="thread-input"
+                    style={{ padding: '8px 12px', background: '#2a2a3e', color: '#e0e0e0', border: '1px solid #444', borderRadius: '6px' }}
+                  >
+                    {THREAD_TYPES.map(t => (
+                      <option key={t.key} value={t.key}>{t.label} — {t.description}</option>
+                    ))}
+                  </select>
                   <div className="form-buttons">
                     <button className="cancel-button" onClick={() => setShowCreateThreadModal(false)} disabled={loading}>Cancel</button>
                     <button
@@ -430,7 +452,6 @@ function App() {
           <NodeDetailsModal
             node={selectedNode}
             onClose={handleCloseModal}
-            onAddNode={handleAddNode}
             loading={loading}
           />
         )}

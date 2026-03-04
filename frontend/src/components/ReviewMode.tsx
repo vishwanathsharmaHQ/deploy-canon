@@ -10,6 +10,11 @@ interface DueNode {
   title: string;
   content: string;
   node_type: string;
+  parent_id: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  type: number;
 }
 
 interface SessionStats {
@@ -136,7 +141,7 @@ const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
   }
 
   if (mode === 'quiz' && currentNode) {
-    return <QuizMode node={currentNode} onBack={() => setMode('review')} onRate={handleRate} />;
+    return <QuizMode node={currentNode as any} onBack={() => setMode('review')} onRate={handleRate} />;
   }
 
   const { title, body, nodeType } = parseContent(currentNode);

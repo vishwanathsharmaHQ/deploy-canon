@@ -20,7 +20,7 @@ export const formatContent = (content: unknown, nodeType: string): React.ReactNo
   if (!content) return 'No content available';
 
   try {
-    let actualContent = content.content || content;
+    let actualContent: any = (content as any).content || content;
 
     if (typeof actualContent === 'string' && (actualContent.startsWith('{') || actualContent.startsWith('['))) {
       try { actualContent = JSON.parse(actualContent); } catch (e) { /* ignore */ }

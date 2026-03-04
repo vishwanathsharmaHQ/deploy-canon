@@ -121,17 +121,137 @@ router.post(
   aiTimeout,
   withTransaction(async (req, res) => {
     const tx = req.neo4jTx!;
-    const { topic } = req.body;
+    const { topic, threadType = 'standard' } = req.body;
     if (!topic) {
       return res.status(400).json({ error: 'Topic is required' });
     }
 
-    const threadResponse = await getOpenAI().chat.completions.create({
-      model: config.openai.chatModel,
-      messages: [
-        {
-          role: 'system',
-          content: `Create a brief knowledge thread about the given topic with:
+    // Build type-specific generation prompt
+    let generationPrompt: string;
+    let parseAndCreateNodes: (gptContent: Record<string, unknown>, threadId: number) => Promise<void>;
+
+    if (threadType === 'historical') {
+      generationPrompt = `Create a historical/timeline knowledge thread about the given topic.
+Extract 4-6 chronological events or eras as separate items.
+
+Respond with only the JSON object — no preamble, no explanation.
+
+Format as JSON:
+{
+  "summary": "brief overview (2-3 sentences)",
+  "events": [
+    { "title": "Event/Era title", "content": "2-3 sentence description", "type": "ROOT" }
+  ],
+  "synthesis": "brief synthesis tying it together"
+}`;
+      parseAndCreateNodes = async (gptContent, threadId) => {
+        const events = (gptContent.events || []) as { title: string; content: string; type?: string }[];
+        const entries = [
+          { title: 'Overview', content: gptContent.summary as string, type: 'SYNTHESIS' },
+          ...events.map(e => ({ title: e.title, content: e.content, type: 'ROOT' })),
+          { title: 'Synthesis', content: gptContent.synthesis as string, type: 'SYNTHESIS' },
+        ];
+        for (const entry of entries) {
+          const nodeId = await getNextId('node', tx);
+          await tx.run(
+            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:$nodeType, metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
+            { id: getNeo4j().int(nodeId), title: entry.title, content: entry.content, nodeType: entry.type, meta: JSON.stringify({ title: entry.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
+          );
+        }
+      };
+    } else if (threadType === 'debate') {
+      generationPrompt = `Create a debate knowledge thread about the given topic.
+Identify a central claim, 2-3 supporting evidence points, and 2-3 counterpoints.
+
+Respond with only the JSON object — no preamble, no explanation.
+
+Format as JSON:
+{
+  "summary": "brief overview",
+  "centralClaim": { "title": "The central claim", "content": "detailed description" },
+  "evidence": [
+    { "title": "supporting point", "content": "detail with source if possible" }
+  ],
+  "counterpoints": [
+    { "title": "opposing argument", "content": "explanation" }
+  ],
+  "synthesis": "brief balanced assessment"
+}`;
+      parseAndCreateNodes = async (gptContent, threadId) => {
+        const entries: { title: string; content: string; type: string }[] = [];
+        const claim = gptContent.centralClaim as { title: string; content: string };
+        if (claim) entries.push({ title: claim.title, content: claim.content, type: 'ROOT' });
+        for (const e of (gptContent.evidence || []) as { title: string; content: string }[]) {
+          entries.push({ title: e.title, content: JSON.stringify(e), type: 'EVIDENCE' });
+        }
+        for (const cp of (gptContent.counterpoints || []) as { title: string; content: string }[]) {
+          entries.push({ title: cp.title, content: JSON.stringify({ argument: cp.title, explanation: cp.content }), type: 'COUNTERPOINT' });
+        }
+        entries.push({ title: 'Synthesis', content: gptContent.synthesis as string, type: 'SYNTHESIS' });
+
+        for (const entry of entries) {
+          const nodeId = await getNextId('node', tx);
+          await tx.run(
+            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:$nodeType, metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
+            { id: getNeo4j().int(nodeId), title: entry.title, content: entry.content, nodeType: entry.type, meta: JSON.stringify({ title: entry.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
+          );
+        }
+      };
+    } else if (threadType === 'comparison') {
+      generationPrompt = `Create a comparison knowledge thread about the given topic.
+Identify 2-3 subjects to compare, with key attributes for each.
+
+Respond with only the JSON object — no preamble, no explanation.
+
+Format as JSON:
+{
+  "summary": "brief overview of what is being compared",
+  "subjects": [
+    {
+      "title": "Subject name",
+      "content": "overview of this subject",
+      "details": [
+        { "title": "key attribute", "content": "description" }
+      ]
+    }
+  ],
+  "synthesis": "brief comparative conclusion"
+}`;
+      parseAndCreateNodes = async (gptContent, threadId) => {
+        const subjects = (gptContent.subjects || []) as { title: string; content: string; details?: { title: string; content: string }[] }[];
+        // Create subject ROOT nodes
+        for (const subj of subjects) {
+          const rootId = await getNextId('node', tx);
+          const rootNow = new Date().toISOString();
+          await tx.run(
+            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:'ROOT', metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
+            { id: getNeo4j().int(rootId), title: subj.title, content: subj.content, meta: JSON.stringify({ title: subj.title }), now: rootNow, threadId: getNeo4j().int(threadId) }
+          );
+          // Create child detail nodes
+          for (const detail of subj.details || []) {
+            const detailId = await getNextId('node', tx);
+            await tx.run(
+              `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:'EVIDENCE', metadata:$meta, created_at:$now, updated_at:$now })
+               WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)
+               WITH n MATCH (p:Node {id:$parentId}) CREATE (p)-[:PARENT_OF]->(n)`,
+              { id: getNeo4j().int(detailId), title: detail.title, content: detail.content, meta: JSON.stringify({ title: detail.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId), parentId: getNeo4j().int(rootId) }
+            );
+          }
+        }
+        // Synthesis
+        const synthId = await getNextId('node', tx);
+        await tx.run(
+          `CREATE (n:Node { id:$id, title:'Synthesis', content:$content, node_type:'SYNTHESIS', metadata:$meta, created_at:$now, updated_at:$now })
+           WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
+          { id: getNeo4j().int(synthId), title: 'Synthesis', content: gptContent.synthesis as string, meta: JSON.stringify({ title: 'Synthesis' }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
+        );
+      };
+    } else {
+      // Standard (default)
+      generationPrompt = `Create a brief knowledge thread about the given topic with:
 1. A short summary (2-3 sentences)
 2. One key piece of evidence with source
 3. One example
@@ -147,15 +267,34 @@ Format as JSON:
   "example": {"title": "title", "description": "brief description"},
   "counterpoint": {"argument": "point", "explanation": "brief explanation"},
   "synthesis": "brief synthesis"
-}`,
-        },
-        {
-          role: 'user',
-          content: `Create a knowledge thread about: ${topic}`,
-        },
+}`;
+      parseAndCreateNodes = async (gptContent, threadId) => {
+        const nodeEntries = [
+          { title: 'Summary', content: gptContent.summary as string, type: 'SYNTHESIS' },
+          { title: (gptContent.evidence as { source: string }).source, content: JSON.stringify(gptContent.evidence), type: 'EVIDENCE' },
+          { title: (gptContent.example as { title: string }).title, content: JSON.stringify(gptContent.example), type: 'EXAMPLE' },
+          { title: (gptContent.counterpoint as { argument: string }).argument, content: JSON.stringify(gptContent.counterpoint), type: 'COUNTERPOINT' },
+          { title: 'Synthesis', content: gptContent.synthesis as string, type: 'SYNTHESIS' },
+        ];
+        for (const entry of nodeEntries) {
+          const nodeId = await getNextId('node', tx);
+          await tx.run(
+            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:$nodeType, metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
+            { id: getNeo4j().int(nodeId), title: entry.title, content: entry.content, nodeType: entry.type, meta: JSON.stringify({ title: entry.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
+          );
+        }
+      };
+    }
+
+    const threadResponse = await getOpenAI().chat.completions.create({
+      model: config.openai.chatModel,
+      messages: [
+        { role: 'system', content: generationPrompt },
+        { role: 'user', content: `Create a knowledge thread about: ${topic}` },
       ],
       temperature: 0.7,
-      max_tokens: 1000,
+      max_tokens: 1500,
     });
 
     const gptContent = JSON.parse(threadResponse.choices[0].message.content!);
@@ -165,7 +304,8 @@ Format as JSON:
     const now = new Date().toISOString();
     const threadMetaStr = JSON.stringify({
       title: topic,
-      description: gptContent.summary.substring(0, 255),
+      description: (gptContent.summary || '').substring(0, 255),
+      thread_type: threadType,
     });
 
     const threadResult = await tx.run(
@@ -177,45 +317,15 @@ Format as JSON:
       {
         id: getNeo4j().int(threadId),
         title: topic,
-        description: gptContent.summary.substring(0, 255),
-        content: gptContent.summary,
+        description: (gptContent.summary || '').substring(0, 255),
+        content: gptContent.summary || '',
         metadata: threadMetaStr,
         now,
       }
     );
 
-    // Create nodes: SYNTHESIS, EVIDENCE, EXAMPLE, COUNTERPOINT, SYNTHESIS
-    const nodeEntries = [
-      { title: 'Summary', content: gptContent.summary, type: 'SYNTHESIS' },
-      { title: gptContent.evidence.source, content: JSON.stringify(gptContent.evidence), type: 'EVIDENCE' },
-      { title: gptContent.example.title, content: JSON.stringify(gptContent.example), type: 'EXAMPLE' },
-      { title: gptContent.counterpoint.argument, content: JSON.stringify(gptContent.counterpoint), type: 'COUNTERPOINT' },
-      { title: 'Synthesis', content: gptContent.synthesis, type: 'SYNTHESIS' },
-    ];
-
-    for (const entry of nodeEntries) {
-      const nodeId = await getNextId('node', tx);
-      const nodeMeta = JSON.stringify({ title: entry.title });
-      await tx.run(
-        `CREATE (n:Node {
-          id: $id, title: $title, content: $content,
-          node_type: $nodeType, metadata: $metadata,
-          created_at: $now, updated_at: $now
-        })
-        WITH n
-        MATCH (t:Thread {id: $threadId})
-        CREATE (t)-[:HAS_NODE]->(n)`,
-        {
-          id: getNeo4j().int(nodeId),
-          title: entry.title,
-          content: entry.content,
-          nodeType: entry.type,
-          metadata: nodeMeta,
-          now,
-          threadId: getNeo4j().int(threadId),
-        }
-      );
-    }
+    // Create type-specific nodes
+    await parseAndCreateNodes(gptContent, threadId);
 
     const thread = formatThread(threadResult.records[0].get('t').properties);
     res.json(thread);

@@ -114,7 +114,7 @@ const ConfidenceMeter: React.FC<ConfidenceMeterProps> = ({ threadId }) => {
             ))}
           </div>
 
-          {(data.strengths?.length > 0 || data.gaps?.length > 0) && (
+          {((data.strengths?.length ?? 0) > 0 || (data.gaps?.length ?? 0) > 0) && (
             <div className="cm-accordion">
               <button className="cm-accordion-toggle" onClick={() => setExpanded(e => !e)}>
                 {expanded ? '▾' : '▸'} Strengths &amp; Gaps
