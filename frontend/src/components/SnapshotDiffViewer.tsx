@@ -5,18 +5,18 @@ import type { NodeTypeName } from '../types';
 import './SnapshotDiffViewer.css';
 
 interface DiffNode {
-  id: number;
+  id: number | null;
   title: string;
-  node_type: NodeTypeName;
+  node_type: string;
   content?: string;
 }
 
 interface SnapshotDiff {
   v1NodeCount: number;
   v2NodeCount: number;
-  added?: DiffNode[];
-  removed?: DiffNode[];
-  modified?: DiffNode[];
+  added: DiffNode[];
+  removed: DiffNode[];
+  modified: DiffNode[];
 }
 
 interface SnapshotDiffViewerProps {
@@ -68,7 +68,7 @@ const SnapshotDiffViewer: React.FC<SnapshotDiffViewerProps> = ({ threadId, v1, v
           <h5>Added ({diff.added.length})</h5>
           {diff.added.map(n => (
             <div key={n.id} className="sdv-node">
-              <span className="sdv-type" style={{ color: NODE_TYPE_COLORS[n.node_type] }}>{n.node_type}</span>
+              <span className="sdv-type" style={{ color: NODE_TYPE_COLORS[n.node_type as NodeTypeName] }}>{n.node_type}</span>
               <span className="sdv-title">{n.title}</span>
             </div>
           ))}
@@ -80,7 +80,7 @@ const SnapshotDiffViewer: React.FC<SnapshotDiffViewerProps> = ({ threadId, v1, v
           <h5>Removed ({diff.removed.length})</h5>
           {diff.removed.map(n => (
             <div key={n.id} className="sdv-node">
-              <span className="sdv-type" style={{ color: NODE_TYPE_COLORS[n.node_type] }}>{n.node_type}</span>
+              <span className="sdv-type" style={{ color: NODE_TYPE_COLORS[n.node_type as NodeTypeName] }}>{n.node_type}</span>
               <span className="sdv-title">{n.title}</span>
             </div>
           ))}
@@ -92,7 +92,7 @@ const SnapshotDiffViewer: React.FC<SnapshotDiffViewerProps> = ({ threadId, v1, v
           <h5>Modified ({diff.modified.length})</h5>
           {diff.modified.map(n => (
             <div key={n.id} className="sdv-node">
-              <span className="sdv-type" style={{ color: NODE_TYPE_COLORS[n.node_type] }}>{n.node_type}</span>
+              <span className="sdv-type" style={{ color: NODE_TYPE_COLORS[n.node_type as NodeTypeName] }}>{n.node_type}</span>
               <span className="sdv-title">{n.title}</span>
               <span className="sdv-content">{truncateContent(n.content)}</span>
             </div>

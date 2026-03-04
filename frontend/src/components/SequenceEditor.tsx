@@ -118,7 +118,7 @@ const SequenceEditor: React.FC<SequenceEditorProps> = ({ thread, onDone }) => {
   const getNodeType = (node: ThreadNode): NodeTypeName => {
     if (node.node_type) return node.node_type;
     if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'ROOT';
-    return (node.type as string) || 'ROOT';
+    return ((node.type as string) || 'ROOT') as NodeTypeName;
   };
 
   if (loading) {

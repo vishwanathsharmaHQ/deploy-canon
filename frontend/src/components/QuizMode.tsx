@@ -6,7 +6,7 @@ import './QuizMode.css';
 interface Quiz {
   question: string;
   hint?: string;
-  idealAnswer: string;
+  idealAnswer?: string;
 }
 
 interface QuizNode {

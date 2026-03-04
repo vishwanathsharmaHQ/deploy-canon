@@ -36,10 +36,11 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
   useEffect(() => {
     const init = async () => {
       try {
-        const { history: stored } = await api.getSocraticHistory(thread.id);
-        if (stored && stored.length > 0) {
-          setHistory(stored);
-          fetchNextQuestion('', stored);
+        const stored = await api.getSocraticHistory(thread.id) as any;
+        const histEntries: SocraticExchange[] = stored?.history || stored || [];
+        if (histEntries.length > 0) {
+          setHistory(histEntries);
+          fetchNextQuestion('', histEntries);
         } else {
           fetchNextQuestion('', []);
         }
@@ -60,13 +61,13 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
     try {
       const result = await api.socraticQuestion({
         threadId: thread.id,
-        history: currentHistory,
+        history: currentHistory as any,
         currentAnswer: answer,
         nodeContext,
       });
       setCurrentQuestion(result.question);
       if (result.nodeFromAnswer && answer.trim()) {
-        setCaptures(prev => [...prev, { ...result.nodeFromAnswer, saved: false }]);
+        setCaptures(prev => [...prev, { ...result.nodeFromAnswer!, saved: false }]);
       }
     } catch (err) {
       console.error('Socratic fetch error:', err);
@@ -84,7 +85,7 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
     setHistory(newHistory);
     setCurrentAnswer('');
     // Persist history after each exchange (fire-and-forget)
-    api.saveSocraticHistory(thread.id, newHistory).catch(console.error);
+    api.saveSocraticHistory(thread.id, newHistory as any).catch(console.error);
     await fetchNextQuestion(answer, newHistory);
   };
 
@@ -113,7 +114,7 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
     setHistory([]);
     setCaptures([]);
     setCurrentAnswer('');
-    api.saveSocraticHistory(thread.id, []).catch(console.error);
+    api.saveSocraticHistory(thread.id, [] as any).catch(console.error);
     fetchNextQuestion('', []);
   };
 
