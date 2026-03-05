@@ -33,11 +33,11 @@ router.get('/semantic', withSession(async (req, res) => {
       const scoreMap: Record<string, number> = {};
       nodeVectorResults.records.forEach(r => { scoreMap[String(r.get('node').properties.id)] = r.get('score'); });
       const nodeResults = await session.run(
-        `MATCH (t:Thread)-[:HAS_NODE]->(n:Node) WHERE n.id IN $ids RETURN n, t.id AS threadId, t.title AS threadTitle`,
+        `MATCH (t:Thread)-[:INCLUDES]->(n:Node) WHERE n.id IN $ids RETURN n, t.id AS threadId, t.title AS threadTitle`,
         { ids: nodeIds }
       );
       nodes = nodeResults.records.map(r => ({
-        ...formatNode(r.get('n').properties, null),
+        ...formatNode(r.get('n').properties),
         relevance: scoreMap[String(r.get('n').properties.id)] || 0,
         threadId: toNum(r.get('threadId')),
         threadTitle: r.get('threadTitle'),
@@ -56,11 +56,11 @@ router.get('/semantic', withSession(async (req, res) => {
     );
     threads = textThreads.records.map(r => ({ ...formatThread(r.get('t').properties), relevance: 0.5 }));
     const textNodes = await session.run(
-      `MATCH (t:Thread)-[:HAS_NODE]->(n:Node) WHERE n.title =~ $pat OR n.content =~ $pat OR n.embedding_text =~ $pat RETURN n, t.id AS threadId, t.title AS threadTitle LIMIT $k`,
+      `MATCH (t:Thread)-[:INCLUDES]->(n:Node) WHERE n.title =~ $pat OR n.content =~ $pat OR n.embedding_text =~ $pat RETURN n, t.id AS threadId, t.title AS threadTitle LIMIT $k`,
       { pat: pattern, k: getNeo4j().int(k) }
     );
     nodes = textNodes.records.map(r => ({
-      ...formatNode(r.get('n').properties, null),
+      ...formatNode(r.get('n').properties),
       relevance: 0.5,
       threadId: toNum(r.get('threadId')),
       threadTitle: r.get('threadTitle'),
@@ -88,7 +88,7 @@ router.post('/answer', requireAuth, aiTimeout, withSession(async (req, res) => {
   vectorResults.records.forEach(r => { scoreMap[String(r.get('node').properties.id)] = r.get('score'); });
 
   const results = await session.run(
-    `MATCH (t:Thread)-[:HAS_NODE]->(node:Node) WHERE node.id IN $ids RETURN node, t.id AS threadId, t.title AS threadTitle`,
+    `MATCH (t:Thread)-[:INCLUDES]->(node:Node) WHERE node.id IN $ids RETURN node, t.id AS threadId, t.title AS threadTitle`,
     { ids: goodNodeIds }
   );
   if (!results.records.length) return res.json({ answer: 'No relevant knowledge found in your threads.', sources: [] });
@@ -98,7 +98,7 @@ router.post('/answer', requireAuth, aiTimeout, withSession(async (req, res) => {
     let c = String(p.content || '');
     try { const parsed = JSON.parse(c); c = parsed.description || parsed.point || parsed.explanation || c; } catch {}
     c = c.replace(/<[^>]+>/g, ' ').substring(0, 500);
-    return `[${p.node_type}] "${p.title}" (Thread: ${r.get('threadTitle')}): ${c}`;
+    return `[${p.entity_type}] "${p.title}" (Thread: ${r.get('threadTitle')}): ${c}`;
   }).join('\n\n');
 
   const openai = getOpenAI();
@@ -127,7 +127,7 @@ router.post('/contradictions', requireAuth, aiTimeout, withSession(async (req, r
   const session = req.neo4jSession!;
 
   const nodesResult = await session.run(
-    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) WHERE n.embedding IS NOT NULL RETURN n LIMIT 10`,
+    `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node) WHERE n.embedding IS NOT NULL RETURN n LIMIT 10`,
     { threadId: getNeo4j().int(parseInt(threadId)) }
   );
 
@@ -147,7 +147,7 @@ router.post('/contradictions', requireAuth, aiTimeout, withSession(async (req, r
     let similarRecords: Neo4jRecord[] = [];
     if (candidateIds.length > 0) {
       const similar = await session.run(
-        `MATCH (t:Thread)-[:HAS_NODE]->(node:Node) WHERE node.id IN $ids AND t.id <> $threadId RETURN node, t.id AS threadId, t.title AS threadTitle`,
+        `MATCH (t:Thread)-[:INCLUDES]->(node:Node) WHERE node.id IN $ids AND t.id <> $threadId RETURN node, t.id AS threadId, t.title AS threadTitle`,
         { ids: candidateIds, threadId: getNeo4j().int(parseInt(threadId)) }
       );
       similarRecords = similar.records;
@@ -155,8 +155,8 @@ router.post('/contradictions', requireAuth, aiTimeout, withSession(async (req, r
 
     for (const r of similarRecords) {
       contradictions.push({
-        sourceNode: { id: toNum(nodeProps.id), title: nodeProps.title, node_type: nodeProps.node_type },
-        similarNode: { id: toNum(r.get('node').properties.id), title: r.get('node').properties.title, node_type: r.get('node').properties.node_type },
+        sourceNode: { id: toNum(nodeProps.id), title: nodeProps.title, node_type: nodeProps.entity_type },
+        similarNode: { id: toNum(r.get('node').properties.id), title: r.get('node').properties.title, node_type: r.get('node').properties.entity_type },
         threadId: toNum(r.get('threadId')),
         threadTitle: r.get('threadTitle'),
         similarity: simScoreMap[String(r.get('node').properties.id)] || 0,

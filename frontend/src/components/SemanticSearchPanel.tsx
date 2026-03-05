@@ -28,7 +28,7 @@ interface SearchResultNode {
   threadId: number;
   threadTitle: string;
   title: string;
-  node_type: NodeTypeName;
+  node_type: string;
   relevance: number;
 }
 

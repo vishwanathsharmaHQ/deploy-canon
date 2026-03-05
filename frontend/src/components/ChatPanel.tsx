@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../services/api';
-import { NODE_TYPE_COLORS } from '../constants';
+import { NODE_TYPE_COLORS, ENTITY_TYPE_LABELS, THREAD_TYPES } from '../constants';
 import { relativeDate } from '../utils/dates';
 import { createMdComponents } from '../utils/markdown';
 import { useChatStream } from '../hooks/useChatStream';
@@ -10,6 +10,20 @@ import type { User, NodeTypeName, ProposedNode } from '../types';
 import './ChatPanel.css';
 
 const mdComponents = createMdComponents('cp-youtube');
+
+/** Infer a Neo4j relationship type from the entity type */
+function inferRelationType(entityType: string): string {
+  switch (entityType) {
+    case 'evidence': return 'SUPPORTS';
+    case 'source': return 'CITES';
+    case 'example': return 'ILLUSTRATES';
+    case 'counterpoint': return 'CONTRADICTS';
+    case 'context': return 'QUALIFIES';
+    case 'synthesis': return 'DERIVES_FROM';
+    case 'question': return 'ADDRESSES';
+    default: return 'SUPPORTS';
+  }
+}
 
 interface ProposedUpdate {
   nodeId: number;
@@ -51,6 +65,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
   const [excludedNodes, setExcludedNodes] = useState<Record<number, Set<number>>>({}); // { [msgIndex]: Set<nodeIndex> }
   const [acceptingIndex, setAcceptingIndex] = useState<number | null>(null);
+  const [threadTypeOverrides, setThreadTypeOverrides] = useState<Record<number, string>>({}); // { [msgIndex]: threadType }
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -102,12 +117,18 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
   const handleAcceptNodes = useCallback(async (msgIndex: number, proposedNodes: ProposedNode[], threadId: number) => {
     setAcceptingIndex(msgIndex);
     try {
+      // Apply thread type override if user selected one
+      const chosenType = threadTypeOverrides[msgIndex];
+      if (chosenType) {
+        await api.updateThread(threadId, { thread_type: chosenType });
+      }
+
       const excluded = excludedNodes[msgIndex] || new Set();
       const filteredNodes = proposedNodes.filter((_, idx) => !excluded.has(idx));
       if (filteredNodes.length === 0) return;
 
-      const rootNodes = filteredNodes.filter(n => n.type === 'ROOT');
-      const secondaryNodes = filteredNodes.filter(n => n.type !== 'ROOT');
+      const rootNodes = filteredNodes.filter(n => n.type === 'claim');
+      const secondaryNodes = filteredNodes.filter(n => n.type !== 'claim');
       let firstRootNodeId: number | null = null;
       let allDuplicateSkipped: string[] = [];
 
@@ -116,7 +137,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
         const metadata = rootNode.chronological_order != null
           ? { chronological_order: rootNode.chronological_order }
           : undefined;
-        const created = await api.createNode({ threadId, title: rootNode.title, content: rootNode.content, nodeType: 'ROOT', parentId: null, metadata });
+        const created = await api.createNode({ threadId, title: rootNode.title, content: rootNode.content, nodeType: 'claim', parentId: null, metadata });
         if (!firstRootNodeId) firstRootNodeId = created.id;
       }
 
@@ -127,9 +148,21 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
       const contextualParentId = articleContext && 'nodeId' in articleContext ? (articleContext.nodeId as number) : null;
       const parentForSecondary = firstRootNodeId || contextualParentId;
 
-      if (secondaryNodes.length > 0) {
+      if (secondaryNodes.length > 0 && parentForSecondary) {
+        const batchResult = await api.createNodesBatch(threadId, secondaryNodes.map(n => {
+          // Infer relationship type from node type if not provided
+          const relationType = n.relationType || inferRelationType(n.type);
+          return {
+            title: n.title, content: n.content, nodeType: n.type, parentId: parentForSecondary,
+            connectTo: { targetId: parentForSecondary, relationType },
+          };
+        }));
+        if ((batchResult.duplicateSkipped?.length ?? 0) > 0) {
+          allDuplicateSkipped = batchResult.duplicateSkipped ?? [];
+        }
+      } else if (secondaryNodes.length > 0) {
         const batchResult = await api.createNodesBatch(threadId, secondaryNodes.map(n => ({
-          title: n.title, content: n.content, nodeType: n.type, parentId: parentForSecondary,
+          title: n.title, content: n.content, nodeType: n.type,
         })));
         if ((batchResult.duplicateSkipped?.length ?? 0) > 0) {
           allDuplicateSkipped = batchResult.duplicateSkipped ?? [];
@@ -146,7 +179,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     } finally {
       setAcceptingIndex(null);
     }
-  }, [onNodesCreated, excludedNodes, setMessages, articleContext]);
+  }, [onNodesCreated, excludedNodes, setMessages, articleContext, threadTypeOverrides]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -335,11 +368,25 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                               <span key={ni}
                                 className={`cp-node-chip${excluded.has(ni) ? ' cp-node-chip--excluded' : ''}`}
                                 style={excluded.has(ni) ? {} : { borderColor: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#555', color: NODE_TYPE_COLORS[n.type as NodeTypeName] || '#aaa' }}
-                                onClick={() => toggleExcludedNode(i, ni)}>
-                                {n.type}: {n.title}
+                                onClick={() => toggleExcludedNode(i, ni)}
+                                title={n.relationType ? `${n.relationType} → parent` : undefined}>
+                                {ENTITY_TYPE_LABELS[n.type] || n.type}: {n.title}{n.relationType && n.type !== 'claim' ? ` [${n.relationType.toLowerCase().replace('_', ' ')}]` : ''}
                               </span>
                             ))}
                           </div>
+                          {msg.newThread && (
+                            <div className="cp-thread-type-select">
+                              <label>Thread type:</label>
+                              <select
+                                value={threadTypeOverrides[i] || 'argument'}
+                                onChange={(e) => setThreadTypeOverrides(prev => ({ ...prev, [i]: e.target.value }))}
+                              >
+                                {THREAD_TYPES.map(tt => (
+                                  <option key={tt.key} value={tt.key}>{tt.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                           <div className="cp-proposed-update-actions">
                             <button
                               className="cp-accept-btn"

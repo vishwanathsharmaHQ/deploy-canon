@@ -26,14 +26,14 @@ export const formatContent = (content: unknown, nodeType: string): React.ReactNo
       try { actualContent = JSON.parse(actualContent); } catch (e) { /* ignore */ }
     }
 
-    if (['ROOT', 'EVIDENCE', 'EXAMPLE', 'COUNTERPOINT'].includes(nodeType)) {
+    if (['claim', 'evidence', 'example', 'counterpoint'].includes(nodeType)) {
       const jsonContent = typeof actualContent === 'object' ? actualContent :
         typeof actualContent === 'string' && actualContent.startsWith('{') ?
           JSON.parse(actualContent) : null;
 
       if (jsonContent) {
         switch (nodeType) {
-          case 'ROOT':
+          case 'claim':
             return (
               <div className="root-content">
                 <h4 className="root-title">{renderText(jsonContent.title)}</h4>
@@ -45,7 +45,7 @@ export const formatContent = (content: unknown, nodeType: string): React.ReactNo
                 )}
               </div>
             );
-          case 'EVIDENCE': {
+          case 'evidence': {
             const srcUrl = jsonContent.source || '';
             const ytMatch = srcUrl.match?.(YT_REGEX);
             return (
@@ -70,14 +70,14 @@ export const formatContent = (content: unknown, nodeType: string): React.ReactNo
               </div>
             );
           }
-          case 'EXAMPLE':
+          case 'example':
             return (
               <div className="example-content">
                 <h4 className="example-title">{renderText(jsonContent.title)}</h4>
                 <div className="example-description">{renderText(jsonContent.description)}</div>
               </div>
             );
-          case 'COUNTERPOINT':
+          case 'counterpoint':
             return (
               <div className="counterpoint-content">
                 <h4 className="counterpoint-argument">{renderText(jsonContent.argument)}</h4>

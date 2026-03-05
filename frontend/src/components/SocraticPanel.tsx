@@ -165,9 +165,9 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
           value={currentAnswer}
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCurrentAnswer(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Your answer\u2026 (\u2318\u21B5 to send)"
+          placeholder="Your answer... (Shift+Enter for new line)"
           disabled={loading}
-          rows={3}
+          rows={1}
         />
         <button
           className="sp-send"

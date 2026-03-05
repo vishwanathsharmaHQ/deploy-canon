@@ -59,7 +59,7 @@ export async function backfillEmbeddings(): Promise<void> {
     );
     for (const record of nodeResult.records) {
       const props = record.get('n').properties;
-      const text = getEmbeddingText({ title: props.title, content: props.content, node_type: props.node_type }, 'node');
+      const text = getEmbeddingText({ title: props.title, content: props.content, entity_type: props.entity_type }, 'node');
       if (!text.trim()) continue;
       try {
         const embedding = await generateEmbedding(text);

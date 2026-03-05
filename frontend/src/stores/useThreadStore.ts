@@ -28,7 +28,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   title: '',
   description: '',
   content: '',
-  threadType: 'standard',
+  threadType: 'argument',
 
   setSelectedThreadId: (id) => set({ selectedThreadId: id }),
   setTitle: (s) => set({ title: s }),
@@ -43,20 +43,19 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       const threadsWithNodes: Thread[] = await Promise.all(
         threadsData.map(async (thread: Thread) => {
           try {
-            const { nodes, edges } = await api.getThreadNodes(thread.id);
+            const { nodes, edges, relationships } = await api.getThreadNodes(thread.id);
             return {
               ...thread,
               nodes: nodes.map((node: any) => ({
                 ...node,
-                node_type:
-                  typeof node.node_type === 'number'
-                    ? NODE_TYPES[node.node_type]
-                    : node.node_type || NODE_TYPES[0],
-                type: typeof node.type === 'number'
+                // entity_type is already lowercase from API; node_type is uppercase compat
+                node_type: node.node_type || node.entity_type || NODE_TYPES[0],
+                type: typeof node.type === 'number' && node.type >= 0
                   ? node.type
-                  : NODE_TYPES.indexOf(node.node_type as NodeTypeName),
+                  : NODE_TYPES.indexOf((node.entity_type || node.node_type?.toLowerCase() || NODE_TYPES[0]) as NodeTypeName),
               })),
               edges,
+              relationships,
             };
           } catch {
             return { ...thread, nodes: [] };
@@ -75,7 +74,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       title,
       description,
       content,
-      metadata: { title, description, content, thread_type: threadType, createdAt: new Date().toISOString() },
+      thread_type: threadType,
+      metadata: { title, description, createdAt: new Date().toISOString() },
     });
     await get().loadThreads();
     set({
@@ -83,7 +83,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       title: '',
       description: '',
       content: '',
-      threadType: 'standard',
+      threadType: 'argument',
     });
     useUIStore.getState().setView('article');
     useUIStore.getState().setShowCreateThreadModal(false);

@@ -42,7 +42,16 @@ import type {
   ThreadSummary,
   DashboardStats,
   DevilsAdvocateResult,
+  ThreadComparison,
+  CitationNetwork,
+  WebEvidenceResult,
+  Source,
+  Relationship,
+  RelationType,
+  RelationshipProps,
+  EntityType,
 } from '../types';
+import { ENTITY_TYPES } from '../constants';
 
 const API_BASE_URL = '/api';
 
@@ -114,18 +123,44 @@ async function fetchWithAuthFallback<T>(
   }
 }
 
+/**
+ * Add backward-compat fields to raw nodes from the API.
+ */
+/** Map legacy uppercase node types to new lowercase entity types */
+const LEGACY_TYPE_MAP: Record<string, string> = {
+  ROOT: 'claim', EVIDENCE: 'evidence', EXAMPLE: 'example',
+  COUNTERPOINT: 'counterpoint', REFERENCE: 'source', CONTEXT: 'context',
+  SYNTHESIS: 'synthesis', QUESTION: 'question', NOTE: 'note',
+};
+function normalizeEntityType(type?: string): string {
+  if (!type) return 'note';
+  return LEGACY_TYPE_MAP[type] ?? LEGACY_TYPE_MAP[type.toUpperCase()] ?? type.toLowerCase();
+}
+
+function addNodeCompatFields(rawNodes: Array<Record<string, unknown>>): ThreadNode[] {
+  return rawNodes.map((n, i) => ({
+    ...n,
+    node_type: String(n.entity_type ?? 'claim').toUpperCase(),
+    type: ENTITY_TYPES.indexOf(((n.entity_type as string) ?? 'claim') as EntityType),
+    parent_id: (n.parent_id as number | null) ?? null,
+    position: (n.position as number) ?? i,
+    role: (n.role as string) ?? 'supporting',
+    confidence_score: (n.confidence as number | null) ?? null,
+  })) as unknown as ThreadNode[];
+}
+
 export const api = {
   async getThreads(): Promise<Thread[]> {
     return fetchWithAuth<Thread[]>(`${API_BASE_URL}/threads`, { headers: authHeaders() }, 'Failed to fetch threads');
   },
 
-  async createThread({ title, description, content, metadata }: {
-    title: string; description?: string; content?: string; metadata?: Record<string, unknown>;
+  async createThread({ title, description, thread_type, content, metadata }: {
+    title: string; description?: string; thread_type?: string; content?: string; metadata?: Record<string, unknown>;
   }): Promise<Thread> {
     return fetchWithAuth<Thread>(`${API_BASE_URL}/threads`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ title, description, content, metadata }),
+      body: JSON.stringify({ title, description, thread_type, content, metadata }),
     }, 'Failed to create thread');
   },
 
@@ -145,33 +180,134 @@ export const api = {
     }, 'Failed to generate thread');
   },
 
-  async getThreadNodes(threadId: number): Promise<{ nodes: ThreadNode[]; edges: Edge[] }> {
-    return fetchWithAuth<{ nodes: ThreadNode[]; edges: Edge[] }>(
+  async getThreadNodes(threadId: number): Promise<{ nodes: ThreadNode[]; relationships: Relationship[]; sources: Source[]; edges: Edge[] }> {
+    const raw = await fetchWithAuth<{ nodes: Array<Record<string, unknown>>; relationships?: Relationship[]; sources?: Source[]; edges?: Edge[] }>(
       `${API_BASE_URL}/threads/${threadId}/nodes`,
       { headers: authHeaders() },
       'Failed to fetch nodes',
     );
+    const nodes = addNodeCompatFields(raw.nodes ?? []);
+    // Build legacy edges from relationships for backward compat
+    const relationships = raw.relationships ?? [];
+    const sources = raw.sources ?? [];
+    const edges: Edge[] = raw.edges ?? relationships.map(r => ({
+      source_id: r.source_id,
+      target_id: r.target_id,
+      relationship_type: r.relation_type,
+    }));
+    return { nodes, relationships, sources, edges };
   },
 
-  async createNode({ threadId, title, content, nodeType, parentId, metadata }: {
-    threadId: number; title: string; content: string; nodeType: string; parentId?: number | null; metadata?: Record<string, unknown>;
+  async createNode({ threadId, title, content, entityType, nodeType, parentId, position, role, connectTo, metadata }: {
+    threadId: number;
+    title: string;
+    content: string;
+    entityType?: string;
+    nodeType?: string;
+    parentId?: number | null;
+    position?: number;
+    role?: string;
+    connectTo?: { targetId: number; relationType: RelationType; properties?: RelationshipProps };
+    metadata?: Record<string, unknown>;
   }): Promise<ThreadNode> {
+    // Normalize legacy uppercase types to new lowercase entity types
+    const type = normalizeEntityType(entityType ?? nodeType);
     return fetchWithAuth<ThreadNode>(`${API_BASE_URL}/threads/${threadId}/nodes`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ title, content, nodeType, parentId, metadata }),
+      body: JSON.stringify({ title, content, entityType: type, parentId, position, role, connectTo, metadata }),
     }, 'Failed to create node');
   },
 
-  async createEdge({ sourceId, targetId, relationshipType, metadata }: {
-    sourceId: number; targetId: number; relationshipType: string; metadata?: Record<string, unknown>;
-  }): Promise<Edge> {
-    return fetchWithAuth<Edge>(`${API_BASE_URL}/edges`, {
+  async createEdge({ sourceId, targetId, relationshipType, relationType, metadata }: {
+    sourceId: number; targetId: number; relationshipType?: string; relationType?: string; metadata?: Record<string, unknown>;
+  }): Promise<Relationship | Edge> {
+    const type = relationType ?? relationshipType ?? 'SUPPORTS';
+    // Try new relationships endpoint first, fall back to legacy edges
+    return fetchWithAuth<Relationship | Edge>(`${API_BASE_URL}/relationships`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ sourceId, targetId, relationshipType, metadata }),
+      body: JSON.stringify({ sourceId, targetId, relationType: type, properties: metadata ?? {} }),
     }, 'Failed to create edge');
   },
+
+  // ── Source CRUD ──────────────────────────────────────────────────────────
+
+  async getSources(): Promise<Source[]> {
+    return fetchWithAuth<Source[]>(`${API_BASE_URL}/sources`, { headers: authHeaders() }, 'Failed to fetch sources');
+  },
+
+  async createSource(data: { title: string; url?: string; source_type: string; authors?: string[]; published_date?: string; content?: string }): Promise<Source> {
+    return fetchWithAuth<Source>(`${API_BASE_URL}/sources`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    }, 'Failed to create source');
+  },
+
+  async getSource(sourceId: number): Promise<Source & { nodes: Array<{ id: number; title: string; threadId: number }> }> {
+    return fetchWithAuth<Source & { nodes: Array<{ id: number; title: string; threadId: number }> }>(
+      `${API_BASE_URL}/sources/${sourceId}`,
+      { headers: authHeaders() },
+      'Failed to fetch source',
+    );
+  },
+
+  async updateSource(sourceId: number, data: Partial<Source>): Promise<Source> {
+    return fetchWithAuth<Source>(`${API_BASE_URL}/sources/${sourceId}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    }, 'Failed to update source');
+  },
+
+  async deleteSource(sourceId: number): Promise<{ success: boolean }> {
+    return fetchWithAuth(`${API_BASE_URL}/sources/${sourceId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }, 'Failed to delete source');
+  },
+
+  async getSourceImpact(sourceId: number): Promise<{ vulnerableClaims: Array<{ id: number; title: string; threadId: number }> }> {
+    return fetchWithAuth(`${API_BASE_URL}/sources/${sourceId}/impact`, {
+      headers: authHeaders(),
+    }, 'Failed to fetch source impact');
+  },
+
+  // ── Relationship CRUD ───────────────────────────────────────────────────
+
+  async createRelationship(data: { sourceId: number; targetId: number; relationType: RelationType; properties?: RelationshipProps }): Promise<Relationship> {
+    return fetchWithAuth<Relationship>(`${API_BASE_URL}/relationships`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    }, 'Failed to create relationship');
+  },
+
+  async getNodeRelationships(nodeId: number): Promise<Relationship[]> {
+    return fetchWithAuth<Relationship[]>(
+      `${API_BASE_URL}/relationships/node/${nodeId}`,
+      { headers: authHeaders() },
+      'Failed to fetch relationships',
+    );
+  },
+
+  async updateRelationship(relationshipId: number, properties: RelationshipProps): Promise<Relationship> {
+    return fetchWithAuth<Relationship>(`${API_BASE_URL}/relationships/${relationshipId}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ properties }),
+    }, 'Failed to update relationship');
+  },
+
+  async deleteRelationship(relationshipId: number): Promise<{ success: boolean }> {
+    return fetchWithAuth(`${API_BASE_URL}/relationships/${relationshipId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }, 'Failed to delete relationship');
+  },
+
+  // ── Layout & Canvas ─────────────────────────────────────────────────────
 
   async saveThreadLayout(threadId: number, layout: LayoutData): Promise<{ success: boolean }> {
     return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/layout`, {
@@ -215,6 +351,14 @@ export const api = {
     }, 'Failed to delete thread canvas');
   },
 
+  async updateThread(threadId: number, updates: { thread_type?: string; title?: string; description?: string }): Promise<{ success: boolean }> {
+    return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(updates),
+    }, 'Failed to update thread');
+  },
+
   async updateThreadContent(threadId: number, content: string): Promise<{ success: boolean }> {
     return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/content`, {
       method: 'PUT',
@@ -251,6 +395,8 @@ export const api = {
     }, 'Failed to delete article sequence');
   },
 
+  // ── Node CRUD ───────────────────────────────────────────────────────────
+
   async deleteNode(threadId: number, nodeId: number, force = false): Promise<{ success: boolean; hasChildren?: boolean; childCount?: number }> {
     return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}?force=${force}`, {
       method: 'DELETE',
@@ -265,6 +411,8 @@ export const api = {
       body: JSON.stringify({ title, content }),
     }, 'Failed to update node');
   },
+
+  // ── Chat ────────────────────────────────────────────────────────────────
 
   async chatExtract({ message, reply, threadId, apiKey, nodeContext, citations }: {
     message: string; reply: string; threadId?: number | null; apiKey?: string;
@@ -421,6 +569,8 @@ export const api = {
     }, 'Failed to update chat');
   },
 
+  // ── AI Operations ──────────────────────────────────────────────────────
+
   async redTeamThread(threadId: number, nodeId: number): Promise<RedTeamResult> {
     return fetchWithAuth<RedTeamResult>(`${API_BASE_URL}/threads/${threadId}/redteam`, {
       method: 'POST',
@@ -470,11 +620,13 @@ export const api = {
     }, 'Failed to save socratic history');
   },
 
-  async createNodesBatch(threadId: number, nodes: { title: string; content: string; nodeType: string; parentId?: number | null }[]): Promise<{ createdNodes: ThreadNode[]; duplicateSkipped?: string[] }> {
+  async createNodesBatch(threadId: number, nodes: { title: string; content: string; nodeType: string; parentId?: number | null; connectTo?: { targetId: number; relationType: string } }[]): Promise<{ createdNodes: ThreadNode[]; duplicateSkipped?: string[] }> {
+    // Normalize legacy types and send as entityType for server compat
+    const normalized = nodes.map(n => ({ ...n, entityType: normalizeEntityType(n.nodeType) }));
     return fetchWithAuth<{ createdNodes: ThreadNode[]; duplicateSkipped?: string[] }>(`${API_BASE_URL}/threads/${threadId}/nodes/batch`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ nodes }),
+      body: JSON.stringify({ nodes: normalized }),
     }, 'Batch node create failed');
   },
 
@@ -555,6 +707,8 @@ export const api = {
     }, 'Failed to enrich node');
   },
 
+  // ── Auth ────────────────────────────────────────────────────────────────
+
   async register({ name, email, password }: { name: string; email: string; password: string }): Promise<User> {
     const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
@@ -599,6 +753,8 @@ export const api = {
     setAuthToken(null);
   },
 
+  // ── Admin ───────────────────────────────────────────────────────────────
+
   async setupIndexes(): Promise<{ success: boolean }> {
     return fetchWithAuth(`${API_BASE_URL}/admin/setup-indexes`, {
       method: 'POST',
@@ -612,6 +768,8 @@ export const api = {
       headers: authHeaders(),
     }, 'Failed to migrate embeddings');
   },
+
+  // ── Search ──────────────────────────────────────────────────────────────
 
   async semanticSearch(query: string, limit = 20): Promise<SemanticSearchResult> {
     return fetchWithAuth<SemanticSearchResult>(
@@ -648,6 +806,8 @@ export const api = {
       body: JSON.stringify({ threadId }),
     }, 'Contradiction search failed');
   },
+
+  // ── Links ───────────────────────────────────────────────────────────────
 
   async createLink({ sourceNodeId, targetNodeId, type, description, confidence, status }: {
     sourceNodeId: number; targetNodeId: number; type: string; description: string; confidence: number; status: string;
@@ -686,13 +846,14 @@ export const api = {
     }, 'Link suggestion failed');
   },
 
+  // ── Graph ───────────────────────────────────────────────────────────────
+
   async getGlobalGraphSummary(): Promise<GlobalGraphThread[]> {
-    const result = await fetchWithAuth<{ threads: GlobalGraphThread[] }>(
+    return fetchWithAuth<GlobalGraphThread[]>(
       `${API_BASE_URL}/graph/global/summary`,
       undefined,
       'Failed to fetch global graph',
     );
-    return result.threads;
   },
 
   async getConcepts(): Promise<Concept[]> {
@@ -718,6 +879,8 @@ export const api = {
       body: JSON.stringify({ nodeId }),
     }, 'Concept extraction failed');
   },
+
+  // ── Review ──────────────────────────────────────────────────────────────
 
   async initReview(threadId: number): Promise<{ created: number }> {
     return fetchWithAuth(`${API_BASE_URL}/review/init`, {
@@ -756,6 +919,8 @@ export const api = {
       body: JSON.stringify({ nodeId, quizType }),
     }, 'Quiz generation failed');
   },
+
+  // ── Ingest ──────────────────────────────────────────────────────────────
 
   async ingestUrl(url: string, threadId?: number | null): Promise<IngestResult> {
     try {
@@ -836,6 +1001,8 @@ export const api = {
     }, 'Bibliography generation failed');
   },
 
+  // ── Snapshots & Confidence ──────────────────────────────────────────────
+
   async createSnapshot(threadId: number, trigger: string, triggerDetail?: string): Promise<Snapshot> {
     return fetchWithAuth<Snapshot>(`${API_BASE_URL}/threads/${threadId}/snapshots`, {
       method: 'POST',
@@ -893,6 +1060,8 @@ export const api = {
       'Failed to fetch node history',
     );
   },
+
+  // ── Validation & Analysis ───────────────────────────────────────────────
 
   async validateReasoningChain(threadId: number): Promise<{
     chain_strength: number;
@@ -978,5 +1147,27 @@ export const api = {
       method: 'POST',
       headers: authHeaders(),
     }, 'Devil\'s advocate analysis failed');
+  },
+
+  async compareThreads(threadIdA: number, threadIdB: number): Promise<ThreadComparison> {
+    return fetchWithAuth<ThreadComparison>(`${API_BASE_URL}/threads/compare`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ threadIdA, threadIdB }),
+    }, 'Thread comparison failed');
+  },
+
+  async watchThread(threadId: number, query?: string): Promise<WebEvidenceResult> {
+    return fetchWithAuth<WebEvidenceResult>(`${API_BASE_URL}/threads/${threadId}/watch`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ query }),
+    }, 'Web evidence search failed');
+  },
+
+  async getCitationNetwork(): Promise<CitationNetwork> {
+    return fetchWithAuth<CitationNetwork>(`${API_BASE_URL}/threads/citations/network`, {
+      headers: authHeaders(),
+    }, 'Failed to fetch citation network');
   },
 };

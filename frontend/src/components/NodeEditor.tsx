@@ -5,30 +5,34 @@ import Link from '@tiptap/extension-link';
 import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
 import EditorToolbar from './EditorToolbar';
-import { NODE_TYPES } from '../constants';
+import { NODE_TYPES, RELATIONSHIP_TYPES, ENTITY_TYPE_LABELS } from '../constants';
 import type { Thread, NodeTypeName } from '../types';
 import './NodeEditor.css';
 
-const NODE_TYPE_OPTIONS = NODE_TYPES.map((label, value) => ({ value, label }));
+const NODE_TYPE_OPTIONS = NODE_TYPES.map((label, value) => ({ value, label, displayLabel: ENTITY_TYPE_LABELS[label] || label }));
 
 const TITLE_PLACEHOLDERS: Record<string, string> = {
-  ROOT: 'Root Title',
-  EVIDENCE: 'Source',
-  EXAMPLE: 'Example Title',
-  COUNTERPOINT: 'Argument',
-  REFERENCE: 'Title',
-  CONTEXT: 'Title',
-  SYNTHESIS: 'Title'
+  claim: 'Root Title',
+  evidence: 'Source',
+  example: 'Example Title',
+  counterpoint: 'Argument',
+  source: 'Title',
+  context: 'Title',
+  synthesis: 'Title',
+  question: 'Title',
+  note: 'Title'
 };
 
 const CONTENT_PLACEHOLDERS: Record<string, string> = {
-  ROOT: 'Describe this root node...',
-  EVIDENCE: 'Present your evidence...',
-  EXAMPLE: 'Describe this example...',
-  COUNTERPOINT: 'Explain the counterpoint...',
-  REFERENCE: 'Write reference content...',
-  CONTEXT: 'Provide context...',
-  SYNTHESIS: 'Write your synthesis...'
+  claim: 'Describe this root node...',
+  evidence: 'Present your evidence...',
+  example: 'Describe this example...',
+  counterpoint: 'Explain the counterpoint...',
+  source: 'Write reference content...',
+  context: 'Provide context...',
+  synthesis: 'Write your synthesis...',
+  question: 'Write your question...',
+  note: 'Write your note...'
 };
 
 // ── NodeEditor ───────────────────────────────────────────────────────────────
@@ -45,6 +49,7 @@ interface NewNodeData {
   type: number;
   parentId: number | null;
   threadId: number;
+  connectTo?: { targetId: number; relationType: string };
   metadata: {
     title: string;
     description: string;
@@ -67,11 +72,26 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
     // Default to EVIDENCE (1) unless parent is thread, then allow ROOT (0)
     return isThread ? '0' : '1';
   });
+  const [relationType, setRelationType] = useState<string>('SUPPORTS');
   const [title, setTitle] = useState('');
   const [keywords, setKeywords] = useState('');
   const [hasContent, setHasContent] = useState(false);
 
-  const currentLabel = NODE_TYPE_OPTIONS[Number(nodeType)]?.label || 'EVIDENCE';
+  const currentLabel = NODE_TYPE_OPTIONS[Number(nodeType)]?.label || 'evidence';
+
+  // Auto-update relationship type when node type changes
+  const inferRelType = (label: string) => {
+    switch (label) {
+      case 'evidence': return 'SUPPORTS';
+      case 'source': return 'CITES';
+      case 'example': return 'ILLUSTRATES';
+      case 'counterpoint': return 'CONTRADICTS';
+      case 'context': return 'QUALIFIES';
+      case 'synthesis': return 'DERIVES_FROM';
+      case 'question': return 'ADDRESSES';
+      default: return 'SUPPORTS';
+    }
+  };
 
   const editor = useEditor({
     extensions: [
@@ -98,7 +118,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
     let shortDescription: string;
 
     switch (currentLabel) {
-      case 'ROOT':
+      case 'claim':
         structuredContent = JSON.stringify({
           title,
           description: html,
@@ -106,21 +126,21 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
         });
         shortDescription = title;
         break;
-      case 'EVIDENCE':
+      case 'evidence':
         structuredContent = JSON.stringify({
           point: html,
           source: title,
         });
         shortDescription = editor.getText().substring(0, 100);
         break;
-      case 'EXAMPLE':
+      case 'example':
         structuredContent = JSON.stringify({
           title,
           description: html,
         });
         shortDescription = editor.getText().substring(0, 100);
         break;
-      case 'COUNTERPOINT':
+      case 'counterpoint':
         structuredContent = JSON.stringify({
           argument: title,
           explanation: html,
@@ -138,6 +158,11 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
       ? null
       : parseInt(String(selectedNode!.id).replace('node-', ''), 10);
 
+    // Build connectTo for typed relationship (only for non-thread parents)
+    const connectTo = parentId != null
+      ? { targetId: parentId, relationType }
+      : undefined;
+
     onSubmit({
       id: selectedNode!.id,
       type: selectedNode!.type,
@@ -148,6 +173,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
         type: Number(nodeType),
         parentId,
         threadId: thread.id,
+        connectTo,
         metadata: {
           title: title || 'New Node',
           description: shortDescription,
@@ -180,16 +206,35 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
           <select
             className="ne-select"
             value={nodeType}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodeType(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+              setNodeType(e.target.value);
+              const label = NODE_TYPE_OPTIONS[Number(e.target.value)]?.label || 'evidence';
+              setRelationType(inferRelType(label));
+            }}
           >
             {NODE_TYPE_OPTIONS
-              .filter(t => isThread || t.label !== 'ROOT')
+              .filter(t => isThread || t.label !== 'claim')
               .map(t => (
                 <option key={t.value} value={t.value}>
-                  {t.label}
+                  {t.displayLabel}
                 </option>
               ))}
           </select>
+
+          {!isThread && (
+            <select
+              className="ne-select"
+              value={relationType}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRelationType(e.target.value)}
+              style={{ marginTop: 8 }}
+            >
+              {RELATIONSHIP_TYPES.map(rt => (
+                <option key={rt} value={rt}>
+                  {rt.replace('_', ' ')} → parent
+                </option>
+              ))}
+            </select>
+          )}
 
           <input
             className="ne-title-input"
@@ -199,7 +244,7 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
           />
 
-          {currentLabel === 'ROOT' && (
+          {currentLabel === 'claim' && (
             <input
               className="ne-keywords-input"
               type="text"

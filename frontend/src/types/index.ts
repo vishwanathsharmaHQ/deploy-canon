@@ -1,19 +1,104 @@
 // Domain types for Deploy Canon
 
+// ── Entity Types ──────────────────────────────────────────────────────────
+
+export type EntityType = 'claim' | 'evidence' | 'source' | 'context' | 'example' | 'counterpoint' | 'synthesis' | 'question' | 'note';
+
+export type RelationType = 'SUPPORTS' | 'CONTRADICTS' | 'QUALIFIES' | 'DERIVES_FROM' | 'ILLUSTRATES' | 'CITES' | 'ADDRESSES' | 'REFERENCES';
+
+/** Backward compat alias */
+export type NodeTypeName = EntityType;
+
+export type ThreadType = 'argument' | 'research' | 'timeline' | 'comparison' | 'collection';
+
+// ── Core Interfaces ───────────────────────────────────────────────────────
+
+export interface ThreadNode {
+  id: number;
+  title: string;
+  content: string;
+  entity_type: EntityType;
+  metadata: NodeMetadata;
+  created_at: string;
+  updated_at: string;
+  created_by?: number | null;
+  confidence?: number | null;
+  summary?: string;
+  // Thread-specific context (from INCLUDES relationship)
+  position?: number;
+  role?: string;
+  // Backward compat helpers (computed on frontend)
+  node_type: string;        // uppercase version of entity_type for display
+  type: number;             // index into ENTITY_TYPES for legacy code
+  parent_id: number | null; // first SUPPORTS/DERIVES_FROM source, for tree compat
+  threadId?: number;
+  confidence_score?: number | null; // legacy alias for confidence
+}
+
+export interface NodeMetadata {
+  title: string;
+  description?: string;
+  [key: string]: unknown;
+}
+
+export interface Source {
+  id: number;
+  title: string;
+  url?: string | null;
+  source_type: string;
+  authors?: string[];
+  published_date?: string | null;
+  content?: string;
+  reliability_score?: number | null;
+  citation_count?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Relationship {
+  id: number;
+  source_id: number;
+  target_id: number;
+  relation_type: RelationType;
+  properties: RelationshipProps;
+  created_at: string;
+  created_by?: number | null;
+}
+
+export interface RelationshipProps {
+  strength?: number;
+  mechanism?: string;
+  severity?: string;
+  explanation?: string;
+  scope?: string;
+  reasoning?: string;
+  confidence?: number;
+  relevance?: number;
+  page?: string;
+  section?: string;
+  quote?: string;
+  anchor_text?: string;
+  context?: string;
+  notes?: string;
+}
+
 export interface Thread {
   id: number;
   title: string;
   description: string;
-  content: string;
-  metadata: ThreadMetadata;
+  thread_type: string;
   created_at: string;
   updated_at: string;
+  created_by?: number | null;
   nodes: ThreadNode[];
+  relationships?: Relationship[];
+  sources?: Source[];
+  // Backward compat
+  content: string;          // empty string for compat
+  metadata: ThreadMetadata;
   edges?: Edge[];
   forked_from?: number | null;
 }
-
-export type ThreadType = 'standard' | 'historical' | 'debate' | 'comparison';
 
 export interface ThreadMetadata {
   title: string;
@@ -25,26 +110,7 @@ export interface ThreadMetadata {
   [key: string]: unknown;
 }
 
-export interface ThreadNode {
-  id: number;
-  title: string;
-  content: string;
-  node_type: NodeTypeName;
-  parent_id: number | null;
-  type: number; // index into NODE_TYPES
-  metadata: NodeMetadata;
-  created_at: string;
-  updated_at: string;
-  threadId?: number;
-  confidence_score?: number | null;
-}
-
-export interface NodeMetadata {
-  title: string;
-  description?: string;
-  [key: string]: unknown;
-}
-
+/** Legacy edge interface — kept for backward compat */
 export interface Edge {
   source_id: number;
   target_id: number;
@@ -179,15 +245,6 @@ export interface ExtractedNode {
   parentId?: number;
 }
 
-export type NodeTypeName =
-  | 'ROOT'
-  | 'EVIDENCE'
-  | 'REFERENCE'
-  | 'CONTEXT'
-  | 'EXAMPLE'
-  | 'COUNTERPOINT'
-  | 'SYNTHESIS';
-
 export type ViewName =
   | 'graph'
   | 'global'
@@ -200,7 +257,52 @@ export type ViewName =
   | 'timeline'
   | 'editor'
   | 'summary'
-  | 'dashboard';
+  | 'dashboard'
+  | 'compare'
+  | 'citations';
+
+export interface CitationSource {
+  id: string;
+  title: string;
+  url?: string;
+  referenceCount: number;
+  threadCount: number;
+  threads: Array<{ id: number; title: string }>;
+  nodes: Array<{ id: number; title: string; threadId: number }>;
+  isSinglePointOfFailure: boolean;
+}
+
+export interface CitationConnection {
+  sourceA: string;
+  sourceB: string;
+  sharedThreads: number;
+}
+
+export interface CitationNetwork {
+  sources: CitationSource[];
+  connections: CitationConnection[];
+  stats: {
+    totalSources: number;
+    avgReferencesPerSource: number;
+    singlePointOfFailureCount: number;
+  };
+}
+
+export interface ComparisonNode {
+  id: number;
+  title: string;
+  node_type: string;
+  content_preview: string;
+}
+
+export interface ThreadComparison {
+  threadA: { id: number; title: string; nodeCount: number };
+  threadB: { id: number; title: string; nodeCount: number };
+  shared: Array<{ nodeA: ComparisonNode; nodeB: ComparisonNode; similarity: number }>;
+  contradictions: Array<{ nodeA: ComparisonNode; nodeB: ComparisonNode; reason: string }>;
+  uniqueToA: ComparisonNode[];
+  uniqueToB: ComparisonNode[];
+}
 
 export interface DashboardStats {
   totalThreads: number;
@@ -257,16 +359,17 @@ export interface ProposedNode {
   type: string;
   title: string;
   content: string;
+  relationType?: string;
   chronological_order?: number;
 }
 
 export interface RedTeamResult {
-  proposals: Array<{ title: string; content: string; nodeType: string }>;
+  proposals: Array<{ title: string; content: string; entityType: string }>;
   parentNodeId: number;
 }
 
 export interface SteelmanResult {
-  proposal: { title: string; content: string; nodeType: string };
+  proposal: { title: string; content: string; entityType: string };
   parentId: number | null;
 }
 
@@ -446,6 +549,23 @@ export interface DevilsAdvocateResult {
   challenges: DevilsAdvocateChallenge[];
   unchallengedCount: number;
   totalNodes: number;
+}
+
+export interface WebEvidence {
+  title: string;
+  content: string;
+  source_url: string;
+  relevance: 'high' | 'medium' | 'low';
+  relationship: 'supports' | 'contradicts' | 'extends';
+  relatedNodeId?: number;
+  relatedNodeTitle?: string;
+  proposedNodeType: string;
+}
+
+export interface WebEvidenceResult {
+  query: string;
+  findings: WebEvidence[];
+  searched_at: string;
 }
 
 export interface ChatRecord {

@@ -27,7 +27,7 @@ const QuizMode: React.FC<QuizModeProps> = ({ node, onBack, onRate }) => {
   const [answer, setAnswer] = useState('');
   const [showAnswer, setShowAnswer] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [quizType, setQuizType] = useState<string>(node.node_type === 'COUNTERPOINT' ? 'steelman' : 'recall');
+  const [quizType, setQuizType] = useState<string>(node.node_type === 'counterpoint' ? 'steelman' : 'recall');
 
   useEffect(() => {
     loadQuiz();
@@ -56,7 +56,7 @@ const QuizMode: React.FC<QuizModeProps> = ({ node, onBack, onRate }) => {
         <button className="qm-back" onClick={onBack}>&larr; Back to Review</button>
         <div className="qm-type-toggle">
           <button className={quizType === 'recall' ? 'active' : ''} onClick={() => setQuizType('recall')}>Recall</button>
-          {node.node_type === 'COUNTERPOINT' && (
+          {node.node_type === 'counterpoint' && (
             <button className={quizType === 'steelman' ? 'active' : ''} onClick={() => setQuizType('steelman')}>Steelman</button>
           )}
         </div>

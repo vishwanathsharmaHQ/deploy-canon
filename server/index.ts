@@ -20,6 +20,7 @@ import ingestRoutes from './routes/ingest.js';
 import linkRoutes from './routes/links.js';
 import graphRoutes from './routes/graph.js';
 import snapshotRoutes from './routes/snapshots.js';
+import sourceRoutes from './routes/sources.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -53,6 +54,7 @@ app.use('/api/review', reviewRoutes);
 app.use('/api/ingest', ingestRoutes);
 app.use('/api/links', linkRoutes);
 app.use('/api/graph', graphRoutes);
+app.use('/api/sources', sourceRoutes);
 app.use('/api/threads', snapshotRoutes); // /api/threads/:threadId/snapshots, confidence, timeline, export
 
 // ── Standalone endpoints ────────────────────────────────────────────────────

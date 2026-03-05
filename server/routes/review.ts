@@ -22,14 +22,14 @@ router.post('/init', requireAuth, withSession(async (req, res) => {
   const session = req.neo4jSession!;
   const now = new Date().toISOString().split('T')[0];
   await session.run(
-    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+    `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)
      WHERE n.review_due_date IS NULL
      SET n.review_easiness = 2.5, n.review_interval = 0, n.review_repetitions = 0,
          n.review_due_date = $now, n.review_last_date = null, n.review_quality = null`,
     { threadId: getNeo4j().int(parseInt(threadId)), now }
   );
   const count = await session.run(
-    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) WHERE n.review_due_date IS NOT NULL RETURN count(n) AS c`,
+    `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node) WHERE n.review_due_date IS NOT NULL RETURN count(n) AS c`,
     { threadId: getNeo4j().int(parseInt(threadId)) }
   );
   res.json({ ok: true, reviewableNodes: toNum(count.records[0].get('c')) });
@@ -41,7 +41,7 @@ router.get('/due', withSession(async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
   let query: string, params: Record<string, unknown>;
   if (threadId) {
-    query = `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+    query = `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)
              WHERE n.review_due_date IS NOT NULL AND n.review_due_date <= $today
              RETURN n ORDER BY n.review_due_date ASC`;
     params = { threadId: getNeo4j().int(parseInt(threadId as string)), today };
@@ -51,7 +51,7 @@ router.get('/due', withSession(async (req, res) => {
     params = { today };
   }
   const result = await session.run(query, params);
-  res.json(result.records.map(r => formatNode(r.get('n').properties, null)));
+  res.json(result.records.map(r => formatNode(r.get('n').properties)));
 }));
 
 router.post('/submit', requireAuth, withSession(async (req, res) => {
@@ -96,7 +96,7 @@ router.get('/stats', withSession(async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
   let query: string, params: Record<string, unknown>;
   if (threadId) {
-    query = `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+    query = `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)
              WITH count(n) AS total,
                   count(CASE WHEN n.review_due_date IS NOT NULL THEN 1 END) AS reviewable,
                   count(CASE WHEN n.review_due_date <= $today AND n.review_due_date IS NOT NULL THEN 1 END) AS due,
@@ -129,7 +129,7 @@ router.get('/decay', withSession(async (req, res) => {
   const { threadId } = req.query;
   const session = req.neo4jSession!;
   const result = await session.run(
-    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
+    `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)
      WHERE n.review_due_date IS NOT NULL
      RETURN n.id AS id, n.review_due_date AS due, n.review_interval AS interval, n.review_easiness AS easiness`,
     { threadId: getNeo4j().int(parseInt(threadId as string)) }

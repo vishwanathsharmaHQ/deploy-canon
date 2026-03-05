@@ -14,14 +14,14 @@ router.post('/:threadId/snapshots', requireAuth, withSession(async (req, res) =>
   const session = req.neo4jSession!;
 
   const nodesResult = await session.run(
-    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
-     OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
+    `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)
+     OPTIONAL MATCH (parent:Node)-[:SUPPORTS]->(n)
      RETURN n, parent.id AS parentId`,
     { threadId: getNeo4j().int(threadId) }
   );
   const nodeData = nodesResult.records.map(r => {
     const p = r.get('n').properties;
-    return { id: toNum(p.id), title: p.title, content: p.content, node_type: p.node_type, parentId: toNum(r.get('parentId')) };
+    return { id: toNum(p.id), title: p.title, content: p.content, entity_type: p.entity_type, parentId: toNum(r.get('parentId')) };
   });
   const edgeData = nodesResult.records
     .filter(r => r.get('parentId'))
@@ -116,7 +116,7 @@ router.post('/:threadId/confidence', requireAuth, withSession(async (req, res) =
   const id = await getNextId('confidence', session);
   const now = new Date().toISOString();
   const nodeCount = await session.run(
-    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) RETURN count(n) AS c`,
+    `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node) RETURN count(n) AS c`,
     { threadId: getNeo4j().int(threadId) }
   );
 
@@ -171,11 +171,11 @@ router.get('/:threadId/timeline', withSession(async (req, res) => {
   }
 
   const nodesResult = await session.run(
-    `MATCH (t:Thread {id: $id})-[:HAS_NODE]->(n:Node) RETURN n.id AS id, n.title AS title, n.node_type AS nodeType, n.created_at AS created_at`,
+    `MATCH (t:Thread {id: $id})-[:INCLUDES]->(n:Node) RETURN n.id AS id, n.title AS title, n.entity_type AS entityType, n.created_at AS created_at`,
     { id: getNeo4j().int(threadId) }
   );
   for (const r of nodesResult.records) {
-    events.push({ type: 'node_added', nodeId: toNum(r.get('id')), title: r.get('title'), nodeType: r.get('nodeType'), timestamp: r.get('created_at') });
+    events.push({ type: 'node_added', nodeId: toNum(r.get('id')), title: r.get('title'), nodeType: r.get('entityType'), timestamp: r.get('created_at') });
   }
 
   const snapResult = await session.run(
@@ -217,14 +217,14 @@ router.post('/:threadId/export', withSession(async (req, res) => {
   const thread = threadResult.records[0].get('t').properties;
 
   const nodesResult = await session.run(
-    `MATCH (t:Thread {id: $id})-[:HAS_NODE]->(n:Node)
-     OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
+    `MATCH (t:Thread {id: $id})-[:INCLUDES]->(n:Node)
+     OPTIONAL MATCH (parent:Node)-[:SUPPORTS]->(n)
      RETURN n, parent.id AS parentId ORDER BY n.created_at ASC`,
     { id: getNeo4j().int(threadId) }
   );
   const nodes = nodesResult.records.map(r => {
     const p = r.get('n').properties;
-    return { id: toNum(p.id), title: p.title, content: p.content, node_type: p.node_type, parentId: toNum(r.get('parentId')) };
+    return { id: toNum(p.id), title: p.title, content: p.content, entity_type: p.entity_type, parentId: toNum(r.get('parentId')) };
   });
 
   if (format === 'json') {
@@ -232,7 +232,7 @@ router.post('/:threadId/export', withSession(async (req, res) => {
   }
 
   // Default: markdown
-  const NODE_TYPE_EMOJI: Record<string, string> = { ROOT: '#', EVIDENCE: '>', REFERENCE: '@', CONTEXT: '~', EXAMPLE: '*', COUNTERPOINT: '!', SYNTHESIS: '=' };
+  const NODE_TYPE_EMOJI: Record<string, string> = { claim: '#', evidence: '>', source: '@', context: '~', example: '*', counterpoint: '!', synthesis: '=', question: '?', note: '-' };
   let md = `# ${thread.title}\n\n${thread.description || ''}\n\n---\n\n`;
   for (const node of nodes) {
     let content = node.content || '';
@@ -241,7 +241,7 @@ router.post('/:threadId/export', withSession(async (req, res) => {
       content = p.description || p.point || p.explanation || p.argument || content;
     } catch {}
     content = content.replace(/<[^>]+>/g, '');
-    md += `## ${NODE_TYPE_EMOJI[node.node_type] || ''} [${node.node_type}] ${node.title}\n\n${content}\n\n`;
+    md += `## ${NODE_TYPE_EMOJI[node.entity_type] || ''} [${node.entity_type}] ${node.title}\n\n${content}\n\n`;
   }
   res.json({ markdown: md, title: thread.title });
 }));

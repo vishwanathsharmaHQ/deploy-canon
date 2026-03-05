@@ -95,7 +95,7 @@ const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
   const currentNode = dueNodes[currentIndex];
 
   const parseContent = (node: DueNode | undefined): { title: string; body: string; nodeType: string } => {
-    if (!node) return { title: '', body: '', nodeType: 'ROOT' };
+    if (!node) return { title: '', body: '', nodeType: 'claim' };
     let body = node.content || '';
     try {
       const parsed = JSON.parse(body);
@@ -158,7 +158,7 @@ const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
 
       <div className="rm-card" onClick={() => !revealed && setRevealed(true)}>
         <div className="rm-card-front">
-          <span className="rm-card-type" style={{ color: nodeType === 'ROOT' ? '#ffd700' : '#aaa' }}>{nodeType}</span>
+          <span className="rm-card-type" style={{ color: nodeType === 'claim' ? '#ffd700' : '#aaa' }}>{nodeType}</span>
           <h3 className="rm-card-title">{title}</h3>
           {!revealed && <p className="rm-card-hint">Click to reveal</p>}
         </div>

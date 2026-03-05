@@ -35,7 +35,7 @@ export function getEmbeddingText(entity: Record<string, unknown>, type: 'thread'
     } catch { /* keep raw */ }
   }
   contentText = String(contentText).replace(/<[^>]+>/g, ' ');
-  return [entity.title, `[${entity.node_type || ''}]`, contentText]
+  return [entity.title, `[${entity.entity_type || entity.node_type || ''}]`, contentText]
     .filter(Boolean)
     .join('\n')
     .substring(0, config.openai.maxEmbeddingChars);

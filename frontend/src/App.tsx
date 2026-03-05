@@ -18,6 +18,8 @@ import ReadLaterQueue from './components/ReadLaterQueue'
 import ThreadTimeline from './components/ThreadTimeline'
 import ThreadSummaryPanel from './components/ThreadSummaryPanel'
 import EpistemologicalDashboard from './components/EpistemologicalDashboard'
+import ThreadComparisonView from './components/ThreadComparisonView'
+import CitationNetworkView from './components/CitationNetworkView'
 import CommandPalette from './components/CommandPalette'
 import type { Command } from './components/CommandPalette'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
@@ -85,7 +87,7 @@ function App() {
     }
   }
 
-  const handleAddNode = async (threadData: { newNode: { title?: string; content?: string; type?: number | string; threadId: number; parentId?: number | null } }) => {
+  const handleAddNode = async (threadData: { newNode: { title?: string; content?: string; type?: number | string; threadId: number; parentId?: number | null; connectTo?: { targetId: number; relationType: string } } }) => {
     const { newNode } = threadData
     if (!newNode?.title || !newNode?.content) return
     try {
@@ -98,6 +100,7 @@ function App() {
         content: newNode.content,
         nodeType,
         parentId: newNode.parentId,
+        connectTo: newNode.connectTo as { targetId: number; relationType: import('./types').RelationType },
         metadata: { title: newNode.title, description: newNode.content.substring(0, 100), createdAt: new Date().toISOString() },
       })
       await loadThreads()
@@ -133,7 +136,7 @@ function App() {
     return {
       threadTitle: threadToShow.metadata?.title || threadToShow.title || `Thread ${threadToShow.id}`,
       threadDescription: threadToShow.description || '',
-      threadType: (threadToShow.metadata?.thread_type as string) || 'standard',
+      threadType: threadToShow.thread_type || (threadToShow.metadata?.thread_type as string) || 'argument',
       nodesSummary: nodeSummary || 'No nodes yet',
     }
   }, [graphSelectedNodeId, threadToShow])
@@ -267,11 +270,11 @@ function App() {
       </div>
 
       <div className="main-content">
-        {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest' || view === 'dashboard') && (
+        {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest' || view === 'dashboard' || view === 'compare' || view === 'citations') && (
           <ViewTabBar
             view={view}
             onChangeView={(newView: ViewName) => {
-              if (['sequence', 'editor', 'canvas', 'review', 'ingest', 'timeline', 'summary'].includes(newView)) {
+              if (['sequence', 'editor', 'canvas', 'review', 'ingest', 'timeline', 'summary', 'compare'].includes(newView)) {
                 requireLogin(() => setView(newView))
               } else { setView(newView) }
             }}
@@ -321,6 +324,14 @@ function App() {
           <ThreadTimeline threadId={threadToShow.id} threadTitle={threadToShow?.metadata?.title || threadToShow?.title} />
         ) : view === 'summary' && threadToShow ? (
           <ThreadSummaryPanel threadId={threadToShow.id} threadTitle={threadToShow?.metadata?.title || threadToShow?.title || `Thread ${threadToShow.id}`} />
+        ) : view === 'compare' ? (
+          <ThreadComparisonView
+            threads={threads.map(t => ({ id: t.id, title: t.metadata?.title || t.title || `Thread ${t.id}` }))}
+            currentThreadId={selectedThreadId ?? undefined}
+            onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }}
+          />
+        ) : view === 'citations' ? (
+          <CitationNetworkView onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }} />
         ) : view === 'dashboard' ? (
           <EpistemologicalDashboard onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }} />
         ) : view === 'article' && threadToShow ? (
@@ -361,7 +372,7 @@ function App() {
             <div className="custom-select" ref={dropdownRef}>
               <button className="thread-selector" onClick={() => setShowThreadDropdown(!showThreadDropdown)}>
                 {selectedThreadId
-                  ? threads.find(t => t.id === selectedThreadId)?.metadata?.title || `Thread ${selectedThreadId}`
+                  ? (() => { const t = threads.find(t => t.id === selectedThreadId); return t?.title || t?.metadata?.title || `Thread ${selectedThreadId}`; })()
                   : 'Select a Thread'}
               </button>
               {showThreadDropdown && (
@@ -371,7 +382,7 @@ function App() {
                   </div>
                   {threads.map(thread => (
                     <div key={thread.id} className="dropdown-item" onClick={() => { setSelectedThreadId(thread.id); setShowThreadDropdown(false) }}>
-                      {thread.metadata?.title || `Thread ${thread.id}`}
+                      {thread.title || thread.metadata?.title || `Thread ${thread.id}`}
                     </div>
                   ))}
                 </div>
@@ -412,7 +423,7 @@ function App() {
                   ) : filteredThreads.length > 0 ? (
                     filteredThreads.map(thread => (
                       <div key={thread.id} className="search-result-item" onClick={() => { setSelectedThreadId(thread.id); setSearchQuery(''); setShowSearchResults(false) }}>
-                        {thread.metadata?.title || `Thread ${thread.id}`}
+                        {thread.title || thread.metadata?.title || `Thread ${thread.id}`}
                       </div>
                     ))
                   ) : (

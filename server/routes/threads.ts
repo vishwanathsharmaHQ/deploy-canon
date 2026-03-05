@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getNeo4j, toNum, getSession } from '../db/driver.js';
-import { getNextId, formatThread, formatNode, vectorQuery, NODE_TYPES } from '../db/queries.js';
+import { getNextId, formatThread, formatNode, vectorQuery, ENTITY_TYPES, RELATIONSHIP_TYPES } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession, withTransaction } from '../middleware/session.js';
 import { aiTimeout } from '../middleware/aiTimeout.js';
@@ -16,14 +16,14 @@ const TEMPLATES = [
   {
     key: 'toulmin',
     name: 'Toulmin Model',
-    description: 'Claim → Grounds → Warrant → Backing → Qualifier → Rebuttal',
+    description: 'Claim -> Grounds -> Warrant -> Backing -> Qualifier -> Rebuttal',
     nodes: [
-      { title: 'Central Claim', nodeType: 'ROOT', content: '', parentIndex: 0 },
-      { title: 'Grounds (Evidence)', nodeType: 'EVIDENCE', content: '', parentIndex: 0 },
-      { title: 'Warrant (Reasoning)', nodeType: 'CONTEXT', content: '', parentIndex: 0 },
-      { title: 'Backing (Support)', nodeType: 'EVIDENCE', content: '', parentIndex: 2 },
-      { title: 'Qualifier (Limitations)', nodeType: 'CONTEXT', content: '', parentIndex: 0 },
-      { title: 'Rebuttal', nodeType: 'COUNTERPOINT', content: '', parentIndex: 0 },
+      { title: 'Central Claim', entityType: 'claim', role: 'root', content: '', parentIndex: 0, relationType: null },
+      { title: 'Grounds (Evidence)', entityType: 'evidence', role: 'supporting', content: '', parentIndex: 0, relationType: 'SUPPORTS' },
+      { title: 'Warrant (Reasoning)', entityType: 'context', role: 'context', content: '', parentIndex: 0, relationType: 'QUALIFIES' },
+      { title: 'Backing (Support)', entityType: 'evidence', role: 'supporting', content: '', parentIndex: 2, relationType: 'SUPPORTS' },
+      { title: 'Qualifier (Limitations)', entityType: 'context', role: 'context', content: '', parentIndex: 0, relationType: 'QUALIFIES' },
+      { title: 'Rebuttal', entityType: 'counterpoint', role: 'opposing', content: '', parentIndex: 0, relationType: 'CONTRADICTS' },
     ]
   },
   {
@@ -31,11 +31,11 @@ const TEMPLATES = [
     name: 'Steel Man Analysis',
     description: 'Build the strongest version of an opposing argument',
     nodes: [
-      { title: 'Opposing Position', nodeType: 'ROOT', content: '', parentIndex: 0 },
-      { title: 'Strongest Supporting Evidence', nodeType: 'EVIDENCE', content: '', parentIndex: 0 },
-      { title: 'Best Case Reasoning', nodeType: 'CONTEXT', content: '', parentIndex: 0 },
-      { title: 'Strongest Counterpoint to Your View', nodeType: 'COUNTERPOINT', content: '', parentIndex: 0 },
-      { title: 'Synthesis & Response', nodeType: 'SYNTHESIS', content: '', parentIndex: 0 },
+      { title: 'Opposing Position', entityType: 'claim', role: 'root', content: '', parentIndex: 0, relationType: null },
+      { title: 'Strongest Supporting Evidence', entityType: 'evidence', role: 'supporting', content: '', parentIndex: 0, relationType: 'SUPPORTS' },
+      { title: 'Best Case Reasoning', entityType: 'context', role: 'context', content: '', parentIndex: 0, relationType: 'SUPPORTS' },
+      { title: 'Strongest Counterpoint to Your View', entityType: 'counterpoint', role: 'opposing', content: '', parentIndex: 0, relationType: 'CONTRADICTS' },
+      { title: 'Synthesis & Response', entityType: 'synthesis', role: 'supporting', content: '', parentIndex: 0, relationType: 'DERIVES_FROM' },
     ]
   },
   {
@@ -43,12 +43,12 @@ const TEMPLATES = [
     name: 'Cost-Benefit Analysis',
     description: 'Systematic evaluation of pros, cons, and trade-offs',
     nodes: [
-      { title: 'Decision/Proposal', nodeType: 'ROOT', content: '', parentIndex: 0 },
-      { title: 'Key Benefit 1', nodeType: 'EVIDENCE', content: '', parentIndex: 0 },
-      { title: 'Key Benefit 2', nodeType: 'EVIDENCE', content: '', parentIndex: 0 },
-      { title: 'Key Cost/Risk 1', nodeType: 'COUNTERPOINT', content: '', parentIndex: 0 },
-      { title: 'Key Cost/Risk 2', nodeType: 'COUNTERPOINT', content: '', parentIndex: 0 },
-      { title: 'Net Assessment', nodeType: 'SYNTHESIS', content: '', parentIndex: 0 },
+      { title: 'Decision/Proposal', entityType: 'claim', role: 'root', content: '', parentIndex: 0, relationType: null },
+      { title: 'Key Benefit 1', entityType: 'evidence', role: 'supporting', content: '', parentIndex: 0, relationType: 'SUPPORTS' },
+      { title: 'Key Benefit 2', entityType: 'evidence', role: 'supporting', content: '', parentIndex: 0, relationType: 'SUPPORTS' },
+      { title: 'Key Cost/Risk 1', entityType: 'counterpoint', role: 'opposing', content: '', parentIndex: 0, relationType: 'CONTRADICTS' },
+      { title: 'Key Cost/Risk 2', entityType: 'counterpoint', role: 'opposing', content: '', parentIndex: 0, relationType: 'CONTRADICTS' },
+      { title: 'Net Assessment', entityType: 'synthesis', role: 'supporting', content: '', parentIndex: 0, relationType: 'DERIVES_FROM' },
     ]
   },
   {
@@ -56,12 +56,12 @@ const TEMPLATES = [
     name: 'Literature Review',
     description: 'Synthesize multiple sources into themes and gaps',
     nodes: [
-      { title: 'Research Question', nodeType: 'ROOT', content: '', parentIndex: 0 },
-      { title: 'Source 1 Findings', nodeType: 'REFERENCE', content: '', parentIndex: 0 },
-      { title: 'Source 2 Findings', nodeType: 'REFERENCE', content: '', parentIndex: 0 },
-      { title: 'Common Theme', nodeType: 'CONTEXT', content: '', parentIndex: 0 },
-      { title: 'Research Gap', nodeType: 'COUNTERPOINT', content: '', parentIndex: 0 },
-      { title: 'Synthesis', nodeType: 'SYNTHESIS', content: '', parentIndex: 0 },
+      { title: 'Research Question', entityType: 'question', role: 'root', content: '', parentIndex: 0, relationType: null },
+      { title: 'Source 1 Findings', entityType: 'source', role: 'supporting', content: '', parentIndex: 0, relationType: 'REFERENCES' },
+      { title: 'Source 2 Findings', entityType: 'source', role: 'supporting', content: '', parentIndex: 0, relationType: 'REFERENCES' },
+      { title: 'Common Theme', entityType: 'context', role: 'context', content: '', parentIndex: 0, relationType: 'QUALIFIES' },
+      { title: 'Research Gap', entityType: 'counterpoint', role: 'opposing', content: '', parentIndex: 0, relationType: 'CONTRADICTS' },
+      { title: 'Synthesis', entityType: 'synthesis', role: 'supporting', content: '', parentIndex: 0, relationType: 'DERIVES_FROM' },
     ]
   },
   {
@@ -69,14 +69,14 @@ const TEMPLATES = [
     name: 'Decision Matrix',
     description: 'Compare options against weighted criteria',
     nodes: [
-      { title: 'Decision to Make', nodeType: 'ROOT', content: '', parentIndex: 0 },
-      { title: 'Option A', nodeType: 'CONTEXT', content: '', parentIndex: 0 },
-      { title: 'Option B', nodeType: 'CONTEXT', content: '', parentIndex: 0 },
-      { title: 'Pro: Option A', nodeType: 'EVIDENCE', content: '', parentIndex: 1 },
-      { title: 'Con: Option A', nodeType: 'COUNTERPOINT', content: '', parentIndex: 1 },
-      { title: 'Pro: Option B', nodeType: 'EVIDENCE', content: '', parentIndex: 2 },
-      { title: 'Con: Option B', nodeType: 'COUNTERPOINT', content: '', parentIndex: 2 },
-      { title: 'Recommendation', nodeType: 'SYNTHESIS', content: '', parentIndex: 0 },
+      { title: 'Decision to Make', entityType: 'claim', role: 'root', content: '', parentIndex: 0, relationType: null },
+      { title: 'Option A', entityType: 'context', role: 'context', content: '', parentIndex: 0, relationType: 'QUALIFIES' },
+      { title: 'Option B', entityType: 'context', role: 'context', content: '', parentIndex: 0, relationType: 'QUALIFIES' },
+      { title: 'Pro: Option A', entityType: 'evidence', role: 'supporting', content: '', parentIndex: 1, relationType: 'SUPPORTS' },
+      { title: 'Con: Option A', entityType: 'counterpoint', role: 'opposing', content: '', parentIndex: 1, relationType: 'CONTRADICTS' },
+      { title: 'Pro: Option B', entityType: 'evidence', role: 'supporting', content: '', parentIndex: 2, relationType: 'SUPPORTS' },
+      { title: 'Con: Option B', entityType: 'counterpoint', role: 'opposing', content: '', parentIndex: 2, relationType: 'CONTRADICTS' },
+      { title: 'Recommendation', entityType: 'synthesis', role: 'supporting', content: '', parentIndex: 0, relationType: 'DERIVES_FROM' },
     ]
   },
 ];
@@ -104,12 +104,12 @@ router.post(
 
     const now = new Date().toISOString();
     const threadId = await getNextId('thread', tx);
-    const metaStr = JSON.stringify({ title, description: description || '', thread_type: 'template', template: templateKey });
+    const metaStr = JSON.stringify({ title, description: description || '', template: templateKey });
 
     const threadResult = await tx.run(
       `CREATE (t:Thread {
         id: $id, title: $title, description: $description,
-        content: '', metadata: $metadata,
+        thread_type: 'template', metadata: $metadata,
         created_at: $now, updated_at: $now
       }) RETURN t`,
       {
@@ -123,7 +123,7 @@ router.post(
 
     // Create nodes from template, tracking created node IDs by index
     const createdNodeIds: number[] = [];
-    const createdNodes: Array<{ id: number; title: string; node_type: string; content: string; parentId: number | null }> = [];
+    const createdNodes: Array<{ id: number; title: string; entity_type: string; content: string }> = [];
 
     for (let i = 0; i < template.nodes.length; i++) {
       const tNode = template.nodes[i];
@@ -131,42 +131,41 @@ router.post(
       createdNodeIds.push(nodeId);
 
       await tx.run(
-        `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:$nodeType, metadata:$meta, created_at:$now, updated_at:$now })
-         WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
+        `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:$entityType, metadata:$meta, created_at:$now, updated_at:$now })
+         WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: $pos, role: $role, added_at: $now}]->(n)`,
         {
           id: getNeo4j().int(nodeId),
           title: tNode.title,
           content: tNode.content,
-          nodeType: tNode.nodeType,
+          entityType: tNode.entityType,
           meta: JSON.stringify({ title: tNode.title }),
           now,
           threadId: getNeo4j().int(threadId),
+          pos: getNeo4j().int(i),
+          role: tNode.role || 'supporting',
         }
       );
 
-      // Determine parent: for index 0 (the ROOT), no parent; otherwise use parentIndex
-      let parentId: number | null = null;
-      if (i > 0 && tNode.parentIndex !== undefined && tNode.parentIndex < createdNodeIds.length) {
-        parentId = createdNodeIds[tNode.parentIndex];
+      // Create typed relationship: for index > 0, link to parent node
+      if (i > 0 && tNode.parentIndex !== undefined && tNode.parentIndex < createdNodeIds.length && tNode.relationType) {
+        const relId = await getNextId('relationship', tx);
         await tx.run(
-          `MATCH (p:Node {id:$pid}),(c:Node {id:$cid}) CREATE (p)-[:PARENT_OF]->(c)`,
-          { pid: getNeo4j().int(parentId), cid: getNeo4j().int(nodeId) }
+          `MATCH (c:Node {id:$cid}),(p:Node {id:$pid}) CREATE (c)-[:${tNode.relationType} {id: $relId, created_at: $now}]->(p)`,
+          { cid: getNeo4j().int(nodeId), pid: getNeo4j().int(createdNodeIds[tNode.parentIndex]), relId: getNeo4j().int(relId), now }
         );
       }
 
       createdNodes.push({
         id: nodeId,
         title: tNode.title,
-        node_type: tNode.nodeType,
+        entity_type: tNode.entityType,
         content: tNode.content,
-        parentId,
       });
     }
 
     const thread = formatThread(threadResult.records[0].get('t').properties);
     const nodes = createdNodes.map(n => formatNode(
-      { id: n.id, title: n.title, content: n.content, node_type: n.node_type, created_at: now, updated_at: now, metadata: JSON.stringify({ title: n.title }) },
-      n.parentId
+      { id: n.id, title: n.title, content: n.content, entity_type: n.entity_type, created_at: now, updated_at: now, metadata: JSON.stringify({ title: n.title }) }
     ));
 
     res.json({ ...thread, nodes });
@@ -192,7 +191,7 @@ router.post(
   requireAuth,
   withSession(async (req, res) => {
     const session = req.neo4jSession!;
-    const { title, description, content, metadata } = req.body;
+    const { title, description, content, metadata, thread_type } = req.body;
 
     const id = await getNextId('thread', session);
     const now = new Date().toISOString();
@@ -201,14 +200,14 @@ router.post(
     const result = await session.run(
       `CREATE (t:Thread {
         id: $id, title: $title, description: $description,
-        content: $content, metadata: $metadata,
+        thread_type: $threadType, metadata: $metadata,
         created_at: $now, updated_at: $now
       }) RETURN t`,
       {
         id: getNeo4j().int(id),
         title,
         description: description || '',
-        content: content || '',
+        threadType: thread_type || 'argument',
         metadata: metaStr,
         now,
       }
@@ -261,6 +260,35 @@ router.get(
   })
 );
 
+// ── PATCH /:threadId — update thread metadata (requireAuth) ──────────────────
+router.patch(
+  '/:threadId',
+  requireAuth,
+  withSession(async (req, res) => {
+    const session = req.neo4jSession!;
+    const threadId = parseInt(req.params.threadId);
+    const { thread_type, title, description } = req.body;
+
+    const sets: string[] = [];
+    const params: Record<string, unknown> = { id: getNeo4j().int(threadId) };
+
+    if (thread_type) { sets.push('t.thread_type = $threadType'); params.threadType = thread_type; }
+    if (title) { sets.push('t.title = $title'); params.title = title; }
+    if (description !== undefined) { sets.push('t.description = $desc'); params.desc = description; }
+
+    if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+    sets.push('t.updated_at = $now');
+    params.now = new Date().toISOString();
+
+    await session.run(
+      `MATCH (t:Thread {id: $id}) SET ${sets.join(', ')} RETURN t`,
+      params
+    );
+    res.json({ success: true });
+  })
+);
+
 // ── GET /random — random thread ───────────────────────────────────────────────
 router.get(
   '/random',
@@ -309,16 +337,16 @@ Format as JSON:
       parseAndCreateNodes = async (gptContent, threadId) => {
         const events = (gptContent.events || []) as { title: string; content: string; type?: string }[];
         const entries = [
-          { title: 'Overview', content: gptContent.summary as string, type: 'SYNTHESIS' },
-          ...events.map(e => ({ title: e.title, content: e.content, type: 'ROOT' })),
-          { title: 'Synthesis', content: gptContent.synthesis as string, type: 'SYNTHESIS' },
+          { title: 'Overview', content: gptContent.summary as string, type: 'synthesis' },
+          ...events.map(e => ({ title: e.title, content: e.content, type: 'claim' })),
+          { title: 'Synthesis', content: gptContent.synthesis as string, type: 'synthesis' },
         ];
         for (const entry of entries) {
           const nodeId = await getNextId('node', tx);
           await tx.run(
-            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:$nodeType, metadata:$meta, created_at:$now, updated_at:$now })
-             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
-            { id: getNeo4j().int(nodeId), title: entry.title, content: entry.content, nodeType: entry.type, meta: JSON.stringify({ title: entry.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
+            `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:$entityType, metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: 0, role: 'supporting', added_at: $now}]->(n)`,
+            { id: getNeo4j().int(nodeId), title: entry.title, content: entry.content, entityType: entry.type, meta: JSON.stringify({ title: entry.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
           );
         }
       };
@@ -343,21 +371,21 @@ Format as JSON:
       parseAndCreateNodes = async (gptContent, threadId) => {
         const entries: { title: string; content: string; type: string }[] = [];
         const claim = gptContent.centralClaim as { title: string; content: string };
-        if (claim) entries.push({ title: claim.title, content: claim.content, type: 'ROOT' });
+        if (claim) entries.push({ title: claim.title, content: claim.content, type: 'claim' });
         for (const e of (gptContent.evidence || []) as { title: string; content: string }[]) {
-          entries.push({ title: e.title, content: JSON.stringify(e), type: 'EVIDENCE' });
+          entries.push({ title: e.title, content: JSON.stringify(e), type: 'evidence' });
         }
         for (const cp of (gptContent.counterpoints || []) as { title: string; content: string }[]) {
-          entries.push({ title: cp.title, content: JSON.stringify({ argument: cp.title, explanation: cp.content }), type: 'COUNTERPOINT' });
+          entries.push({ title: cp.title, content: JSON.stringify({ argument: cp.title, explanation: cp.content }), type: 'counterpoint' });
         }
-        entries.push({ title: 'Synthesis', content: gptContent.synthesis as string, type: 'SYNTHESIS' });
+        entries.push({ title: 'Synthesis', content: gptContent.synthesis as string, type: 'synthesis' });
 
         for (const entry of entries) {
           const nodeId = await getNextId('node', tx);
           await tx.run(
-            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:$nodeType, metadata:$meta, created_at:$now, updated_at:$now })
-             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
-            { id: getNeo4j().int(nodeId), title: entry.title, content: entry.content, nodeType: entry.type, meta: JSON.stringify({ title: entry.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
+            `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:$entityType, metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: 0, role: 'supporting', added_at: $now}]->(n)`,
+            { id: getNeo4j().int(nodeId), title: entry.title, content: entry.content, entityType: entry.type, meta: JSON.stringify({ title: entry.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
           );
         }
       };
@@ -388,17 +416,17 @@ Format as JSON:
           const rootId = await getNextId('node', tx);
           const rootNow = new Date().toISOString();
           await tx.run(
-            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:'ROOT', metadata:$meta, created_at:$now, updated_at:$now })
-             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
+            `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:'claim', metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: 0, role: 'supporting', added_at: $now}]->(n)`,
             { id: getNeo4j().int(rootId), title: subj.title, content: subj.content, meta: JSON.stringify({ title: subj.title }), now: rootNow, threadId: getNeo4j().int(threadId) }
           );
           // Create child detail nodes
           for (const detail of subj.details || []) {
             const detailId = await getNextId('node', tx);
             await tx.run(
-              `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:'EVIDENCE', metadata:$meta, created_at:$now, updated_at:$now })
-               WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)
-               WITH n MATCH (p:Node {id:$parentId}) CREATE (p)-[:PARENT_OF]->(n)`,
+              `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:'evidence', metadata:$meta, created_at:$now, updated_at:$now })
+               WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: 0, role: 'supporting', added_at: $now}]->(n)
+               WITH n MATCH (p:Node {id:$parentId}) CREATE (n)-[:SUPPORTS {created_at: $now}]->(p)`,
               { id: getNeo4j().int(detailId), title: detail.title, content: detail.content, meta: JSON.stringify({ title: detail.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId), parentId: getNeo4j().int(rootId) }
             );
           }
@@ -406,8 +434,8 @@ Format as JSON:
         // Synthesis
         const synthId = await getNextId('node', tx);
         await tx.run(
-          `CREATE (n:Node { id:$id, title:'Synthesis', content:$content, node_type:'SYNTHESIS', metadata:$meta, created_at:$now, updated_at:$now })
-           WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
+          `CREATE (n:Node { id:$id, title:'Synthesis', content:$content, entity_type:'synthesis', metadata:$meta, created_at:$now, updated_at:$now })
+           WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: 0, role: 'supporting', added_at: $now}]->(n)`,
           { id: getNeo4j().int(synthId), title: 'Synthesis', content: gptContent.synthesis as string, meta: JSON.stringify({ title: 'Synthesis' }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
         );
       };
@@ -432,18 +460,18 @@ Format as JSON:
 }`;
       parseAndCreateNodes = async (gptContent, threadId) => {
         const nodeEntries = [
-          { title: 'Summary', content: gptContent.summary as string, type: 'SYNTHESIS' },
-          { title: (gptContent.evidence as { source: string }).source, content: JSON.stringify(gptContent.evidence), type: 'EVIDENCE' },
-          { title: (gptContent.example as { title: string }).title, content: JSON.stringify(gptContent.example), type: 'EXAMPLE' },
-          { title: (gptContent.counterpoint as { argument: string }).argument, content: JSON.stringify(gptContent.counterpoint), type: 'COUNTERPOINT' },
-          { title: 'Synthesis', content: gptContent.synthesis as string, type: 'SYNTHESIS' },
+          { title: 'Summary', content: gptContent.summary as string, type: 'synthesis' },
+          { title: (gptContent.evidence as { source: string }).source, content: JSON.stringify(gptContent.evidence), type: 'evidence' },
+          { title: (gptContent.example as { title: string }).title, content: JSON.stringify(gptContent.example), type: 'example' },
+          { title: (gptContent.counterpoint as { argument: string }).argument, content: JSON.stringify(gptContent.counterpoint), type: 'counterpoint' },
+          { title: 'Synthesis', content: gptContent.synthesis as string, type: 'synthesis' },
         ];
         for (const entry of nodeEntries) {
           const nodeId = await getNextId('node', tx);
           await tx.run(
-            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:$nodeType, metadata:$meta, created_at:$now, updated_at:$now })
-             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
-            { id: getNeo4j().int(nodeId), title: entry.title, content: entry.content, nodeType: entry.type, meta: JSON.stringify({ title: entry.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
+            `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:$entityType, metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: 0, role: 'supporting', added_at: $now}]->(n)`,
+            { id: getNeo4j().int(nodeId), title: entry.title, content: entry.content, entityType: entry.type, meta: JSON.stringify({ title: entry.title }), now: new Date().toISOString(), threadId: getNeo4j().int(threadId) }
           );
         }
       };
@@ -473,14 +501,14 @@ Format as JSON:
     const threadResult = await tx.run(
       `CREATE (t:Thread {
         id: $id, title: $title, description: $description,
-        content: $content, metadata: $metadata,
+        thread_type: $threadType, metadata: $metadata,
         created_at: $now, updated_at: $now
       }) RETURN t`,
       {
         id: getNeo4j().int(threadId),
         title: topic,
         description: (gptContent.summary || '').substring(0, 255),
-        content: gptContent.summary || '',
+        threadType: threadType,
         metadata: threadMetaStr,
         now,
       }
@@ -513,12 +541,12 @@ router.get(
     // 2. Node type distribution
     const typeResult = await session.run(`
       MATCH (n:Node)
-      RETURN n.node_type AS nodeType, count(n) AS cnt
+      RETURN n.entity_type AS entityType, count(n) AS cnt
       ORDER BY cnt DESC
     `);
     const nodeTypeDistribution: Record<string, number> = {};
     for (const rec of typeResult.records) {
-      const nt = rec.get('nodeType');
+      const nt = rec.get('entityType');
       if (nt) nodeTypeDistribution[nt] = toNum(rec.get('cnt')) ?? 0;
     }
 
@@ -558,7 +586,7 @@ router.get(
     // 5. Recent activity (last 10 nodes created)
     const recentResult = await session.run(`
       MATCH (n:Node)-[:BELONGS_TO]->(t:Thread)
-      RETURN n.id AS id, n.title AS title, n.node_type AS nodeType,
+      RETURN n.id AS id, n.title AS title, n.entity_type AS entityType,
              t.id AS threadId, t.title AS threadTitle, COALESCE(t.metadata, '') AS threadMeta,
              n.created_at AS created_at
       ORDER BY n.created_at DESC
@@ -576,7 +604,7 @@ router.get(
       return {
         id: toNum(r.get('id')) ?? 0,
         title: r.get('title') || 'Untitled',
-        nodeType: r.get('nodeType') || 'ROOT',
+        entityType: r.get('entityType') || 'claim',
         threadId: toNum(r.get('threadId')) ?? 0,
         threadTitle: tTitle,
         created_at: r.get('created_at') || '',
@@ -585,9 +613,9 @@ router.get(
 
     // 6. Total evidence and counterpoints
     const evidenceResult = await session.run(`
-      OPTIONAL MATCH (e:Node {node_type: 'EVIDENCE'})
+      OPTIONAL MATCH (e:Node {entity_type: 'evidence'})
       WITH count(e) AS evCount
-      OPTIONAL MATCH (c:Node {node_type: 'COUNTERPOINT'})
+      OPTIONAL MATCH (c:Node {entity_type: 'counterpoint'})
       RETURN evCount, count(c) AS cpCount
     `);
     const totalEvidence = toNum(evidenceResult.records[0]?.get('evCount') ?? 0) ?? 0;
@@ -606,6 +634,383 @@ router.get(
   })
 );
 
+// ── POST /compare — compare two threads (requireAuth, aiTimeout) ─────────────
+router.post(
+  '/compare',
+  requireAuth,
+  aiTimeout,
+  withSession(async (req, res) => {
+    const session = req.neo4jSession!;
+    const { threadIdA, threadIdB } = req.body;
+
+    if (!threadIdA || !threadIdB) {
+      return res.status(400).json({ error: 'threadIdA and threadIdB are required' });
+    }
+    if (threadIdA === threadIdB) {
+      return res.status(400).json({ error: 'Cannot compare a thread with itself' });
+    }
+
+    // Fetch thread metadata
+    const threadRes = await session.run(
+      `MATCH (t:Thread) WHERE t.id IN [$a, $b] RETURN t`,
+      { a: getNeo4j().int(threadIdA), b: getNeo4j().int(threadIdB) }
+    );
+    if (threadRes.records.length < 2) {
+      return res.status(404).json({ error: 'One or both threads not found' });
+    }
+
+    const threadMap: Record<number, { id: number; title: string }> = {};
+    for (const rec of threadRes.records) {
+      const props = rec.get('t').properties;
+      const id = toNum(props.id)!;
+      threadMap[id] = { id, title: (props.title as string) || `Thread ${id}` };
+    }
+
+    // Fetch nodes with embeddings for both threads
+    const nodesRes = await session.run(
+      `MATCH (t:Thread)-[:INCLUDES]->(n:Node)
+       WHERE t.id IN [$a, $b]
+       OPTIONAL MATCH (n)-[:CHILD_OF]->(p:Node)
+       RETURN t.id AS threadId, n, p.id AS parentId`,
+      { a: getNeo4j().int(threadIdA), b: getNeo4j().int(threadIdB) }
+    );
+
+    interface CompNode {
+      id: number;
+      title: string;
+      entity_type: string;
+      content: string;
+      content_preview: string;
+      embedding: number[] | null;
+    }
+
+    const nodesA: CompNode[] = [];
+    const nodesB: CompNode[] = [];
+
+    for (const rec of nodesRes.records) {
+      const tid = toNum(rec.get('threadId'))!;
+      const props = rec.get('n').properties;
+      const rawContent = (props.content as string) || '';
+      const plainContent = stripHtml(rawContent).substring(0, 300);
+
+      const node: CompNode = {
+        id: toNum(props.id)!,
+        title: (props.title as string) || 'Untitled',
+        entity_type: (props.entity_type as string) || 'claim',
+        content: rawContent,
+        content_preview: plainContent.substring(0, 200),
+        embedding: props.embedding ? (props.embedding as number[]) : null,
+      };
+
+      if (tid === threadIdA) nodesA.push(node);
+      else nodesB.push(node);
+    }
+
+    // Cosine similarity helper
+    function cosineSimilarity(a: number[], b: number[]): number {
+      if (a.length !== b.length || a.length === 0) return 0;
+      let dot = 0, magA = 0, magB = 0;
+      for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i];
+        magA += a[i] * a[i];
+        magB += b[i] * b[i];
+      }
+      const denom = Math.sqrt(magA) * Math.sqrt(magB);
+      return denom === 0 ? 0 : dot / denom;
+    }
+
+    // Compute pairwise similarities
+    interface SimilarityPair {
+      nodeA: CompNode;
+      nodeB: CompNode;
+      similarity: number;
+    }
+
+    const allPairs: SimilarityPair[] = [];
+    for (const nA of nodesA) {
+      if (!nA.embedding) continue;
+      for (const nB of nodesB) {
+        if (!nB.embedding) continue;
+        const sim = cosineSimilarity(nA.embedding, nB.embedding);
+        allPairs.push({ nodeA: nA, nodeB: nB, similarity: sim });
+      }
+    }
+
+    // Greedy matching: sort by similarity descending
+    allPairs.sort((a, b) => b.similarity - a.similarity);
+
+    const matchedA = new Set<number>();
+    const matchedB = new Set<number>();
+    const shared: SimilarityPair[] = [];
+
+    // First pass: high-confidence matches (>0.85)
+    for (const pair of allPairs) {
+      if (matchedA.has(pair.nodeA.id) || matchedB.has(pair.nodeB.id)) continue;
+      if (pair.similarity > 0.85) {
+        shared.push(pair);
+        matchedA.add(pair.nodeA.id);
+        matchedB.add(pair.nodeB.id);
+      }
+    }
+
+    // Second pass: moderate matches (0.6-0.85)
+    for (const pair of allPairs) {
+      if (matchedA.has(pair.nodeA.id) || matchedB.has(pair.nodeB.id)) continue;
+      if (pair.similarity > 0.6) {
+        shared.push(pair);
+        matchedA.add(pair.nodeA.id);
+        matchedB.add(pair.nodeB.id);
+      }
+    }
+
+    // Unique nodes: no match above 0.6
+    const uniqueToA = nodesA.filter(n => !matchedA.has(n.id));
+    const uniqueToB = nodesB.filter(n => !matchedB.has(n.id));
+
+    // Check for contradictions among top shared pairs using GPT-4o-mini
+    const contradictions: Array<{ nodeA: CompNode; nodeB: CompNode; reason: string }> = [];
+
+    if (shared.length > 0) {
+      const topShared = shared.slice(0, 10);
+      try {
+        const openai = getOpenAI();
+        const pairsDescription = topShared.map((p, i) => (
+          `Pair ${i + 1}:\n  A: "${p.nodeA.title}" — ${stripHtml(p.nodeA.content).substring(0, 200)}\n  B: "${p.nodeB.title}" — ${stripHtml(p.nodeB.content).substring(0, 200)}`
+        )).join('\n\n');
+
+        const gptRes = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          temperature: 0.2,
+          messages: [{
+            role: 'system',
+            content: `You analyze pairs of knowledge nodes from two research threads to identify contradictions.
+A contradiction means the two nodes make conflicting or incompatible claims about the same topic.
+Merely covering different aspects of the same topic is NOT a contradiction.
+Return a JSON array of objects for ONLY the contradictory pairs: [{"pairIndex": number, "reason": "brief explanation"}]
+If no contradictions exist, return an empty array: []
+Return ONLY the JSON array, no other text.`,
+          }, {
+            role: 'user',
+            content: pairsDescription,
+          }],
+        });
+
+        const content = gptRes.choices[0]?.message?.content?.trim() || '[]';
+        let parsed: Array<{ pairIndex: number; reason: string }> = [];
+        try {
+          parsed = JSON.parse(content);
+        } catch {
+          const jsonMatch = content.match(/\[[\s\S]*\]/);
+          if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+        }
+
+        for (const c of parsed) {
+          const idx = c.pairIndex - 1;
+          if (idx >= 0 && idx < topShared.length) {
+            contradictions.push({
+              nodeA: topShared[idx].nodeA,
+              nodeB: topShared[idx].nodeB,
+              reason: c.reason,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Contradiction detection failed:', err);
+      }
+    }
+
+    // Remove contradictions from shared list
+    const contradictionKeys = new Set(
+      contradictions.map(c => `${c.nodeA.id}-${c.nodeB.id}`)
+    );
+    const filteredShared = shared.filter(
+      p => !contradictionKeys.has(`${p.nodeA.id}-${p.nodeB.id}`)
+    );
+
+    // Format response
+    const fmt = (n: CompNode) => ({
+      id: n.id,
+      title: n.title,
+      entity_type: n.entity_type,
+      content_preview: n.content_preview,
+    });
+
+    res.json({
+      threadA: { ...threadMap[threadIdA], nodeCount: nodesA.length },
+      threadB: { ...threadMap[threadIdB], nodeCount: nodesB.length },
+      shared: filteredShared.map(p => ({
+        nodeA: fmt(p.nodeA),
+        nodeB: fmt(p.nodeB),
+        similarity: Math.round(p.similarity * 100) / 100,
+      })),
+      contradictions: contradictions.map(c => ({
+        nodeA: fmt(c.nodeA),
+        nodeB: fmt(c.nodeB),
+        reason: c.reason,
+      })),
+      uniqueToA: uniqueToA.map(fmt),
+      uniqueToB: uniqueToB.map(fmt),
+    });
+  })
+);
+
+// ── GET /citations/network — citation network visualization ───────────────────
+router.get(
+  '/citations/network',
+  requireAuth,
+  withSession(async (req, res) => {
+    const session = req.neo4jSession!;
+
+    // 1. Query all REFERENCE and EVIDENCE nodes across all threads
+    const result = await session.run(`
+      MATCH (t:Thread)-[:INCLUDES]->(n:Node)
+      WHERE n.entity_type IN ['source', 'evidence']
+      RETURN n, t.id AS threadId, t.title AS threadTitle,
+             t.description AS threadDescription
+      ORDER BY n.created_at DESC
+    `);
+
+    // 2. Extract sources from node content/metadata
+    const urlRegex = /https?:\/\/[^\s<>"',;)}\]]+/gi;
+    const sourceMap = new Map<string, {
+      id: string;
+      title: string;
+      url?: string;
+      threadIds: Set<number>;
+      threads: Map<number, string>;
+      nodes: Array<{ id: number; title: string; threadId: number }>;
+    }>();
+
+    for (const record of result.records) {
+      const props = record.get('n').properties;
+      const nodeId = toNum(props.id) ?? 0;
+      const nodeTitle: string = props.title || props.metadata?.title || 'Untitled';
+      const nodeContent: string = props.content || '';
+      const threadId = toNum(record.get('threadId')) ?? 0;
+      const threadTitle: string = record.get('threadTitle') || record.get('threadDescription') || `Thread ${threadId}`;
+
+      // Extract URLs from content
+      const urls = nodeContent.match(urlRegex) || [];
+
+      if (urls.length > 0) {
+        for (const url of urls) {
+          const cleanUrl = url.replace(/[.,;:!?)}\]]+$/, '');
+          const key = cleanUrl.toLowerCase();
+          let urlTitle: string;
+          try {
+            const parsed = new URL(cleanUrl);
+            urlTitle = parsed.hostname.replace(/^www\./, '') + (parsed.pathname !== '/' ? parsed.pathname.substring(0, 50) : '');
+          } catch {
+            urlTitle = cleanUrl.substring(0, 60);
+          }
+
+          if (!sourceMap.has(key)) {
+            const hash = Buffer.from(key).toString('base64url').substring(0, 16);
+            sourceMap.set(key, {
+              id: `src-${hash}`,
+              title: urlTitle,
+              url: cleanUrl,
+              threadIds: new Set(),
+              threads: new Map(),
+              nodes: [],
+            });
+          }
+          const src = sourceMap.get(key)!;
+          src.threadIds.add(threadId);
+          src.threads.set(threadId, threadTitle);
+          src.nodes.push({ id: nodeId, title: nodeTitle, threadId });
+        }
+      } else {
+        const normalizedTitle = nodeTitle.toLowerCase().trim().replace(/\s+/g, ' ');
+        const key = `title:${normalizedTitle}`;
+
+        if (!sourceMap.has(key)) {
+          const hash = Buffer.from(key).toString('base64url').substring(0, 16);
+          sourceMap.set(key, {
+            id: `src-${hash}`,
+            title: nodeTitle,
+            threadIds: new Set(),
+            threads: new Map(),
+            nodes: [],
+          });
+        }
+        const src = sourceMap.get(key)!;
+        src.threadIds.add(threadId);
+        src.threads.set(threadId, threadTitle);
+        src.nodes.push({ id: nodeId, title: nodeTitle, threadId });
+      }
+    }
+
+    // 3. Detect single points of failure
+    const threadEvidenceSources = new Map<number, Map<string, number>>();
+    for (const [key, src] of sourceMap) {
+      for (const node of src.nodes) {
+        if (!threadEvidenceSources.has(node.threadId)) {
+          threadEvidenceSources.set(node.threadId, new Map());
+        }
+        const tMap = threadEvidenceSources.get(node.threadId)!;
+        tMap.set(key, (tMap.get(key) || 0) + 1);
+      }
+    }
+
+    const spofKeys = new Set<string>();
+    for (const [, sourceCounts] of threadEvidenceSources) {
+      if (sourceCounts.size === 1) {
+        const [onlyKey] = sourceCounts.keys();
+        spofKeys.add(onlyKey);
+      }
+    }
+
+    // 4. Format sources
+    const sources = Array.from(sourceMap.entries()).map(([key, src]) => ({
+      id: src.id,
+      title: src.title,
+      url: src.url,
+      referenceCount: src.nodes.length,
+      threadCount: src.threadIds.size,
+      threads: Array.from(src.threads.entries()).map(([id, title]) => ({ id, title })),
+      nodes: src.nodes,
+      isSinglePointOfFailure: spofKeys.has(key),
+    }));
+
+    sources.sort((a, b) => b.referenceCount - a.referenceCount);
+
+    // 5. Build connections: sources that share threads
+    const connections: Array<{ sourceA: string; sourceB: string; sharedThreads: number }> = [];
+    const sourceEntries = Array.from(sourceMap.entries());
+    for (let i = 0; i < sourceEntries.length; i++) {
+      for (let j = i + 1; j < sourceEntries.length; j++) {
+        const [, srcA] = sourceEntries[i];
+        const [, srcB] = sourceEntries[j];
+        let shared = 0;
+        for (const tid of srcA.threadIds) {
+          if (srcB.threadIds.has(tid)) shared++;
+        }
+        if (shared > 0) {
+          connections.push({ sourceA: srcA.id, sourceB: srcB.id, sharedThreads: shared });
+        }
+      }
+    }
+
+    // 6. Stats
+    const totalSources = sources.length;
+    const avgReferencesPerSource = totalSources > 0
+      ? Math.round((sources.reduce((sum, s) => sum + s.referenceCount, 0) / totalSources) * 100) / 100
+      : 0;
+    const singlePointOfFailureCount = sources.filter(s => s.isSinglePointOfFailure).length;
+
+    res.json({
+      sources,
+      connections,
+      stats: {
+        totalSources,
+        avgReferencesPerSource,
+        singlePointOfFailureCount,
+      },
+    });
+  })
+);
+
 // ── POST /:threadId/analyze — analyze thread confidence (requireAuth, aiTimeout)
 router.post(
   '/:threadId/analyze',
@@ -616,18 +1021,18 @@ router.post(
     const threadId = parseInt(req.params.threadId);
 
     const result = await session.run(
-      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
+      `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
       { threadId: getNeo4j().int(threadId) }
     );
 
     const nodes = result.records.map(r => {
       const p = r.get('n').properties;
-      return { id: toNum(p.id), title: p.title, node_type: p.node_type, content: p.content };
+      return { id: toNum(p.id), title: p.title, entity_type: p.entity_type, content: p.content };
     });
     if (!nodes.length) return res.status(400).json({ error: 'No nodes found' });
 
-    const rootNode = nodes.find(n => n.node_type === 'ROOT');
-    if (!rootNode) return res.status(400).json({ error: 'No ROOT node found' });
+    const rootNode = nodes.find(n => n.entity_type === 'claim');
+    if (!rootNode) return res.status(400).json({ error: 'No claim node found' });
 
     const nodesSummary = nodes
       .map(n => {
@@ -638,7 +1043,7 @@ router.post(
         } catch {
           /* raw */
         }
-        return `[${n.node_type}] ${n.title}: ${c.replace(/<[^>]+>/g, ' ').substring(0, 400)}`;
+        return `[${n.entity_type}] ${n.title}: ${c.replace(/<[^>]+>/g, ' ').substring(0, 400)}`;
       })
       .join('\n\n');
 
@@ -695,15 +1100,31 @@ router.post(
     const orig = tRes.records[0].get('t').properties;
 
     const nRes = await session.run(
-      `MATCH (t:Thread {id:$tid})-[:HAS_NODE]->(n:Node)
-       OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
-       RETURN n, parent.id AS parentId ORDER BY n.created_at ASC`,
+      `MATCH (t:Thread {id:$tid})-[inc:INCLUDES]->(n:Node)
+       RETURN n, inc.position AS position, inc.role AS role ORDER BY inc.position ASC`,
       { tid: getNeo4j().int(threadId) }
     );
     const origNodes = nRes.records.map(r => ({
       ...r.get('n').properties,
       id: toNum(r.get('n').properties.id),
-      parentId: r.get('parentId') ? toNum(r.get('parentId')) : null,
+      position: toNum(r.get('position')) ?? 0,
+      role: r.get('role') || 'supporting',
+    }));
+
+    // Fetch typed relationships between nodes
+    const relRes = await session.run(
+      `MATCH (t:Thread {id:$tid})-[:INCLUDES]->(a:Node)
+       MATCH (t)-[:INCLUDES]->(b:Node)
+       MATCH (a)-[r]->(b)
+       WHERE type(r) IN ['SUPPORTS','CONTRADICTS','QUALIFIES','DERIVES_FROM','ILLUSTRATES','CITES','ADDRESSES','REFERENCES']
+       RETURN a.id AS srcId, b.id AS tgtId, type(r) AS relType, properties(r) AS relProps`,
+      { tid: getNeo4j().int(threadId) }
+    );
+    const origRels = relRes.records.map(r => ({
+      srcId: toNum(r.get('srcId'))!,
+      tgtId: toNum(r.get('tgtId'))!,
+      relType: r.get('relType') as string,
+      relProps: r.get('relProps') as Record<string, unknown>,
     }));
 
     // Begin an explicit transaction for the clone
@@ -714,12 +1135,12 @@ router.post(
       const newThreadId = await getNextId('Thread', tx);
 
       await tx.run(
-        `CREATE (t:Thread {id:$id, title:$title, description:$desc, content:$content, metadata:$meta, created_at:$now, updated_at:$now})`,
+        `CREATE (t:Thread {id:$id, title:$title, description:$desc, thread_type:$threadType, metadata:$meta, created_at:$now, updated_at:$now})`,
         {
           id: getNeo4j().int(newThreadId),
           title: forkTitle,
           desc: orig.description || '',
-          content: orig.content || '',
+          threadType: orig.thread_type || 'argument',
           meta: orig.metadata || '{}',
           now,
         }
@@ -732,7 +1153,7 @@ router.post(
         idMap[node.id] = newId;
         let title = node.title;
         let content = node.content || '';
-        if (node.node_type === 'ROOT' && altClaim) {
+        if (node.entity_type === 'claim' && altClaim) {
           title = altClaim;
           try {
             const p = JSON.parse(content);
@@ -745,36 +1166,39 @@ router.post(
           }
         }
         await tx.run(
-          `CREATE (n:Node {id:$id, title:$title, content:$content, node_type:$type, created_at:$now, updated_at:$now, metadata:$meta})`,
+          `CREATE (n:Node {id:$id, title:$title, content:$content, entity_type:$type, created_at:$now, updated_at:$now, metadata:$meta})`,
           {
             id: getNeo4j().int(newId),
             title,
             content,
-            type: node.node_type,
+            type: node.entity_type,
             now,
             meta: node.metadata || '{}',
           }
         );
         await tx.run(
-          `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(n)`,
-          { tid: getNeo4j().int(newThreadId), nid: getNeo4j().int(newId) }
+          `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:INCLUDES {position: $pos, role: $role, added_at: $now}]->(n)`,
+          { tid: getNeo4j().int(newThreadId), nid: getNeo4j().int(newId), pos: getNeo4j().int(node.position), role: node.role, now }
         );
         cloned.push({
           id: newId,
           title,
           content,
-          node_type: node.node_type,
-          oldParentId: node.parentId,
+          entity_type: node.entity_type,
+          oldParentId: null,
           metadata: node.metadata,
         });
       }
 
-      // Re-create PARENT_OF edges using the id map
-      for (const n of cloned) {
-        if (n.oldParentId && idMap[n.oldParentId]) {
+      // Re-create typed relationships using the id map
+      for (const rel of origRels) {
+        const newSrc = idMap[rel.srcId];
+        const newTgt = idMap[rel.tgtId];
+        if (newSrc && newTgt && RELATIONSHIP_TYPES.includes(rel.relType as any)) {
+          const relId = await getNextId('relationship', tx);
           await tx.run(
-            `MATCH (p:Node {id:$pid}),(c:Node {id:$cid}) CREATE (p)-[:PARENT_OF]->(c)`,
-            { pid: getNeo4j().int(idMap[n.oldParentId]), cid: getNeo4j().int(n.id) }
+            `MATCH (a:Node {id:$src}),(b:Node {id:$tgt}) CREATE (a)-[:${rel.relType} {id: $relId, created_at: $now}]->(b)`,
+            { src: getNeo4j().int(newSrc), tgt: getNeo4j().int(newTgt), relId: getNeo4j().int(relId), now }
           );
         }
       }
@@ -793,12 +1217,11 @@ router.post(
             id: n.id,
             title: n.title,
             content: n.content,
-            node_type: n.node_type,
+            entity_type: n.entity_type,
             created_at: now2,
             updated_at: now2,
             metadata: n.metadata || '{}',
-          },
-          n.oldParentId ? idMap[n.oldParentId] : null
+          }
         )
       );
 
@@ -807,10 +1230,10 @@ router.post(
           id: newThreadId,
           title: forkTitle,
           description: orig.description || '',
-          content: orig.content || '',
+          thread_type: orig.thread_type || 'argument',
           metadata: { title: forkTitle, description: orig.description || '' },
           nodes: responseNodes,
-          edges: [],
+          relationships: [],
           forkedFrom: threadId,
         },
       });
@@ -836,18 +1259,18 @@ router.post(
     const { nodeId: targetNodeId } = req.body; // optional — defaults to ROOT
 
     const read = await session.run(
-      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
+      `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
       { threadId: getNeo4j().int(threadId) }
     );
     const nodes = read.records.map(r => {
       const p = r.get('n').properties;
-      return { id: toNum(p.id), title: p.title, node_type: p.node_type, content: p.content };
+      return { id: toNum(p.id), title: p.title, entity_type: p.entity_type, content: p.content };
     });
 
     // Use the specified node, or fall back to ROOT
     const targetNode = targetNodeId
       ? nodes.find(n => n.id === parseInt(targetNodeId))
-      : nodes.find(n => n.node_type === 'ROOT');
+      : nodes.find(n => n.entity_type === 'claim');
     if (!targetNode) return res.status(400).json({ error: 'Target node not found' });
 
     // Extract plain text from target node content
@@ -874,7 +1297,7 @@ Return JSON: { "counterpoints": [{ "argument": "<concise attack title, max 12 wo
         },
         {
           role: 'user',
-          content: `Red-team this [${targetNode.node_type}] claim:\n\nTitle: "${targetNode.title}"\n\nContent: ${targetContent}`,
+          content: `Red-team this [${targetNode.entity_type}] claim:\n\nTitle: "${targetNode.title}"\n\nContent: ${targetContent}`,
         },
       ],
     });
@@ -884,7 +1307,7 @@ Return JSON: { "counterpoints": [{ "argument": "<concise attack title, max 12 wo
     const proposals = counterpoints.map((cp: { argument: string; explanation: string }) => ({
       title: cp.argument,
       content: JSON.stringify({ argument: cp.argument, explanation: cp.explanation }),
-      nodeType: 'COUNTERPOINT',
+      entityType: 'counterpoint',
     }));
     res.json({ proposals, parentNodeId: targetNode.id });
   })
@@ -900,7 +1323,7 @@ router.post(
     const nodeId = parseInt(req.params.nodeId);
 
     const read = await session.run(
-      `MATCH (n:Node {id:$nodeId}) OPTIONAL MATCH (parent)-[:PARENT_OF]->(n) RETURN n, parent`,
+      `MATCH (n:Node {id:$nodeId}) OPTIONAL MATCH (n)-[r]->(parent:Node) WHERE type(r) IN ['SUPPORTS','CONTRADICTS','QUALIFIES','DERIVES_FROM','ILLUSTRATES','CITES','ADDRESSES','REFERENCES'] RETURN n, parent`,
       { nodeId: getNeo4j().int(nodeId) }
     );
     if (!read.records.length) return res.status(404).json({ error: 'Node not found' });
@@ -943,7 +1366,7 @@ Return JSON: { "argument": "<improved title, max 12 words>", "explanation": "<2-
 
     // Return proposal only — not saved yet. Frontend shows Accept/Discard.
     res.json({
-      proposal: { title: steelTitle, content: steelContent, nodeType: 'COUNTERPOINT' },
+      proposal: { title: steelTitle, content: steelContent, entityType: 'counterpoint' },
       parentId,
     });
   })
@@ -1000,7 +1423,7 @@ router.get(
 
     // Threads connected via shared node RELATED_TO links
     const linkedRes = await session.run(
-      `MATCH (t:Thread {id: $tid})-[:HAS_NODE]->(n:Node)-[:RELATED_TO]-(m:Node)<-[:HAS_NODE]-(other:Thread)
+      `MATCH (t:Thread {id: $tid})-[:INCLUDES]->(n:Node)-[:RELATED_TO]-(m:Node)<-[:INCLUDES]-(other:Thread)
        WHERE other.id <> $tid
        RETURN DISTINCT other`,
       { tid: getNeo4j().int(threadId) }
@@ -1020,27 +1443,27 @@ router.post(
     const session = req.neo4jSession!;
     const threadId = parseInt(req.params.threadId);
 
-    // Fetch all nodes with parent relationships
+    // Fetch all nodes with their relationships
     const result = await session.run(
-      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
-       OPTIONAL MATCH (n)-[:PARENT_OF]->(child:Node)
-       OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
-       RETURN n, collect(DISTINCT child) AS children, collect(DISTINCT parent) AS parents
+      `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)
+       OPTIONAL MATCH (n)-[rOut]->(target:Node) WHERE type(rOut) IN ['SUPPORTS','CONTRADICTS','QUALIFIES','DERIVES_FROM','ILLUSTRATES','CITES','ADDRESSES','REFERENCES']
+       OPTIONAL MATCH (source:Node)-[rIn]->(n) WHERE type(rIn) IN ['SUPPORTS','CONTRADICTS','QUALIFIES','DERIVES_FROM','ILLUSTRATES','CITES','ADDRESSES','REFERENCES']
+       RETURN n, collect(DISTINCT target) AS targets, collect(DISTINCT source) AS sources
        ORDER BY n.created_at ASC`,
       { threadId: getNeo4j().int(threadId) }
     );
 
     if (!result.records.length) return res.status(400).json({ error: 'No nodes found' });
 
-    // Build a tree description for the LLM
+    // Build a graph description for the LLM
     const nodeTree = result.records.map(r => {
       const p = r.get('n').properties;
-      const children = (r.get('children') as Array<{ properties: Record<string, unknown> }>)
+      const children = (r.get('targets') as Array<{ properties: Record<string, unknown> }>)
         .filter(c => c && c.properties)
-        .map(c => ({ id: toNum(c.properties.id), node_type: c.properties.node_type, title: c.properties.title }));
-      const parents = (r.get('parents') as Array<{ properties: Record<string, unknown> }>)
+        .map(c => ({ id: toNum(c.properties.id), entity_type: c.properties.entity_type, title: c.properties.title }));
+      const parents = (r.get('sources') as Array<{ properties: Record<string, unknown> }>)
         .filter(pa => pa && pa.properties)
-        .map(pa => ({ id: toNum(pa.properties.id), node_type: pa.properties.node_type, title: pa.properties.title }));
+        .map(pa => ({ id: toNum(pa.properties.id), entity_type: pa.properties.entity_type, title: pa.properties.title }));
 
       let content = String(p.content || '');
       try {
@@ -1051,11 +1474,11 @@ router.post(
       return {
         id: toNum(p.id),
         title: p.title as string,
-        node_type: p.node_type as string,
+        entity_type: p.entity_type as string,
         content: stripHtml(content).substring(0, 500),
         parentIds: parents.map(pa => pa.id),
         childIds: children.map(c => c.id),
-        childTypes: children.map(c => c.node_type),
+        childTypes: children.map(c => c.entity_type),
       };
     });
 
@@ -1125,9 +1548,9 @@ router.get(
     const threadId = parseInt(req.params.threadId);
 
     const result = await session.run(
-      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
-       OPTIONAL MATCH (n)-[:PARENT_OF]->(child:Node)
-       RETURN n, collect(child) AS children ORDER BY n.created_at ASC`,
+      `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)
+       OPTIONAL MATCH (other:Node)-[r]->(n) WHERE type(r) IN ['SUPPORTS','CONTRADICTS','QUALIFIES','DERIVES_FROM','ILLUSTRATES','CITES','ADDRESSES','REFERENCES']
+       RETURN n, collect(DISTINCT other) AS supporters ORDER BY n.created_at ASC`,
       { threadId: getNeo4j().int(threadId) }
     );
 
@@ -1135,10 +1558,10 @@ router.get(
 
     const nodesForPrompt = result.records.map(r => {
       const p = r.get('n').properties;
-      const children = (r.get('children') as Array<{ properties: Record<string, unknown> }>)
+      const children = (r.get('supporters') as Array<{ properties: Record<string, unknown> }>)
         .filter(c => c && c.properties)
         .map(c => ({
-          node_type: c.properties.node_type as string,
+          entity_type: c.properties.entity_type as string,
           title: c.properties.title as string,
         }));
       let content = String(p.content || '');
@@ -1149,10 +1572,10 @@ router.get(
       return {
         id: toNum(p.id),
         title: p.title as string,
-        node_type: p.node_type as string,
+        entity_type: p.entity_type as string,
         content: content.replace(/<[^>]+>/g, ' ').substring(0, 300),
         childCount: children.length,
-        childTypes: children.map(c => c.node_type),
+        childTypes: children.map(c => c.entity_type),
       };
     });
 
@@ -1221,12 +1644,12 @@ router.post(
 
     // Find the ROOT claim
     const nRes = await session.run(
-      `MATCH (t:Thread {id:$tid})-[:HAS_NODE]->(n:Node)
+      `MATCH (t:Thread {id:$tid})-[:INCLUDES]->(n:Node)
        RETURN n ORDER BY n.created_at ASC`,
       { tid: getNeo4j().int(threadId) }
     );
     const origNodes = nRes.records.map(r => r.get('n').properties);
-    const rootNode = origNodes.find((n: Record<string, unknown>) => n.node_type === 'ROOT');
+    const rootNode = origNodes.find((n: Record<string, unknown>) => n.entity_type === 'claim');
     const rootClaim = rootNode ? String(rootNode.title || orig.title) : String(orig.title);
 
     let rootContent = '';
@@ -1313,14 +1736,13 @@ Include 1-2 evidence items and exactly 1 counterpoint.`,
         await tx.run(
           `CREATE (t:Thread {
             id: $id, title: $title, description: $description,
-            content: $content, metadata: $metadata,
+            thread_type: 'argument', metadata: $metadata,
             created_at: $now, updated_at: $now
           })`,
           {
             id: getNeo4j().int(newThreadId),
             title: perspTitle,
             description: pDef.description,
-            content: gptContent.rootClaim?.content || '',
             metadata: metaStr,
             now,
           }
@@ -1329,8 +1751,8 @@ Include 1-2 evidence items and exactly 1 counterpoint.`,
         // Create ROOT node
         const rootId = await getNextId('node', tx);
         await tx.run(
-          `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:'ROOT', metadata:$meta, created_at:$now, updated_at:$now })
-           WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)`,
+          `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:'claim', metadata:$meta, created_at:$now, updated_at:$now })
+           WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: 0, role: 'root', added_at: $now}]->(n)`,
           {
             id: getNeo4j().int(rootId),
             title: gptContent.rootClaim?.title || rootClaim,
@@ -1345,9 +1767,9 @@ Include 1-2 evidence items and exactly 1 counterpoint.`,
         for (const ev of (gptContent.evidence || []) as { title: string; content: string }[]) {
           const evId = await getNextId('node', tx);
           await tx.run(
-            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:'EVIDENCE', metadata:$meta, created_at:$now, updated_at:$now })
-             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)
-             WITH n MATCH (p:Node {id:$parentId}) CREATE (p)-[:PARENT_OF]->(n)`,
+            `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:'evidence', metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: 0, role: 'supporting', added_at: $now}]->(n)
+             WITH n MATCH (p:Node {id:$parentId}) CREATE (n)-[:SUPPORTS {created_at: $now}]->(p)`,
             {
               id: getNeo4j().int(evId),
               title: ev.title,
@@ -1364,9 +1786,9 @@ Include 1-2 evidence items and exactly 1 counterpoint.`,
         if (gptContent.counterpoint) {
           const cpId = await getNextId('node', tx);
           await tx.run(
-            `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:'COUNTERPOINT', metadata:$meta, created_at:$now, updated_at:$now })
-             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:HAS_NODE]->(n)
-             WITH n MATCH (p:Node {id:$parentId}) CREATE (p)-[:PARENT_OF]->(n)`,
+            `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:'counterpoint', metadata:$meta, created_at:$now, updated_at:$now })
+             WITH n MATCH (t:Thread {id:$threadId}) CREATE (t)-[:INCLUDES {position: 0, role: 'opposing', added_at: $now}]->(n)
+             WITH n MATCH (p:Node {id:$parentId}) CREATE (n)-[:CONTRADICTS {created_at: $now}]->(p)`,
             {
               id: getNeo4j().int(cpId),
               title: gptContent.counterpoint.title,
@@ -1393,12 +1815,16 @@ Include 1-2 evidence items and exactly 1 counterpoint.`,
           { tid: getNeo4j().int(newThreadId) }
         );
         const nodesRes = await session.run(
-          `MATCH (t:Thread {id:$tid})-[:HAS_NODE]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
+          `MATCH (t:Thread {id:$tid})-[:INCLUDES]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
           { tid: getNeo4j().int(newThreadId) }
         );
 
         const thread = formatThread(threadRes.records[0].get('t').properties);
-        const threadNodes = nodesRes.records.map(r => formatNode(r.get('n').properties, null));
+        const threadNodes = nodesRes.records.map((r, idx) => ({
+          node: formatNode(r.get('n').properties),
+          position: idx,
+          role: 'supporting',
+        }));
         createdThreads.push({ ...thread, nodes: threadNodes } as ReturnType<typeof formatThread>);
       } catch (e) {
         try { await tx.rollback(); } catch { /* connection may be dead */ }
@@ -1419,7 +1845,7 @@ router.get(
 
     const result = await session.run(
       `MATCH (p:Thread)-[:PERSPECTIVE_OF]->(t:Thread {id: $tid})
-       OPTIONAL MATCH (p)-[:HAS_NODE]->(n:Node)
+       OPTIONAL MATCH (p)-[:INCLUDES]->(n:Node)
        RETURN p, count(n) AS nodeCount ORDER BY p.created_at ASC`,
       { tid: getNeo4j().int(threadId) }
     );
@@ -1484,9 +1910,9 @@ router.post(
 
     // Fetch all nodes
     const nRes = await session.run(
-      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
-       OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
-       RETURN n, collect(DISTINCT parent) AS parents ORDER BY n.created_at ASC`,
+      `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)
+       OPTIONAL MATCH (source:Node)-[rel]->(n) WHERE type(rel) IN ['SUPPORTS','CONTRADICTS','QUALIFIES','DERIVES_FROM','ILLUSTRATES','CITES','ADDRESSES','REFERENCES']
+       RETURN n, collect(DISTINCT source) AS parents ORDER BY n.created_at ASC`,
       { threadId: getNeo4j().int(threadId) }
     );
 
@@ -1511,7 +1937,7 @@ router.post(
       return {
         id: toNum(p.id),
         title: p.title as string,
-        node_type: p.node_type as string,
+        entity_type: p.entity_type as string,
         content: content.substring(0, 600),
         parentIds: parents,
       };
@@ -1606,21 +2032,21 @@ router.post(
     const session = req.neo4jSession!;
     const threadId = parseInt(req.params.threadId);
 
-    // 1. Fetch all nodes with their children's types
+    // 1. Fetch all nodes with types of nodes that have relationships pointing to them (i.e. "supporting" nodes)
     const read = await session.run(
-      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
-       OPTIONAL MATCH (n)-[:PARENT_OF]->(child:Node)
-       RETURN n, collect(child.node_type) AS childTypes`,
+      `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)
+       OPTIONAL MATCH (supporter:Node)-[r]->(n) WHERE type(r) IN ['SUPPORTS','CONTRADICTS','QUALIFIES','DERIVES_FROM','ILLUSTRATES','CITES','ADDRESSES','REFERENCES']
+       RETURN n, collect(type(r)) AS incomingRelTypes`,
       { threadId: getNeo4j().int(threadId) }
     );
 
     const allNodes = read.records.map(r => {
       const p = r.get('n').properties;
-      const childTypes: string[] = r.get('childTypes') || [];
+      const childTypes: string[] = r.get('incomingRelTypes') || [];
       return {
         id: toNum(p.id),
         title: p.title,
-        node_type: p.node_type,
+        entity_type: p.entity_type,
         content: p.content,
         childTypes,
       };
@@ -1631,11 +2057,11 @@ router.post(
       return res.json({ challenges: [], unchallengedCount: 0, totalNodes: 0 });
     }
 
-    // 2. Identify unchallenged nodes: ROOT, EVIDENCE, or CONTEXT with no COUNTERPOINT children
-    const challengeableTypes = ['ROOT', 'EVIDENCE', 'CONTEXT'];
+    // 2. Identify unchallenged nodes: claim, evidence, or context with no CONTRADICTS relationships
+    const challengeableTypes = ['claim', 'evidence', 'context'];
     const unchallenged = allNodes.filter(n =>
-      challengeableTypes.includes(n.node_type) &&
-      !n.childTypes.includes('COUNTERPOINT')
+      challengeableTypes.includes(n.entity_type) &&
+      !n.childTypes.includes('CONTRADICTS')
     );
 
     const unchallengedCount = unchallenged.length;
@@ -1683,7 +2109,7 @@ Severity guide:
             },
             {
               role: 'user',
-              content: `Challenge this [${node.node_type}] node:\n\nTitle: "${node.title}"\n\nContent: ${nodeContent}`,
+              content: `Challenge this [${node.entity_type}] node:\n\nTitle: "${node.title}"\n\nContent: ${nodeContent}`,
             },
           ],
         });
@@ -1696,7 +2122,7 @@ Severity guide:
           counterargument: {
             title: parsed.counterargument?.title || 'Counterpoint',
             content: parsed.counterargument?.content || '<p>Consider an alternative perspective.</p>',
-            nodeType: 'COUNTERPOINT',
+            entityType: 'counterpoint',
           },
           severity: (['high', 'medium', 'low'].includes(parsed.severity) ? parsed.severity : 'medium') as 'high' | 'medium' | 'low',
         };
@@ -1705,6 +2131,123 @@ Severity guide:
 
     // 5. Return proposals
     res.json({ challenges, unchallengedCount, totalNodes });
+  })
+);
+
+// ── POST /:threadId/watch — search web for new evidence relevant to thread
+router.post(
+  '/:threadId/watch',
+  requireAuth,
+  aiTimeout,
+  withSession(async (req, res) => {
+    const session = req.neo4jSession!;
+    const threadId = parseInt(req.params.threadId);
+    let { query } = req.body as { query?: string };
+
+    // 1. Fetch thread + nodes
+    const threadRead = await session.run(
+      `MATCH (t:Thread {id: $threadId})
+       OPTIONAL MATCH (t)-[:INCLUDES]->(n:Node)
+       RETURN t, collect(n) AS nodes`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+
+    if (threadRead.records.length === 0) {
+      return res.status(404).json({ error: 'Thread not found' });
+    }
+
+    const threadProps = threadRead.records[0].get('t').properties;
+    const threadTitle = threadProps.title || threadProps.metadata?.title || `Thread ${threadId}`;
+    const rawNodes = threadRead.records[0].get('nodes') || [];
+
+    const nodesList = rawNodes.map((n: any) => {
+      const p = n.properties;
+      return {
+        id: toNum(p.id),
+        title: p.title,
+        entity_type: p.entity_type,
+        content: String(p.content || '').replace(/<[^>]+>/g, ' ').substring(0, 300),
+      };
+    });
+
+    // 2. Auto-generate query if not provided
+    if (!query || !query.trim()) {
+      const rootNode = nodesList.find((n: any) => n.entity_type === 'claim');
+      const rootContent = rootNode ? rootNode.content.substring(0, 200) : '';
+      query = `${threadTitle} ${rootContent}`.trim();
+    }
+
+    // 3. Build nodes summary for context
+    const nodesSummary = nodesList
+      .slice(0, 15)
+      .map((n: any) => `[${n.entity_type}] "${n.title}": ${n.content.substring(0, 150)}`)
+      .join('\n');
+
+    // 4. Call OpenAI with web_search_preview
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a research assistant. Search the web for recent evidence related to the following argument thread. For each finding, assess whether it supports, contradicts, or extends existing nodes.
+
+Return JSON with this exact structure:
+{
+  "findings": [
+    {
+      "title": "Brief title of the finding",
+      "content": "2-3 sentence summary of what was found",
+      "source_url": "https://actual-url-found",
+      "relevance": "high" | "medium" | "low",
+      "relationship": "supports" | "contradicts" | "extends",
+      "relatedNodeId": <id of most relevant existing node or null>,
+      "relatedNodeTitle": "<title of that node or empty string>",
+      "proposedNodeType": "EVIDENCE" | "COUNTERPOINT"
+    }
+  ]
+}
+
+Return between 1 and 5 findings. Only include genuinely relevant results. If a finding contradicts existing claims, use "COUNTERPOINT" as proposedNodeType. Otherwise use "EVIDENCE".`,
+        },
+        {
+          role: 'user',
+          content: `Thread: "${threadTitle}"\n\nExisting nodes:\n${nodesSummary}\n\nSearch query: "${query}"\n\nFind recent web evidence related to this thread and return JSON with your findings.`,
+        },
+      ],
+      tools: [{ type: 'web_search_preview' }] as any,
+      response_format: { type: 'json_object' },
+    } as any);
+
+    // 5. Parse response
+    let findings: any[] = [];
+    try {
+      const content = completion.choices[0].message.content;
+      if (content) {
+        const parsed = JSON.parse(content);
+        findings = Array.isArray(parsed.findings) ? parsed.findings : [];
+      }
+    } catch {
+      // If parsing fails, return empty findings
+    }
+
+    // 6. Sanitize and validate findings
+    findings = findings.map((f: any) => ({
+      title: String(f.title || 'Untitled finding'),
+      content: String(f.content || ''),
+      source_url: String(f.source_url || ''),
+      relevance: ['high', 'medium', 'low'].includes(f.relevance) ? f.relevance : 'medium',
+      relationship: ['supports', 'contradicts', 'extends'].includes(f.relationship) ? f.relationship : 'extends',
+      relatedNodeId: typeof f.relatedNodeId === 'number' ? f.relatedNodeId : null,
+      relatedNodeTitle: String(f.relatedNodeTitle || ''),
+      proposedEntityType: f.proposedNodeType === 'COUNTERPOINT' ? 'counterpoint' : 'evidence',
+    }));
+
+    res.json({
+      query,
+      findings,
+      searched_at: new Date().toISOString(),
+    });
   })
 );
 

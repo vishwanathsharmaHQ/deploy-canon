@@ -110,12 +110,12 @@ router.get('/:threadId/sequence', withSession(async (req, res) => {
 router.post('/:threadId/sequence/suggest', requireAuth, withSession(async (req, res) => {
   const threadId = parseInt(req.params.threadId);
   const result = await req.neo4jSession!.run(
-    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
+    `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node) RETURN n ORDER BY n.created_at ASC`,
     { threadId: getNeo4j().int(threadId) }
   );
   const nodes = result.records.map(r => {
     const p = r.get('n').properties;
-    return { id: toNum(p.id), title: p.title, node_type: p.node_type };
+    return { id: toNum(p.id), title: p.title, entity_type: p.entity_type };
   });
   if (!nodes.length) return res.json({ sequence: [] });
 
@@ -134,7 +134,7 @@ Order them so the narrative flows logically: ROOT claim first, then supporting e
       },
       {
         role: 'user',
-        content: nodes.map(n => `ID ${n.id}: [${n.node_type}] ${n.title}`).join('\n'),
+        content: nodes.map(n => `ID ${n.id}: [${n.entity_type}] ${n.title}`).join('\n'),
       },
     ],
   });

@@ -11,7 +11,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import './ThreadGraph.css';
 import { api } from '../services/api';
-import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
+import { NODE_TYPES, NODE_TYPE_COLORS, ENTITY_TYPE_LABELS } from '../constants';
 import { formatContent } from '../utils/graphContent';
 import type { Thread, ThreadNode, NodeTypeName, LayoutData, DecayDataPoint, ThreadType } from '../types';
 import GraphContentSidebar from './GraphContentSidebar';
@@ -50,7 +50,35 @@ interface RFEdge {
   style: Record<string, unknown>;
   animated?: boolean;
   hidden?: boolean;
+  label?: string;
+  labelStyle?: Record<string, unknown>;
+  labelBgStyle?: Record<string, unknown>;
+  labelBgPadding?: [number, number];
+  data?: Record<string, unknown>;
 }
+
+// Relationship type colors and short labels for graph edges
+const REL_TYPE_COLORS: Record<string, string> = {
+  SUPPORTS: 'rgba(0, 255, 157, 0.6)',
+  CONTRADICTS: 'rgba(239, 83, 80, 0.7)',
+  QUALIFIES: 'rgba(253, 216, 53, 0.6)',
+  DERIVES_FROM: 'rgba(79, 195, 247, 0.6)',
+  ILLUSTRATES: 'rgba(171, 71, 188, 0.6)',
+  CITES: 'rgba(255, 167, 38, 0.6)',
+  ADDRESSES: 'rgba(102, 187, 106, 0.6)',
+  REFERENCES: 'rgba(144, 164, 174, 0.5)',
+};
+
+const REL_TYPE_LABELS: Record<string, string> = {
+  SUPPORTS: 'supports',
+  CONTRADICTS: 'contradicts',
+  QUALIFIES: 'qualifies',
+  DERIVES_FROM: 'derives',
+  ILLUSTRATES: 'illustrates',
+  CITES: 'cites',
+  ADDRESSES: 'addresses',
+  REFERENCES: 'refs',
+};
 
 function confidenceColor(score: number): string {
   if (score >= 70) return '#66bb6a';
@@ -177,10 +205,16 @@ function sortRootsChronologically(roots: LayoutNode[]): LayoutNode[] {
   });
 }
 
-function getHistoricalLayout(nodes: LayoutNode[], yOffset: number): PositionMap {
+function getHistoricalLayout(nodes: LayoutNode[], yOffset: number, relationships?: RelInfo[]): PositionMap {
   const positions: PositionMap = {};
-  const roots = sortRootsChronologically(nodes.filter(n => n.node_type === 'ROOT'));
-  const nonRoots = nodes.filter(n => n.node_type !== 'ROOT');
+  const roots = sortRootsChronologically(nodes.filter(n => n.node_type === 'CLAIM' || n.node_type === 'claim'));
+  const nonRoots = nodes.filter(n => n.node_type !== 'CLAIM' && n.node_type !== 'claim');
+
+  // Build relationship parent map
+  const relParent: Record<number, number> = {};
+  for (const rel of (relationships || [])) {
+    if (!relParent[rel.source_id]) relParent[rel.source_id] = rel.target_id;
+  }
 
   // Thread node at far left
   positions['thread'] = { x: 50, y: 300 + yOffset };
@@ -190,10 +224,10 @@ function getHistoricalLayout(nodes: LayoutNode[], yOffset: number): PositionMap 
     positions[`node-${root.id}`] = { x: 200 + i * 250, y: 300 + yOffset };
   });
 
-  // Children stacked below their parent
+  // Children stacked below their parent (using parent_id OR relationship)
   const childrenByParent: Record<number, LayoutNode[]> = {};
   nonRoots.forEach(n => {
-    const pid = n.parent_id || 0;
+    const pid = n.parent_id || relParent[n.id] || 0;
     if (!childrenByParent[pid]) childrenByParent[pid] = [];
     childrenByParent[pid].push(n);
   });
@@ -215,13 +249,101 @@ function getHistoricalLayout(nodes: LayoutNode[], yOffset: number): PositionMap 
   return positions;
 }
 
+interface RelInfo { source_id: number; target_id: number; }
+
+function getDefaultLayout(nodes: LayoutNode[], relationships: RelInfo[], yOffset: number): PositionMap {
+  const positions: PositionMap = {};
+  if (!nodes.length) return positions;
+
+  // Build parent map: for each node, find its parent via parent_id or typed relationship
+  // In relationships, source→target means source SUPPORTS/etc target, so source is the child
+  const relParent: Record<number, number> = {};
+  for (const rel of relationships) {
+    // source is child, target is parent (e.g., evidence SUPPORTS claim)
+    if (!relParent[rel.source_id]) relParent[rel.source_id] = rel.target_id;
+  }
+
+  const parentOf = (n: LayoutNode): number | null => {
+    if (n.parent_id) return n.parent_id;
+    return relParent[n.id] ?? null;
+  };
+
+  const roots = nodes.filter(n => {
+    const nt = (n.node_type || '').toLowerCase();
+    return nt === 'claim' && !parentOf(n);
+  });
+  const nonRoots = nodes.filter(n => !roots.some(r => r.id === n.id));
+
+  // Thread node
+  positions['thread'] = { x: 50, y: 300 + yOffset };
+
+  // Claims in a row
+  const claimSpacing = 300;
+  roots.forEach((root, i) => {
+    positions[`node-${root.id}`] = { x: 250 + i * claimSpacing, y: 300 + yOffset };
+  });
+
+  // Group non-roots by their parent
+  const childrenByParent: Record<number, LayoutNode[]> = {};
+  const orphans: LayoutNode[] = [];
+  nonRoots.forEach(n => {
+    const pid = parentOf(n);
+    if (pid != null && positions[`node-${pid}`]) {
+      if (!childrenByParent[pid]) childrenByParent[pid] = [];
+      childrenByParent[pid].push(n);
+    } else if (pid != null) {
+      // Parent exists but isn't a root — might be a secondary's child
+      if (!childrenByParent[pid]) childrenByParent[pid] = [];
+      childrenByParent[pid].push(n);
+    } else {
+      orphans.push(n);
+    }
+  });
+
+  // Position children fanned below their parent
+  for (const [pidStr, children] of Object.entries(childrenByParent)) {
+    const pid = Number(pidStr);
+    const parentPos = positions[`node-${pid}`];
+    if (parentPos) {
+      children.forEach((child, ci) => {
+        const offsetX = (ci - (children.length - 1) / 2) * 140;
+        positions[`node-${child.id}`] = { x: parentPos.x + offsetX, y: parentPos.y + 160 };
+      });
+    }
+  }
+
+  // Second pass: position children of secondary nodes (depth 2+)
+  for (const [pidStr, children] of Object.entries(childrenByParent)) {
+    const pid = Number(pidStr);
+    if (!positions[`node-${pid}`]) {
+      // Find the grandparent position
+      const gpId = parentOf({ id: pid, node_type: '', parent_id: null, created_at: '' });
+      const gpPos = gpId ? positions[`node-${gpId}`] : null;
+      if (gpPos) {
+        positions[`node-${pid}`] = positions[`node-${pid}`] || { x: gpPos.x, y: gpPos.y + 160 };
+      }
+      children.forEach((child, ci) => {
+        const pPos = positions[`node-${pid}`] || { x: 400, y: 500 + yOffset };
+        positions[`node-${child.id}`] = { x: pPos.x + (ci - (children.length - 1) / 2) * 120, y: pPos.y + 150 };
+      });
+    }
+  }
+
+  // Orphans in a row at the bottom
+  orphans.forEach((n, i) => {
+    positions[`node-${n.id}`] = { x: 200 + i * 140, y: 550 + yOffset };
+  });
+
+  return positions;
+}
+
 function getDebateLayout(nodes: LayoutNode[], yOffset: number): PositionMap {
   const positions: PositionMap = {};
-  const roots = nodes.filter(n => n.node_type === 'ROOT');
+  const roots = nodes.filter(n => n.node_type === 'CLAIM' || n.node_type === 'claim');
   const evidence = nodes.filter(n => n.node_type === 'EVIDENCE' || n.node_type === 'EXAMPLE' || n.node_type === 'CONTEXT');
   const counterpoints = nodes.filter(n => n.node_type === 'COUNTERPOINT');
   const synthesis = nodes.filter(n => n.node_type === 'SYNTHESIS');
-  const references = nodes.filter(n => n.node_type === 'REFERENCE');
+  const references = nodes.filter(n => n.node_type === 'SOURCE' || n.node_type === 'source');
 
   // Thread node top-left
   positions['thread'] = { x: 100, y: 100 + yOffset };
@@ -260,8 +382,8 @@ function getDebateLayout(nodes: LayoutNode[], yOffset: number): PositionMap {
 
 function getComparisonLayout(nodes: LayoutNode[], yOffset: number): PositionMap {
   const positions: PositionMap = {};
-  const roots = nodes.filter(n => n.node_type === 'ROOT');
-  const nonRoots = nodes.filter(n => n.node_type !== 'ROOT');
+  const roots = nodes.filter(n => n.node_type === 'CLAIM' || n.node_type === 'claim');
+  const nonRoots = nodes.filter(n => n.node_type !== 'CLAIM' && n.node_type !== 'claim');
 
   // Thread node top-left
   positions['thread'] = { x: 50, y: 150 + yOffset };
@@ -327,7 +449,24 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
   const [heatmapLoading, setHeatmapLoading] = useState(false);
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<number>>(new Set());
   const [showDebate, setShowDebate] = useState(false);
+  const [enrichLoading, setEnrichLoading] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(400);
+  const sidebarResizingRef = useRef(false);
+  const graphContainerRef = useRef<HTMLDivElement>(null);
   const { fitView } = useReactFlow();
+
+  // Prevent horizontal swipe from triggering browser back gesture
+  useEffect(() => {
+    const el = graphContainerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+      }
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
 
   useEffect(() => {
     if (parentLoading !== undefined) {
@@ -423,24 +562,27 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
       const shortTitle = titleWords.length > 2 ? titleWords.slice(0, 2).join(' ') + '...' : threadTitle;
 
       // Determine thread type for layout
-      const threadType = (thread.metadata?.thread_type || 'standard') as ThreadType;
+      const threadType = (thread.thread_type || thread.metadata?.thread_type || 'argument') as ThreadType;
 
       // Pre-compute type-specific default positions for all nodes (when no saved layout)
       let typeLayoutPositions: PositionMap | null = null;
-      if (threadType !== 'standard' && thread.nodes?.length) {
+      if (thread.nodes?.length) {
         const layoutNodes: LayoutNode[] = thread.nodes.map(n => ({
           id: n.id,
-          node_type: n.node_type || NODE_TYPES[n.type] || 'ROOT',
+          node_type: n.node_type || (NODE_TYPES[n.type] || 'claim').toUpperCase(),
           parent_id: n.parent_id,
           created_at: n.created_at,
           metadata: n.metadata,
         }));
-        if (threadType === 'historical') {
-          typeLayoutPositions = getHistoricalLayout(layoutNodes, yOffset);
-        } else if (threadType === 'debate') {
-          typeLayoutPositions = getDebateLayout(layoutNodes, yOffset);
+        const rels = (thread.relationships || []).map(r => ({ source_id: r.source_id, target_id: r.target_id }));
+        if (threadType === 'timeline') {
+          typeLayoutPositions = getHistoricalLayout(layoutNodes, yOffset, rels);
         } else if (threadType === 'comparison') {
+          typeLayoutPositions = getDebateLayout(layoutNodes, yOffset);
+        } else if (threadType === 'collection') {
           typeLayoutPositions = getComparisonLayout(layoutNodes, yOffset);
+        } else {
+          typeLayoutPositions = getDefaultLayout(layoutNodes, rels, yOffset);
         }
       }
 
@@ -453,7 +595,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         type: 'graphNode',
         position: savedThreadPos
           ? { x: savedThreadPos.x, y: savedThreadPos.y }
-          : currentThreadPos || typeLayoutPositions?.['thread'] || { x: 400, y: 300 + yOffset },
+          : typeLayoutPositions?.['thread'] || currentThreadPos || { x: 400, y: 300 + yOffset },
         data: {
           label: shortTitle,
           isThread: true,
@@ -472,7 +614,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
       const nodeCount = thread.nodes?.length || 0;
       thread.nodes?.forEach((node, idx) => {
         const nodeType = typeof node.type === 'number' ? node.type :
-          NODE_TYPES.indexOf(node.node_type);
+          NODE_TYPES.indexOf(node.node_type?.toLowerCase() as any);
         const typeLabel = NODE_TYPES[nodeType] || '';
         const color = NODE_TYPE_COLORS[typeLabel] || '#666';
 
@@ -488,14 +630,12 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         // Use saved position > current position > type-specific layout > default circular layout
         const nodeId = `node-${node.id}`;
         const savedPos = savedData?.nodes?.[nodeId];
-        const currentPos = currentPosMap[nodeId];
 
         let position: { x: number; y: number };
         if (savedPos) {
           position = { x: savedPos.x, y: savedPos.y };
-        } else if (currentPos) {
-          position = currentPos;
         } else if (typeLayoutPositions?.[nodeId]) {
+          // Computed relationship-aware layout for nodes without saved positions
           position = typeLayoutPositions[nodeId];
         } else {
           const angle = (2 * Math.PI * idx) / Math.max(nodeCount, 1) - Math.PI / 2;
@@ -506,12 +646,14 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           };
         }
 
-        const isRoot = typeLabel === 'ROOT';
+        const isRoot = typeLabel === 'claim';
         const parentRfId = node.parent_id ? `node-${node.parent_id}` : null;
 
-        const rawLabel = isRoot && node.title
+        const displayType = ENTITY_TYPE_LABELS[typeLabel] || typeLabel;
+        const truncTitle = node.title
           ? (node.title.split(/\s+/).slice(0, 3).join(' ') + (node.title.split(/\s+/).length > 3 ? '…' : ''))
-          : typeLabel;
+          : displayType;
+        const rawLabel = truncTitle;
 
         rfNodes.push({
           id: nodeId,
@@ -538,15 +680,18 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
       const posMap: Record<string, { x: number; y: number }> = {};
       rfNodes.forEach(n => { posMap[n.id] = n.position; });
 
-      // For historical threads, chain ROOT nodes sequentially instead of star pattern
-      const isHistorical = threadType === 'historical';
+      // For timeline threads, chain claim nodes sequentially instead of star pattern
+      const isHistorical = threadType === 'timeline';
       const rootNodesOrdered = isHistorical
         ? sortRootsChronologically(
             (thread.nodes || [])
-              .filter(n => (n.node_type || NODE_TYPES[n.type]) === 'ROOT')
+              .filter(n => {
+                const nt = n.node_type || (NODE_TYPES[n.type] || '');
+                return nt === 'CLAIM' || nt === 'claim';
+              })
               .map(n => ({
                 id: n.id,
-                node_type: n.node_type || NODE_TYPES[n.type] || 'ROOT',
+                node_type: n.node_type || (NODE_TYPES[n.type] || 'claim').toUpperCase(),
                 parent_id: n.parent_id,
                 created_at: n.created_at,
                 metadata: n.metadata,
@@ -555,12 +700,49 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         : [];
       const rootIdSet = new Set(rootNodesOrdered.map(n => n.id));
 
+      // Build a set of edges already covered by typed relationships
+      const relEdgeKeys = new Set<string>();
+      // Track which nodes are targets of typed relationships (they have a "parent" via relationship)
+      const nodesWithRelParent = new Set<number>();
+      const relationships = thread.relationships || [];
+
+      // Add typed relationship edges with labels and colors
+      relationships.forEach(rel => {
+        const sourceId = `node-${rel.source_id}`;
+        const targetId = `node-${rel.target_id}`;
+        const key = `${sourceId}-${targetId}`;
+        relEdgeKeys.add(key);
+        // Both source and target have a relationship parent — don't draw thread→node for either
+        nodesWithRelParent.add(rel.source_id);
+        nodesWithRelParent.add(rel.target_id);
+
+        const handles = getBestHandles(posMap[sourceId] || { x: 0, y: 0 }, posMap[targetId] || { x: 0, y: 0 });
+        const color = REL_TYPE_COLORS[rel.relation_type] || 'rgba(0, 255, 157, 0.4)';
+
+        rfEdges.push({
+          id: `rel-${rel.id}`,
+          source: sourceId,
+          target: targetId,
+          sourceHandle: handles.sourceHandle,
+          targetHandle: handles.targetHandle,
+          label: REL_TYPE_LABELS[rel.relation_type] || rel.relation_type,
+          labelStyle: { fontSize: 9, fontWeight: 600, fill: color },
+          labelBgStyle: { fill: '#1a1a1a', fillOpacity: 0.85 },
+          labelBgPadding: [4, 2],
+          style: { stroke: color, strokeWidth: 2 },
+          animated: rel.relation_type === 'CONTRADICTS',
+          data: { relationType: rel.relation_type, properties: rel.properties },
+        });
+      });
+
+      // Add structural edges (thread→node, parent→child, timeline chains)
+      // for nodes that don't already have a typed relationship edge
       thread.nodes?.forEach(node => {
-        let sourceId: string, targetId: string;
-        targetId = `node-${node.id}`;
+        let sourceId: string;
+        const targetId = `node-${node.id}`;
 
         if (isHistorical && rootIdSet.has(node.id)) {
-          // For historical ROOT nodes: connect to previous ROOT in chain (or thread if first)
+          // For timeline claim nodes: connect to previous claim in chain (or thread if first)
           const idx = rootNodesOrdered.findIndex(r => r.id === node.id);
           if (idx === 0) {
             sourceId = `thread-${thread.id}`;
@@ -570,9 +752,15 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         } else if (node.parent_id) {
           const parentExists = thread.nodes.some(n => n.id === node.parent_id);
           sourceId = parentExists ? `node-${node.parent_id}` : `thread-${thread.id}`;
+        } else if (nodesWithRelParent.has(node.id)) {
+          // Node already connected via typed relationship — no need for thread→node edge
+          return;
         } else {
           sourceId = `thread-${thread.id}`;
         }
+
+        // Skip if a typed relationship already covers this edge
+        if (relEdgeKeys.has(`${sourceId}-${targetId}`) || relEdgeKeys.has(`${targetId}-${sourceId}`)) return;
 
         const handles = getBestHandles(posMap[sourceId] || { x: 0, y: 0 }, posMap[targetId] || { x: 0, y: 0 });
 
@@ -582,7 +770,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           target: targetId,
           sourceHandle: handles.sourceHandle,
           targetHandle: handles.targetHandle,
-          style: { stroke: 'rgba(0, 255, 157, 0.3)', strokeWidth: 2 },
+          style: { stroke: 'rgba(0, 255, 157, 0.3)', strokeWidth: 1.5 },
           animated: false,
         });
       });
@@ -637,8 +825,8 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
 
   // Determine current thread type for visibility rules
   const currentThreadType = useMemo(() => {
-    if (!threads || threads.length === 0) return 'standard';
-    return (threads[0].metadata?.thread_type || 'standard') as string;
+    if (!threads || threads.length === 0) return 'argument';
+    return (threads[0].thread_type || threads[0].metadata?.thread_type || 'argument') as string;
   }, [threads]);
 
   // Build set of ROOT node RF ids for edge visibility
@@ -653,7 +841,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     // Thread → ROOT edges always visible
     if (e.source.startsWith('thread-')) return { ...e, hidden: false };
     // For historical threads: ROOT → ROOT chain edges always visible
-    if (currentThreadType === 'historical' && rootNodeIds.has(e.source) && rootNodeIds.has(e.target)) {
+    if (currentThreadType === 'timeline' && rootNodeIds.has(e.source) && rootNodeIds.has(e.target)) {
       return { ...e, hidden: false };
     }
     // ROOT → secondary: visible when that ROOT is hovered
@@ -684,6 +872,29 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     setSelectedNode(null);
     if (onSelectedNodeChange) onSelectedNodeChange(null);
   };
+
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    sidebarResizingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!sidebarResizingRef.current) return;
+      const delta = startX - ev.clientX;
+      setSidebarWidth(Math.max(250, Math.min(800, startWidth + delta)));
+    };
+    const onUp = () => {
+      sidebarResizingRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [sidebarWidth]);
 
   // Save layout (also updates the ref so rebuilds preserve positions)
   const layoutSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -721,9 +932,9 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     if (!threads || threads.length === 0) return;
     const threadId = threads[0].id;
     try {
-      const { nodes: freshNodes, edges: freshEdges } = await api.getThreadNodes(threadId);
+      const { nodes: freshNodes, edges: freshEdges, relationships: freshRels } = await api.getThreadNodes(threadId);
       // Build an updated thread object with fresh nodes
-      const updatedThread: Thread = { ...threads[0], nodes: freshNodes, edges: freshEdges };
+      const updatedThread: Thread = { ...threads[0], nodes: freshNodes, edges: freshEdges, relationships: freshRels };
       buildGraph([updatedThread], savedLayoutRef.current);
       // Also notify parent if callback exists
       onRefresh?.();
@@ -753,7 +964,10 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
 
     // Get all ROOT nodes in current visual order
     const rootNodes = (thread.nodes || [])
-      .filter(n => (n.node_type || NODE_TYPES[n.type]) === 'ROOT')
+      .filter(n => {
+        const nt = n.node_type || (NODE_TYPES[n.type] || '');
+        return nt === 'CLAIM' || nt === 'claim';
+      })
       .map(n => ({
         id: n.id,
         order: (n.metadata?.chronological_order as number | undefined) ?? null,
@@ -787,6 +1001,45 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     }
   }, [threads, refetchAndRebuild]);
 
+  // Enrich a single node
+  const handleEnrichNode = useCallback(async (nodeId: number) => {
+    if (!threads || threads.length === 0) return;
+    const threadId = threads[0].id;
+    setEnrichLoading(true);
+    try {
+      await api.enrichNode(threadId, nodeId);
+      await refetchAndRebuild();
+      onRefresh?.();
+    } catch (err) {
+      console.error('Enrich node failed:', err);
+    } finally {
+      setEnrichLoading(false);
+    }
+  }, [threads, refetchAndRebuild, onRefresh]);
+
+  // Enrich thread: enrich each top-level claim node
+  const handleEnrichThread = useCallback(async (threadId: number) => {
+    if (!threads || threads.length === 0) return;
+    const thread = threads[0];
+    const claimNodes = (thread.nodes || []).filter(n => {
+      const nt = (n.node_type || NODE_TYPES[n.type] || '').toLowerCase();
+      return nt === 'claim' && !n.parent_id;
+    });
+    if (claimNodes.length === 0) return;
+    setEnrichLoading(true);
+    try {
+      for (const node of claimNodes) {
+        await api.enrichNode(threadId, node.id);
+      }
+      await refetchAndRebuild();
+      onRefresh?.();
+    } catch (err) {
+      console.error('Enrich thread failed:', err);
+    } finally {
+      setEnrichLoading(false);
+    }
+  }, [threads, refetchAndRebuild, onRefresh]);
+
   // Reset layout
   const resetLayout = async () => {
     if (!threads || threads.length === 0) return;
@@ -794,25 +1047,10 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     try {
       setLayoutLoading(true);
       await api.deleteThreadLayout(threadId);
-      // Re-trigger layout from thread data
-      setNodes(prev => {
-        const nodeCount = prev.length - 1; // minus thread node
-        return prev.map((n, idx) => {
-          if (n.id.startsWith('thread-')) {
-            return { ...n, position: { x: 400, y: 300 } };
-          }
-          const i = idx - 1;
-          const angle = (2 * Math.PI * i) / Math.max(nodeCount, 1) - Math.PI / 2;
-          const radius = 180;
-          return {
-            ...n,
-            position: {
-              x: 400 + radius * Math.cos(angle),
-              y: 300 + radius * Math.sin(angle)
-            }
-          };
-        });
-      });
+      // Clear saved data so computed layout takes effect on rebuild
+      savedLayoutRef.current = null;
+      // Rebuild graph with no saved positions — computed layout will apply
+      buildGraph(threads, null);
     } catch (e) {
       console.error('Failed to reset layout:', e);
     } finally {
@@ -822,7 +1060,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
 
   return (
     <div className={`thread-graph ${isMatteMode ? 'matte' : ''}`}>
-      <div className="graph-container">
+      <div className="graph-container" ref={graphContainerRef}>
         <ReactFlow
           nodes={visibleNodes}
           edges={visibleEdges}
@@ -836,6 +1074,8 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           }) as any}
           onNodeMouseLeave={() => setHoveredRootId(null)}
           nodeTypes={nodeTypes}
+          panOnScroll
+          zoomOnScroll={false}
           minZoom={0.3}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
@@ -937,7 +1177,8 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         </div>
       )}
 
-      <div className={`content-sidebar ${selectedNode ? 'open' : ''}`}>
+      <div className={`content-sidebar ${selectedNode ? 'open' : ''}`} style={selectedNode ? { width: sidebarWidth } : undefined}>
+        {selectedNode && <div className="sidebar-resize-handle" onMouseDown={handleSidebarResizeStart} />}
         <GraphContentSidebar
           selectedNode={selectedNode}
           threads={threads}
@@ -947,9 +1188,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           onOpenInArticle={onOpenInArticle}
           onNavigateToThread={onNavigateToThread}
           formatContent={formatContent}
-          threadType={(threads[0]?.metadata?.thread_type || 'standard') as ThreadType}
-          onReparentNode={handleReparentNode}
-          onReorderNode={handleReorderNode}
+          threadType={(threads[0]?.thread_type || threads[0]?.metadata?.thread_type || 'argument') as ThreadType}
           onHighlightNodes={(nodeIds: number[]) => {
             setHighlightedNodeIds(new Set(nodeIds));
             // Auto-clear highlights after 5 seconds

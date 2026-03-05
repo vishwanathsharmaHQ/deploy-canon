@@ -34,8 +34,8 @@ export function embedYouTubeLinks(html: string): string {
 
 export const getNodeType = (node: { node_type?: string; type?: string | number }): string => {
   if (node.node_type) return node.node_type;
-  if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'ROOT';
-  return node.type || 'ROOT';
+  if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'claim';
+  return node.type || 'claim';
 };
 
 export function getEditableContent(node: { content: unknown; title?: string; node_type?: string; type?: string | number }): EditableContent {
@@ -51,7 +51,7 @@ export function getEditableContent(node: { content: unknown; title?: string; nod
   const isObj = typeof parsed === 'object' && parsed !== null;
 
   switch (nodeType) {
-    case 'ROOT':
+    case 'claim':
       return {
         title: (isObj ? parsed?.title : null) || node.title || '',
         html: (isObj ? parsed?.description : null) || rawStr,
@@ -59,28 +59,28 @@ export function getEditableContent(node: { content: unknown; title?: string; nod
           ? (Array.isArray(parsed.keywords) ? parsed.keywords.join(', ') : parsed.keywords)
           : '',
       };
-    case 'EVIDENCE':
+    case 'evidence':
       return {
         title: (isObj ? parsed?.source : null) || node.title || '',
         html: (isObj ? parsed?.point : null) || rawStr,
       };
-    case 'EXAMPLE':
+    case 'example':
       return {
         title: (isObj ? parsed?.title : null) || node.title || '',
         html: (isObj ? parsed?.description : null) || rawStr,
       };
-    case 'COUNTERPOINT':
+    case 'counterpoint':
       return {
         title: (isObj ? parsed?.argument : null) || node.title || '',
         html: (isObj ? parsed?.explanation : null) || rawStr,
       };
-    case 'REFERENCE':
+    case 'source':
       return {
         title: (isObj ? parsed?.title : null) || node.title || '',
         html: (isObj ? (parsed?.url || parsed?.content || parsed?.description || '') : null) || rawStr,
       };
-    case 'CONTEXT':
-    case 'SYNTHESIS':
+    case 'context':
+    case 'synthesis':
       return {
         title: (isObj ? parsed?.title : null) || node.title || '',
         html: (isObj ? (parsed?.description || parsed?.content || parsed?.text || '') : null) || rawStr,
@@ -100,17 +100,17 @@ export function getEditableContent(node: { content: unknown; title?: string; nod
 
 export function buildSavedContent(nodeType: string, title: string, html: string, keywords: string): string {
   switch (nodeType) {
-    case 'ROOT':
+    case 'claim':
       return JSON.stringify({
         title,
         description: html,
         keywords: keywords ? keywords.split(',').map(k => k.trim()).filter(Boolean) : [],
       });
-    case 'EVIDENCE':
+    case 'evidence':
       return JSON.stringify({ point: html, source: title });
-    case 'EXAMPLE':
+    case 'example':
       return JSON.stringify({ title, description: html });
-    case 'COUNTERPOINT':
+    case 'counterpoint':
       return JSON.stringify({ argument: title, explanation: html });
     default:
       return html;
@@ -170,20 +170,14 @@ export const renderContent = (rawContent: unknown, linkify?: (html: string) => s
       );
     }
 
-    const segments: React.ReactNode[] = [];
-    let lastIdx = 0;
-    let m: RegExpExecArray | null;
-    urlRegex.lastIndex = 0;
-    while ((m = urlRegex.exec(para)) !== null) {
-      if (m.index > lastIdx) segments.push(para.slice(lastIdx, m.index));
-      segments.push(
-        <a key={m.index} href={m[0]} target="_blank" rel="noopener noreferrer">{m[0]}</a>
-      );
-      lastIdx = m.index + m[0].length;
-    }
-    if (lastIdx < para.length) segments.push(para.slice(lastIdx));
+    // Build HTML string with URL links, then apply node linkification
+    let paraHtml = para.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    paraHtml = paraHtml.replace(urlRegex, (url: string) =>
+      `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`
+    );
+    if (linkify) paraHtml = linkify(paraHtml);
 
-    return <p key={pi}>{segments.length ? segments : para}</p>;
+    return <p key={pi} dangerouslySetInnerHTML={{ __html: sanitizeHtml(paraHtml) }} />;
   });
 };
 
@@ -192,6 +186,7 @@ export const renderContent = (rawContent: unknown, linkify?: (html: string) => s
 export const formatNodeContent = (
   node: { content: unknown; title?: string; node_type?: string; type?: string | number },
   SourceVerifyBadge?: React.FC<{ url: string; claim: string }>,
+  linkify?: (html: string) => string,
 ): React.ReactNode => {
   let content = node.content;
   if (!content) return null;
@@ -210,7 +205,7 @@ export const formatNodeContent = (
       return (
         <div>
           <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{c.title}</h3>
-          {renderHtmlOrText(c.description)}
+          {renderHtmlOrText(c.description, linkify)}
           {c.keywords?.length > 0 && (
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', marginTop: 16 }}>
               <em>Keywords: {Array.isArray(c.keywords) ? c.keywords.join(', ') : c.keywords}</em>
@@ -226,7 +221,7 @@ export const formatNodeContent = (
       const isUrl = src && /^https?:\/\//.test(src);
       return (
         <div>
-          {renderHtmlOrText(c.point)}
+          {renderHtmlOrText(c.point, linkify)}
           {src && (
             ytMatch ? (
               <div className="ar-youtube" style={{ marginTop: 20 }}>
@@ -264,7 +259,7 @@ export const formatNodeContent = (
       return (
         <div>
           <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{c.title}</h3>
-          {renderHtmlOrText(c.description)}
+          {renderHtmlOrText(c.description, linkify)}
         </div>
       );
     }
@@ -273,7 +268,7 @@ export const formatNodeContent = (
       return (
         <div>
           <h3 style={{ color: '#fff', margin: '0 0 12px' }}>{c.argument}</h3>
-          {c.explanation && renderHtmlOrText(c.explanation)}
+          {c.explanation && renderHtmlOrText(c.explanation, linkify)}
         </div>
       );
     }

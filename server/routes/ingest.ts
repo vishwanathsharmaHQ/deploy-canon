@@ -10,6 +10,17 @@ import type { IngestNode } from '../types/domain.js';
 
 const router = Router();
 
+/** Map legacy uppercase node types to new entity types */
+const LEGACY_TYPE_MAP: Record<string, string> = {
+  ROOT: 'claim', EVIDENCE: 'evidence', EXAMPLE: 'example',
+  COUNTERPOINT: 'counterpoint', REFERENCE: 'source', CONTEXT: 'context',
+  SYNTHESIS: 'synthesis', QUESTION: 'question', NOTE: 'note',
+};
+function normalizeEntityType(raw?: string): string {
+  if (!raw) return 'note';
+  return LEGACY_TYPE_MAP[raw] ?? LEGACY_TYPE_MAP[raw.toUpperCase()] ?? raw.toLowerCase();
+}
+
 // URL ingestion
 router.post('/url', requireAuth, aiTimeout, async (req, res, next) => {
   const { url, threadId } = req.body;
@@ -66,12 +77,13 @@ Create 3-8 nodes. ROOT first, then supporting nodes.`
     }
 
     const proposedNodes = (extracted.nodes || []).map((n: IngestNode) => {
+      const normalizedType = normalizeEntityType(n.type);
       let nodeContent = n.content || '';
-      if (n.type === 'EVIDENCE' && n.sourceUrl) nodeContent = JSON.stringify({ point: n.content, source: n.sourceUrl });
-      else if (n.type === 'EXAMPLE') nodeContent = JSON.stringify({ title: n.title, description: n.content });
-      else if (n.type === 'COUNTERPOINT') nodeContent = JSON.stringify({ argument: n.title, explanation: n.content });
-      else if (n.type === 'ROOT') nodeContent = JSON.stringify({ title: n.title, description: n.content });
-      return { title: n.title, type: n.type, content: nodeContent };
+      if (normalizedType === 'evidence' && n.sourceUrl) nodeContent = JSON.stringify({ point: n.content, source: n.sourceUrl });
+      else if (normalizedType === 'example') nodeContent = JSON.stringify({ title: n.title, description: n.content });
+      else if (normalizedType === 'counterpoint') nodeContent = JSON.stringify({ argument: n.title, explanation: n.content });
+      else if (normalizedType === 'claim') nodeContent = JSON.stringify({ title: n.title, description: n.content });
+      return { title: n.title, type: normalizedType, content: nodeContent };
     });
 
     res.json({ title: extracted.title || pageTitle, summary: extracted.summary || '', sourceUrl: url, proposedNodes, threadId: threadId || null });
@@ -142,11 +154,12 @@ Create 3-8 nodes. ROOT first, then supporting nodes.`
     }
 
     const proposedNodes = (extracted.nodes || []).map((n: IngestNode) => {
+      const normalizedType = normalizeEntityType(n.type);
       let nodeContent = n.content || '';
-      if (n.type === 'ROOT') nodeContent = JSON.stringify({ title: n.title, description: n.content });
-      else if (n.type === 'EXAMPLE') nodeContent = JSON.stringify({ title: n.title, description: n.content });
-      else if (n.type === 'COUNTERPOINT') nodeContent = JSON.stringify({ argument: n.title, explanation: n.content });
-      return { title: n.title, type: n.type, content: nodeContent };
+      if (normalizedType === 'claim') nodeContent = JSON.stringify({ title: n.title, description: n.content });
+      else if (normalizedType === 'example') nodeContent = JSON.stringify({ title: n.title, description: n.content });
+      else if (normalizedType === 'counterpoint') nodeContent = JSON.stringify({ argument: n.title, explanation: n.content });
+      return { title: n.title, type: normalizedType, content: nodeContent };
     });
 
     res.json({

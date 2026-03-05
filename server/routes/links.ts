@@ -33,7 +33,7 @@ router.get('/node/:nodeId', withSession(async (req, res) => {
   const session = req.neo4jSession!;
   const result = await session.run(
     `MATCH (n:Node {id: $nodeId})-[r:RELATED_TO]-(other:Node)
-     MATCH (t:Thread)-[:HAS_NODE]->(other)
+     MATCH (t:Thread)-[:INCLUDES]->(other)
      RETURN r, other, t.id AS threadId, t.title AS threadTitle,
             CASE WHEN startNode(r) = n THEN 'outgoing' ELSE 'incoming' END AS direction`,
     { nodeId: getNeo4j().int(nodeId) }
@@ -45,7 +45,7 @@ router.get('/node/:nodeId', withSession(async (req, res) => {
     confidence: r.get('r').properties.confidence,
     status: r.get('r').properties.status,
     direction: r.get('direction'),
-    otherNode: { id: toNum(r.get('other').properties.id), title: r.get('other').properties.title, node_type: r.get('other').properties.node_type },
+    otherNode: { id: toNum(r.get('other').properties.id), title: r.get('other').properties.title, entity_type: r.get('other').properties.entity_type },
     threadId: toNum(r.get('threadId')),
     threadTitle: r.get('threadTitle'),
   }));
@@ -72,12 +72,12 @@ router.post('/suggest', requireAuth, aiTimeout, withSession(async (req, res) => 
 
   // Backfill embeddings for this thread's nodes that are missing them
   const missingResult = await session.run(
-    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) WHERE n.embedding IS NULL RETURN n`,
+    `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node) WHERE n.embedding IS NULL RETURN n`,
     { threadId: getNeo4j().int(parseInt(threadId)) }
   );
   for (const record of missingResult.records) {
     const props = record.get('n').properties;
-    const text = getEmbeddingText({ title: props.title, content: props.content, node_type: props.node_type }, 'node');
+    const text = getEmbeddingText({ title: props.title, content: props.content, entity_type: props.entity_type }, 'node');
     if (!text.trim()) continue;
     try {
       const embedding = await generateEmbedding(text);
@@ -91,7 +91,7 @@ router.post('/suggest', requireAuth, aiTimeout, withSession(async (req, res) => 
   }
 
   const nodesResult = await session.run(
-    `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node) WHERE n.embedding IS NOT NULL RETURN n LIMIT 10`,
+    `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node) WHERE n.embedding IS NOT NULL RETURN n LIMIT 10`,
     { threadId: getNeo4j().int(parseInt(threadId)) }
   );
 
@@ -112,7 +112,7 @@ router.post('/suggest', requireAuth, aiTimeout, withSession(async (req, res) => 
     let linkCandidateRecords: Neo4jRecord[] = [];
     if (candidateIds2.length > 0) {
       const similar = await session.run(
-        `MATCH (t:Thread)-[:HAS_NODE]->(node:Node)
+        `MATCH (t:Thread)-[:INCLUDES]->(node:Node)
          WHERE node.id IN $ids AND t.id <> $threadId
          OPTIONAL MATCH (n2:Node {id: $nodeId})-[existing:RELATED_TO]-(node)
          WITH node, t, existing WHERE existing IS NULL
@@ -128,7 +128,7 @@ router.post('/suggest', requireAuth, aiTimeout, withSession(async (req, res) => 
         sourceNodeTitle: nodeProps.title,
         targetNodeId: toNum(r.get('node').properties.id),
         targetNodeTitle: r.get('node').properties.title,
-        targetNodeType: r.get('node').properties.node_type,
+        targetNodeType: r.get('node').properties.entity_type,
         threadId: toNum(r.get('threadId')),
         threadTitle: r.get('threadTitle'),
         similarity: scoreMap2[String(r.get('node').properties.id)] || 0,

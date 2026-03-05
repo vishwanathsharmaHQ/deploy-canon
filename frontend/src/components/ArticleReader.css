@@ -40,6 +40,7 @@
 .ar-chat-sidebar--open {
   flex: 1 1 50%;
   border-left-color: rgba(255, 255, 255, 0.07);
+  position: relative;
 }
 
 /* Chat toggle button — sits in top-right of the content-area */
@@ -92,11 +93,23 @@
 .ar-secondary-sidebar--open {
   flex: 0 0 400px;
   border-left-color: rgba(255, 255, 255, 0.07);
+  position: relative;
 }
 
-/* Compact mode: when chat is also open, pin to a fixed narrower width */
-.ar-secondary-sidebar--open.ar-secondary-sidebar--compact {
-  flex: 0 0 360px;
+.ar-resize-handle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+  background: transparent;
+}
+
+.ar-resize-handle:hover,
+.ar-resize-handle:active {
+  background: rgba(0, 255, 157, 0.3);
 }
 
 /* Secondary toggle button — sits left of the chat toggle */
@@ -589,6 +602,8 @@
   justify-content: center;
   gap: 16px;
   padding: 12px 24px;
+  min-height: 68px;
+  box-sizing: border-box;
   background: #1a1a1a;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   flex-shrink: 0;

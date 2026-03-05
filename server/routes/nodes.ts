@@ -1,51 +1,67 @@
 import { Router } from 'express';
 import { getNeo4j, toNum, getSession } from '../db/driver.js';
-import { getNextId, formatNode, NODE_TYPES } from '../db/queries.js';
+import { getNextId, formatNode, formatRelationship, formatSource, ENTITY_TYPES, RELATIONSHIP_TYPES } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession, withTransaction } from '../middleware/session.js';
 import { getOpenAI, generateEmbedding, getEmbeddingText } from '../services/openai.js';
 import config from '../config.js';
-import type { NodeData } from '../types/domain.js';
-
-const LEAF_NODE_TYPES = ['EVIDENCE', 'REFERENCE', 'EXAMPLE', 'COUNTERPOINT'];
+import type { NodeData, RelationshipData, SourceData, EntityType, RelationType } from '../types/domain.js';
 
 const router = Router();
 
-// GET /threads/:threadId/nodes - get thread nodes and edges
+/** Map legacy uppercase node types to new entity types */
+const LEGACY_TYPE_MAP: Record<string, string> = {
+  ROOT: 'claim', EVIDENCE: 'evidence', EXAMPLE: 'example',
+  COUNTERPOINT: 'counterpoint', REFERENCE: 'source', CONTEXT: 'context',
+  SYNTHESIS: 'synthesis', QUESTION: 'question', NOTE: 'note',
+};
+function normalizeEntityType(raw?: string): EntityType {
+  if (!raw) return 'note';
+  const mapped = LEGACY_TYPE_MAP[raw] ?? LEGACY_TYPE_MAP[raw.toUpperCase()];
+  return (mapped ?? raw.toLowerCase()) as EntityType;
+}
+
+// GET /threads/:threadId/nodes - get thread nodes, relationships, and sources
 router.get(
   '/threads/:threadId/nodes',
   withSession(async (req, res) => {
     const threadId = parseInt(req.params.threadId);
     const session = req.neo4jSession!;
 
+    // Fetch nodes with INCLUDES metadata
     const nodesResult = await session.run(
-      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(n:Node)
-       OPTIONAL MATCH (parent:Node)-[:PARENT_OF]->(n)
-       RETURN n, parent.id AS parent_id
-       ORDER BY n.created_at`,
+      `MATCH (t:Thread {id: $threadId})-[inc:INCLUDES]->(n:Node)
+       RETURN n, inc.position AS position, inc.role AS role
+       ORDER BY inc.position`,
       { threadId: getNeo4j().int(threadId) }
     );
 
-    const nodes = nodesResult.records.map(r => {
-      const props = r.get('n').properties;
-      const parentId = r.get('parent_id');
-      return formatNode(props, parentId);
-    });
+    const nodes = nodesResult.records.map(r => formatNode(r.get('n').properties));
 
-    // Build edges from PARENT_OF relationships
-    const edgesResult = await session.run(
-      `MATCH (t:Thread {id: $threadId})-[:HAS_NODE]->(src:Node)-[:PARENT_OF]->(tgt:Node)
-       RETURN src.id AS source_id, tgt.id AS target_id`,
+    // Fetch typed relationships between nodes in this thread
+    const relsResult = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(a:Node)
+       MATCH (t)-[:INCLUDES]->(b:Node)
+       MATCH (a)-[r]->(b)
+       WHERE type(r) IN ['SUPPORTS','CONTRADICTS','QUALIFIES','DERIVES_FROM','ILLUSTRATES','CITES','ADDRESSES','REFERENCES']
+       RETURN r, type(r) AS relType, a.id AS source_id, b.id AS target_id`,
       { threadId: getNeo4j().int(threadId) }
     );
 
-    const edges = edgesResult.records.map(r => ({
-      source_id: toNum(r.get('source_id')),
-      target_id: toNum(r.get('target_id')),
-      relationship_type: 'parent-child',
-    }));
+    const relationships: RelationshipData[] = relsResult.records.map(r =>
+      formatRelationship(r.get('r').properties, r.get('relType'), r.get('source_id'), r.get('target_id'))
+    );
 
-    res.json({ nodes, edges });
+    // Fetch sources cited by nodes in this thread
+    const sourcesResult = await session.run(
+      `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node)-[:CITES]->(s:Source)
+       RETURN DISTINCT s`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+
+    const sources: SourceData[] = sourcesResult.records.map(r => formatSource(r.get('s').properties));
+
+    res.json({ nodes, relationships, sources });
   })
 );
 
@@ -55,28 +71,18 @@ router.post(
   requireAuth,
   withTransaction(async (req, res) => {
     const threadId = parseInt(req.params.threadId);
-    const { title, content, nodeType, parentId, metadata } = req.body;
+    const {
+      title, content,
+      entityType, entity_type: entityTypeAlt,
+      metadata, position, role,
+      connectTo,
+    } = req.body;
     const tx = req.neo4jTx!;
 
-    // Enforce leaf constraint: leaf nodes cannot have children
-    if (parentId) {
-      const parentResult = await tx.run(
-        'MATCH (n:Node {id: $id}) RETURN n.node_type AS nodeType',
-        { id: getNeo4j().int(parentId) }
-      );
-      if (parentResult.records.length) {
-        const parentType = parentResult.records[0].get('nodeType');
-        if (LEAF_NODE_TYPES.includes(parentType)) {
-          return res.status(400).json({
-            error: `Cannot add children to a ${parentType} node. Only ROOT, CONTEXT, and SYNTHESIS nodes can have children.`
-          });
-        }
-      }
+    const resolvedEntityType = normalizeEntityType(entityType || entityTypeAlt);
+    if (!ENTITY_TYPES.includes(resolvedEntityType)) {
+      return res.status(400).json({ error: `Invalid entity_type: ${resolvedEntityType}. Valid types: ${ENTITY_TYPES.join(', ')}` });
     }
-
-    const normalizedNodeType = typeof nodeType === 'number'
-      ? NODE_TYPES[nodeType]
-      : nodeType;
 
     const id = await getNextId('node', tx);
     const now = new Date().toISOString();
@@ -90,35 +96,60 @@ router.post(
     const nodeResult = await tx.run(
       `CREATE (n:Node {
         id: $id, title: $title, content: $content,
-        node_type: $nodeType, metadata: $metadata,
+        entity_type: $entityType, metadata: $metadata,
         created_at: $now, updated_at: $now
       }) RETURN n`,
-      { id: getNeo4j().int(id), title, content: content || '', nodeType: normalizedNodeType, metadata: metaStr, now }
+      { id: getNeo4j().int(id), title, content: content || '', entityType: resolvedEntityType, metadata: metaStr, now }
     );
 
-    // Link to thread
+    // Get current node count for default position
+    const countResult = await tx.run(
+      `MATCH (t:Thread {id: $threadId})-[:INCLUDES]->(n:Node) RETURN count(n) AS cnt`,
+      { threadId: getNeo4j().int(threadId) }
+    );
+    const currentCount = toNum(countResult.records[0]?.get('cnt')) ?? 0;
+
+    // Link to thread with INCLUDES
     await tx.run(
       `MATCH (t:Thread {id: $threadId}), (n:Node {id: $nodeId})
-       CREATE (t)-[:HAS_NODE]->(n)`,
-      { threadId: getNeo4j().int(threadId), nodeId: getNeo4j().int(id) }
+       CREATE (t)-[:INCLUDES {position: $position, role: $role, added_at: $now}]->(n)`,
+      {
+        threadId: getNeo4j().int(threadId),
+        nodeId: getNeo4j().int(id),
+        position: getNeo4j().int(position ?? currentCount),
+        role: role || 'supporting',
+        now,
+      }
     );
 
-    // Link to parent if provided
-    let resolvedParentId = null;
-    if (parentId) {
+    // Create typed relationship if connectTo is provided
+    if (connectTo && connectTo.targetId && connectTo.relationType) {
+      const relType = connectTo.relationType as RelationType;
+      if (!RELATIONSHIP_TYPES.includes(relType)) {
+        return res.status(400).json({ error: `Invalid relationType: ${relType}` });
+      }
+      const relId = await getNextId('relationship', tx);
+      const relProps = {
+        id: getNeo4j().int(relId),
+        created_at: now,
+        ...(connectTo.properties || {}),
+      };
       await tx.run(
-        `MATCH (p:Node {id: $parentId}), (n:Node {id: $nodeId})
-         CREATE (p)-[:PARENT_OF]->(n)`,
-        { parentId: getNeo4j().int(parentId), nodeId: getNeo4j().int(id) }
+        `MATCH (a:Node {id: $src}), (b:Node {id: $tgt})
+         CREATE (a)-[r:${relType} $props]->(b)
+         RETURN r`,
+        {
+          src: getNeo4j().int(id),
+          tgt: getNeo4j().int(connectTo.targetId),
+          props: relProps,
+        }
       );
-      resolvedParentId = parentId;
     }
 
-    // withTransaction auto-commits on success
-    const node = formatNode(nodeResult.records[0].get('n').properties, resolvedParentId);
+    const node = formatNode(nodeResult.records[0].get('n').properties);
 
     // Generate embedding asynchronously (fire-and-forget)
-    const embText = getEmbeddingText({ title, content, node_type: normalizedNodeType }, 'node');
+    const embText = getEmbeddingText({ title, content, entity_type: resolvedEntityType }, 'node');
     if (embText.trim()) {
       generateEmbedding(embText).then(embedding => {
         if (embedding) {
@@ -151,14 +182,14 @@ router.post(
       const preSession = getSession();
       try {
         const existingResult = await preSession.run(
-          'MATCH (t:Thread {id: $tid})-[:HAS_NODE]->(n:Node) RETURN n.title AS title',
+          'MATCH (t:Thread {id: $tid})-[:INCLUDES]->(n:Node) RETURN n.title AS title',
           { tid: getNeo4j().int(threadId) }
         );
         existingTitles = existingResult.records.map(r => (r.get('title') || '').toLowerCase().trim());
       } finally {
         await preSession.close();
       }
-    } catch { /* ignore — proceed without dedup */ }
+    } catch { /* ignore -- proceed without dedup */ }
 
     // Store existingTitles on req so the transaction handler can access them
     req.existingTitles = existingTitles;
@@ -172,21 +203,12 @@ router.post(
       const duplicateSkipped: string[] = [];
       const now = new Date().toISOString();
 
-      // Enforce leaf constraint for batch: check parent type once if parentId provided
-      if (nodes.length > 0 && nodes[0].parentId) {
-        const parentCheck = await tx.run(
-          'MATCH (n:Node {id: $id}) RETURN n.node_type AS nodeType',
-          { id: getNeo4j().int(nodes[0].parentId) }
-        );
-        if (parentCheck.records.length) {
-          const parentType = parentCheck.records[0].get('nodeType');
-          if (LEAF_NODE_TYPES.includes(parentType)) {
-            return res.status(400).json({
-              error: `Cannot add children to a ${parentType} node. Only ROOT, CONTEXT, and SYNTHESIS nodes can have children.`
-            });
-          }
-        }
-      }
+      // Get current max position
+      const posResult = await tx.run(
+        `MATCH (t:Thread {id: $tid})-[inc:INCLUDES]->(n:Node) RETURN COALESCE(max(inc.position), -1) AS maxPos`,
+        { tid: getNeo4j().int(threadId) }
+      );
+      let nextPosition = (toNum(posResult.records[0]?.get('maxPos')) ?? -1) + 1;
 
       for (const n of nodes) {
         // Duplicate detection: skip if title matches or is substring of existing
@@ -209,36 +231,39 @@ router.post(
           } catch { /* keep as-is */ }
         }
 
-        const nodeType = typeof n.nodeType === 'number'
-          ? NODE_TYPES[n.nodeType]
-          : n.nodeType;
+        const entityType = normalizeEntityType(n.entityType || n.entity_type || n.nodeType);
 
         const nid = await getNextId('node', tx);
         await tx.run(
-          `CREATE (nd:Node { id:$id, title:$title, content:$content, node_type:$type, metadata:$meta, created_at:$now, updated_at:$now })`,
-          { id: getNeo4j().int(nid), title: n.title, content, type: nodeType, meta: JSON.stringify({ title: n.title }), now }
+          `CREATE (nd:Node { id:$id, title:$title, content:$content, entity_type:$type, metadata:$meta, created_at:$now, updated_at:$now })`,
+          { id: getNeo4j().int(nid), title: n.title, content, type: entityType, meta: JSON.stringify({ title: n.title }), now }
         );
         await tx.run(
-          `MATCH (t:Thread {id:$tid}),(nd:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(nd)`,
-          { tid: getNeo4j().int(threadId), nid: getNeo4j().int(nid) }
+          `MATCH (t:Thread {id:$tid}),(nd:Node {id:$nid}) CREATE (t)-[:INCLUDES {position: $pos, role: $role, added_at: $now}]->(nd)`,
+          { tid: getNeo4j().int(threadId), nid: getNeo4j().int(nid), pos: getNeo4j().int(nextPosition), role: n.role || 'supporting', now }
         );
-        if (n.parentId) {
-          await tx.run(
-            `MATCH (p:Node {id:$pid}),(nd:Node {id:$nid}) CREATE (p)-[:PARENT_OF]->(nd)`,
-            { pid: getNeo4j().int(n.parentId), nid: getNeo4j().int(nid) }
-          );
+        nextPosition++;
+
+        // Create typed relationship if connectTo is provided
+        if (n.connectTo && n.connectTo.targetId && n.connectTo.relationType) {
+          const relType = n.connectTo.relationType as RelationType;
+          if (RELATIONSHIP_TYPES.includes(relType)) {
+            const relId = await getNextId('relationship', tx);
+            await tx.run(
+              `MATCH (a:Node {id:$src}),(b:Node {id:$tgt}) CREATE (a)-[r:${relType} {id: $relId, created_at: $now}]->(b)`,
+              { src: getNeo4j().int(nid), tgt: getNeo4j().int(n.connectTo.targetId), relId: getNeo4j().int(relId), now }
+            );
+          }
         }
+
         createdNodes.push(formatNode(
-          { id: nid, title: n.title, content, node_type: nodeType, created_at: now, updated_at: now, metadata: '{}' },
-          n.parentId || null
+          { id: nid, title: n.title, content, entity_type: entityType, created_at: now, updated_at: now, metadata: '{}' }
         ));
       }
 
-      // withTransaction auto-commits on success
-
       // Generate embeddings asynchronously for all created nodes
       for (const cn of createdNodes) {
-        const embText = getEmbeddingText({ title: cn.title, content: cn.content, node_type: cn.node_type }, 'node');
+        const embText = getEmbeddingText({ title: cn.title, content: cn.content, entity_type: cn.entity_type }, 'node');
         if (embText.trim()) {
           generateEmbedding(embText).then(embedding => {
             if (embedding) {
@@ -281,10 +306,10 @@ router.put(
     if (!result.records.length) return res.status(404).json({ error: 'Node not found' });
 
     const nodeProps = result.records[0].get('n').properties;
-    const node = formatNode(nodeProps, null);
+    const node = formatNode(nodeProps);
 
     // Regenerate embedding asynchronously
-    const embText = getEmbeddingText({ title, content, node_type: nodeProps.node_type }, 'node');
+    const embText = getEmbeddingText({ title, content, entity_type: nodeProps.entity_type }, 'node');
     if (embText.trim()) {
       generateEmbedding(embText).then(embedding => {
         if (embedding) {
@@ -309,15 +334,17 @@ router.delete(
     const force = req.query.force === 'true';
     const session = req.neo4jSession!;
 
-    // Check for children
-    const childResult = await session.run(
-      'MATCH (n:Node {id: $nid})-[:PARENT_OF]->(c) RETURN count(c) as cnt',
+    // Check for outgoing typed relationships
+    const relResult = await session.run(
+      `MATCH (n:Node {id: $nid})-[r]->()
+       WHERE type(r) IN ['SUPPORTS','CONTRADICTS','QUALIFIES','DERIVES_FROM','ILLUSTRATES','CITES','ADDRESSES','REFERENCES']
+       RETURN count(r) as cnt`,
       { nid: getNeo4j().int(nodeId) }
     );
-    const childCount = childResult.records[0]?.get('cnt')?.toNumber?.() ?? childResult.records[0]?.get('cnt') ?? 0;
+    const relCount = toNum(relResult.records[0]?.get('cnt')) ?? 0;
 
-    if (childCount > 0 && !force) {
-      return res.json({ hasChildren: true, childCount });
+    if (relCount > 0 && !force) {
+      return res.json({ hasRelationships: true, relationshipCount: relCount });
     }
 
     await session.run('MATCH (n:Node {id: $nid}) DETACH DELETE n', { nid: getNeo4j().int(nodeId) });
@@ -325,121 +352,34 @@ router.delete(
   })
 );
 
-// PATCH /threads/:threadId/nodes/:nodeId/parent - reparent a node
-router.patch(
-  '/threads/:threadId/nodes/:nodeId/parent',
-  requireAuth,
-  withTransaction(async (req, res) => {
-    const threadId = parseInt(req.params.threadId);
-    const nodeId = parseInt(req.params.nodeId);
-    const { newParentId } = req.body; // number | null
-    const tx = req.neo4jTx!;
-
-    // Validate node exists in this thread
-    const nodeCheck = await tx.run(
-      `MATCH (t:Thread {id: $tid})-[:HAS_NODE]->(n:Node {id: $nid})
-       RETURN n.node_type AS nodeType`,
-      { tid: getNeo4j().int(threadId), nid: getNeo4j().int(nodeId) }
-    );
-    if (!nodeCheck.records.length) {
-      return res.status(404).json({ error: 'Node not found in this thread' });
-    }
-
-    if (newParentId != null) {
-      // Validate parent exists in this thread
-      const parentCheck = await tx.run(
-        `MATCH (t:Thread {id: $tid})-[:HAS_NODE]->(p:Node {id: $pid})
-         RETURN p.node_type AS nodeType`,
-        { tid: getNeo4j().int(threadId), pid: getNeo4j().int(newParentId) }
-      );
-      if (!parentCheck.records.length) {
-        return res.status(404).json({ error: 'Parent node not found in this thread' });
-      }
-
-      // Enforce leaf constraint on new parent
-      const parentType = parentCheck.records[0].get('nodeType');
-      if (LEAF_NODE_TYPES.includes(parentType)) {
-        return res.status(400).json({
-          error: `Cannot reparent under a ${parentType} node. Only ROOT, CONTEXT, and SYNTHESIS nodes can have children.`
-        });
-      }
-
-      // Check circular reference: newParentId must not be a descendant of nodeId
-      const circularCheck = await tx.run(
-        `MATCH path = (n:Node {id: $nid})-[:PARENT_OF*]->(d:Node {id: $pid})
-         RETURN count(path) AS cnt`,
-        { nid: getNeo4j().int(nodeId), pid: getNeo4j().int(newParentId) }
-      );
-      const cnt = circularCheck.records[0]?.get('cnt');
-      const circCount = typeof cnt?.toNumber === 'function' ? cnt.toNumber() : (cnt ?? 0);
-      if (circCount > 0) {
-        return res.status(400).json({ error: 'Cannot reparent: would create a circular reference' });
-      }
-    }
-
-    // Delete existing PARENT_OF relationship pointing to this node
-    await tx.run(
-      `MATCH (parent:Node)-[r:PARENT_OF]->(n:Node {id: $nid})
-       DELETE r`,
-      { nid: getNeo4j().int(nodeId) }
-    );
-
-    if (newParentId != null) {
-      // Create new PARENT_OF relationship
-      await tx.run(
-        `MATCH (p:Node {id: $pid}), (n:Node {id: $nid})
-         CREATE (p)-[:PARENT_OF]->(n)`,
-        { pid: getNeo4j().int(newParentId), nid: getNeo4j().int(nodeId) }
-      );
-    } else {
-      // Detaching to ROOT — update node_type
-      await tx.run(
-        `MATCH (n:Node {id: $nid})
-         SET n.node_type = 'ROOT', n.updated_at = $now`,
-        { nid: getNeo4j().int(nodeId), now: new Date().toISOString() }
-      );
-    }
-
-    res.json({ ok: true, newParentId: newParentId ?? null });
-  })
-);
-
-// PATCH /threads/:threadId/nodes/:nodeId/order - update chronological_order
+// PATCH /threads/:threadId/nodes/:nodeId/order - update position in INCLUDES relationship
 router.patch(
   '/threads/:threadId/nodes/:nodeId/order',
   requireAuth,
   withSession(async (req, res) => {
+    const threadId = parseInt(req.params.threadId);
     const nodeId = parseInt(req.params.nodeId);
-    const { chronological_order } = req.body;
+    const { chronological_order, position } = req.body;
     const session = req.neo4jSession!;
 
-    if (chronological_order == null || typeof chronological_order !== 'number') {
-      return res.status(400).json({ error: 'chronological_order (number) is required' });
+    const newPosition = position ?? chronological_order;
+    if (newPosition == null || typeof newPosition !== 'number') {
+      return res.status(400).json({ error: 'position (number) is required' });
     }
 
-    // Fetch current metadata, merge chronological_order, save back
+    // Update position on the INCLUDES relationship
     const result = await session.run(
-      'MATCH (n:Node {id: $nid}) RETURN n.metadata AS meta',
-      { nid: getNeo4j().int(nodeId) }
+      `MATCH (t:Thread {id: $tid})-[inc:INCLUDES]->(n:Node {id: $nid})
+       SET inc.position = $pos
+       RETURN inc`,
+      { tid: getNeo4j().int(threadId), nid: getNeo4j().int(nodeId), pos: getNeo4j().int(newPosition) }
     );
+
     if (!result.records.length) {
-      return res.status(404).json({ error: 'Node not found' });
+      return res.status(404).json({ error: 'Node not found in thread' });
     }
 
-    let meta: Record<string, unknown> = {};
-    try {
-      meta = JSON.parse(result.records[0].get('meta') || '{}');
-    } catch { /* ignore */ }
-
-    meta.chronological_order = chronological_order;
-
-    await session.run(
-      `MATCH (n:Node {id: $nid})
-       SET n.metadata = $meta, n.updated_at = $now`,
-      { nid: getNeo4j().int(nodeId), meta: JSON.stringify(meta), now: new Date().toISOString() }
-    );
-
-    res.json({ ok: true, chronological_order });
+    res.json({ ok: true, position: newPosition });
   })
 );
 
@@ -448,7 +388,7 @@ router.post(
   '/nodes/suggest',
   requireAuth,
   async (req, res) => {
-    const { nodeId, nodeType, content, title } = req.body;
+    const { nodeId, entityType, entity_type: entityTypeAlt, content, title } = req.body;
 
     try {
       let nodeContent: unknown = content;
@@ -483,29 +423,36 @@ router.post(
           content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
 For the given content, suggest 3-4 relevant nodes that would enrich the discussion.
 
-Node types fall into two categories:
+Entity types available:
+- claim: A central assertion or thesis
+- evidence: Specific, verifiable factual data with identifiable sources
+- source: A cited reference, URL, paper, or dataset
+- context: Background information or framing
+- example: Specific illustrative examples
+- counterpoint: Opposing views or critiques
+- synthesis: Summary or conclusions tying together multiple points
+- question: An open question worth exploring
+- note: General annotations or observations
 
-EXPANDABLE types (can have children — use for broad topics):
-- ROOT: Broad topics or claims that deserve sub-exploration with their own child nodes.
-- CONTEXT: Background information that could have supporting details.
-- SYNTHESIS: Summary or conclusions tying together multiple points.
+For each suggestion, also specify a relationship type to the parent node:
+- SUPPORTS: evidence or reasoning that backs the parent
+- CONTRADICTS: opposes or undermines the parent
+- QUALIFIES: adds nuance or conditions
+- DERIVES_FROM: logically follows from the parent
+- ILLUSTRATES: provides a concrete example
+- CITES: references a source
+- ADDRESSES: responds to a question
+- REFERENCES: links to related content
 
-LEAF types (terminal knowledge — no children):
-- EVIDENCE: ONLY for specific, verifiable factual claims with identifiable sources. Content format: point and source.
-- REFERENCE: Cited sources, URLs, papers. Content format: source details.
-- EXAMPLE: Specific illustrative examples. Content format: title and description.
-- COUNTERPOINT: Opposing views or critiques. Content format: argument and explanation.
-
-KEY: If a suggestion describes a broad sub-topic with potential sub-points, use ROOT — not EVIDENCE. EVIDENCE is strictly for specific facts with concrete sources.
-
-Respond with only the JSON array — no preamble, no explanation.
+Respond with only the JSON array -- no preamble, no explanation.
 
 Format your response as a JSON array of node suggestions:
 [
   {
-    "type": "NODE_TYPE",
+    "type": "entity_type",
     "title": "Node Title",
-    "content": "Node Content (formatted based on type)"
+    "content": "Node Content",
+    "relationType": "RELATIONSHIP_TYPE"
   }
 ]`,
         }, {
@@ -524,7 +471,7 @@ Format your response as a JSON array of node suggestions:
   }
 );
 
-// POST /threads/:threadId/nodes/:nodeId/enrich — enrich a ROOT node with more detail + generate children
+// POST /threads/:threadId/nodes/:nodeId/enrich -- enrich a node with more detail + generate children
 router.post(
   '/threads/:threadId/nodes/:nodeId/enrich',
   requireAuth,
@@ -544,7 +491,7 @@ router.post(
     const nodeProps = nodeResult.records[0].get('n').properties;
     const nodeTitle = nodeProps.title;
     const nodeContent = nodeProps.content || '';
-    const nodeType = nodeProps.node_type;
+    const entityType = nodeProps.entity_type || 'note';
 
     // Fetch thread context
     let threadTitle = '';
@@ -556,6 +503,13 @@ router.post(
       threadTitle = threadResult.records[0].get('title') || '';
     }
 
+    // Get current max position
+    const posResult = await tx.run(
+      `MATCH (t:Thread {id: $tid})-[inc:INCLUDES]->(n:Node) RETURN COALESCE(max(inc.position), -1) AS maxPos`,
+      { tid: getNeo4j().int(threadId) }
+    );
+    let nextPosition = (toNum(posResult.records[0]?.get('maxPos')) ?? -1) + 1;
+
     // Ask AI to enrich
     const response = await getOpenAI().chat.completions.create({
       model: config.openai.chatModel,
@@ -565,25 +519,22 @@ router.post(
 
 Given a node from a knowledge thread, do TWO things:
 1. Write a richer, more detailed version of the node's content (2-3 paragraphs, include specific facts, dates, names, and sources where possible).
-2. Generate 3-5 child nodes that break down this topic into specific sub-points.
+2. Generate 3-5 related nodes that break down this topic into specific sub-points.
 
-Child node types (LEAF types only — they won't have their own children):
-- EVIDENCE: Specific verifiable facts with sources
-- EXAMPLE: Concrete illustrative examples
-- CONTEXT: Background information
-- COUNTERPOINT: Opposing views or nuances
-- REFERENCE: Key sources or citations
+For each child node, specify:
+- type: one of 'evidence', 'example', 'context', 'counterpoint', 'source', 'claim', 'synthesis', 'question', 'note'
+- relationType: one of 'SUPPORTS', 'CONTRADICTS', 'QUALIFIES', 'DERIVES_FROM', 'ILLUSTRATES', 'CITES', 'ADDRESSES', 'REFERENCES'
 
 Return ONLY valid JSON (no markdown fencing):
 {
   "enrichedContent": "the enriched content for the parent node (plain text or HTML)",
   "children": [
-    { "type": "EVIDENCE|EXAMPLE|CONTEXT|COUNTERPOINT|REFERENCE", "title": "short title", "content": "detailed content" }
+    { "type": "evidence", "relationType": "SUPPORTS", "title": "short title", "content": "detailed content" }
   ]
 }`,
       }, {
         role: 'user',
-        content: `Thread: "${threadTitle}"\nNode type: ${nodeType}\nNode title: "${nodeTitle}"\nCurrent content: ${nodeContent}`,
+        content: `Thread: "${threadTitle}"\nEntity type: ${entityType}\nNode title: "${nodeTitle}"\nCurrent content: ${nodeContent}`,
       }],
       temperature: 0.7,
     });
@@ -608,32 +559,39 @@ Return ONLY valid JSON (no markdown fencing):
       );
     }
 
-    // Create child nodes
+    // Create child nodes with typed relationships
     const createdChildren: NodeData[] = [];
     for (const child of parsed.children || []) {
-      if (!child.title || !child.content || !NODE_TYPES.includes(child.type)) continue;
+      const childEntityType: EntityType = ENTITY_TYPES.includes(child.type) ? child.type : 'note';
+      const childRelType: RelationType = RELATIONSHIP_TYPES.includes(child.relationType) ? child.relationType : 'SUPPORTS';
+      if (!child.title || !child.content) continue;
+
       const childId = await getNextId('node', tx);
       await tx.run(
-        `CREATE (n:Node { id:$id, title:$title, content:$content, node_type:$type, metadata:$meta, created_at:$now, updated_at:$now })`,
-        { id: getNeo4j().int(childId), title: child.title, content: child.content, type: child.type, meta: JSON.stringify({ title: child.title }), now }
+        `CREATE (n:Node { id:$id, title:$title, content:$content, entity_type:$type, metadata:$meta, created_at:$now, updated_at:$now })`,
+        { id: getNeo4j().int(childId), title: child.title, content: child.content, type: childEntityType, meta: JSON.stringify({ title: child.title }), now }
       );
       await tx.run(
-        `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:HAS_NODE]->(n)`,
-        { tid: getNeo4j().int(threadId), nid: getNeo4j().int(childId) }
+        `MATCH (t:Thread {id:$tid}),(n:Node {id:$nid}) CREATE (t)-[:INCLUDES {position: $pos, role: 'supporting', added_at: $now}]->(n)`,
+        { tid: getNeo4j().int(threadId), nid: getNeo4j().int(childId), pos: getNeo4j().int(nextPosition), now }
       );
+      nextPosition++;
+
+      // Create typed relationship from child to parent node
+      const relId = await getNextId('relationship', tx);
       await tx.run(
-        `MATCH (p:Node {id:$pid}),(n:Node {id:$nid}) CREATE (p)-[:PARENT_OF]->(n)`,
-        { pid: getNeo4j().int(nodeId), nid: getNeo4j().int(childId) }
+        `MATCH (a:Node {id:$src}),(b:Node {id:$tgt}) CREATE (a)-[r:${childRelType} {id: $relId, created_at: $now}]->(b)`,
+        { src: getNeo4j().int(childId), tgt: getNeo4j().int(nodeId), relId: getNeo4j().int(relId), now }
       );
+
       createdChildren.push(formatNode(
-        { id: childId, title: child.title, content: child.content, node_type: child.type, created_at: now, updated_at: now, metadata: '{}' },
-        nodeId
+        { id: childId, title: child.title, content: child.content, entity_type: childEntityType, created_at: now, updated_at: now, metadata: '{}' }
       ));
     }
 
     // Generate embeddings asynchronously
     for (const cn of createdChildren) {
-      const embText = getEmbeddingText({ title: cn.title, content: cn.content, node_type: cn.node_type }, 'node');
+      const embText = getEmbeddingText({ title: cn.title, content: cn.content, entity_type: cn.entity_type }, 'node');
       if (embText.trim()) {
         generateEmbedding(embText).then(embedding => {
           if (embedding) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import InputModal from './InputModal';
 
 interface EditorToolbarProps {
@@ -10,41 +10,40 @@ interface EditorToolbarProps {
 const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, classPrefix }) => {
   const [modal, setModal] = useState<null | 'link' | 'youtube'>(null);
 
+  const runCmd = useCallback((cmd: () => void) => {
+    return (e: React.MouseEvent) => {
+      e.preventDefault();
+      cmd();
+    };
+  }, []);
+
   if (!editor) return null;
-
-  const Btn: React.FC<{ onClick: () => void; active?: boolean; children: React.ReactNode }> = ({ onClick, active, children }) => (
-    <button type="button" onClick={onClick} className={active ? 'is-active' : ''}>
-      {children}
-    </button>
-  );
-
-  const Divider = () => <span className={`${classPrefix}-toolbar-divider`} />;
 
   return (
     <>
       <div className={`${classPrefix}-toolbar`}>
-        <Btn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive('bold')}>B</Btn>
-        <Btn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive('italic')}>I</Btn>
-        <Btn onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive('strike')}>S</Btn>
-        <Divider />
-        <Btn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive('heading', { level: 1 })}>H1</Btn>
-        <Btn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={editor.isActive('heading', { level: 2 })}>H2</Btn>
-        <Btn onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} active={editor.isActive('heading', { level: 3 })}>H3</Btn>
-        <Divider />
-        <Btn onClick={() => editor.chain().focus().toggleBulletList().run()} active={editor.isActive('bulletList')}>Bullet</Btn>
-        <Btn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={editor.isActive('orderedList')}>Ordered</Btn>
-        <Btn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive('blockquote')}>Quote</Btn>
-        <Btn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={editor.isActive('codeBlock')}>Code</Btn>
-        <Divider />
-        <Btn onClick={() => setModal('link')} active={editor.isActive('link')}>Link</Btn>
-        <Btn onClick={() => setModal('youtube')}>YouTube</Btn>
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleBold().run())} className={editor.isActive('bold') ? 'is-active' : ''}>B</button>
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleItalic().run())} className={editor.isActive('italic') ? 'is-active' : ''}>I</button>
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleStrike().run())} className={editor.isActive('strike') ? 'is-active' : ''}>S</button>
+        <span className={`${classPrefix}-toolbar-divider`} />
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleHeading({ level: 1 }).run())} className={editor.isActive('heading', { level: 1 }) ? 'is-active' : ''}>H1</button>
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleHeading({ level: 2 }).run())} className={editor.isActive('heading', { level: 2 }) ? 'is-active' : ''}>H2</button>
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleHeading({ level: 3 }).run())} className={editor.isActive('heading', { level: 3 }) ? 'is-active' : ''}>H3</button>
+        <span className={`${classPrefix}-toolbar-divider`} />
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleBulletList().run())} className={editor.isActive('bulletList') ? 'is-active' : ''}>Bullet</button>
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleOrderedList().run())} className={editor.isActive('orderedList') ? 'is-active' : ''}>Ordered</button>
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleBlockquote().run())} className={editor.isActive('blockquote') ? 'is-active' : ''}>Quote</button>
+        <button type="button" onMouseDown={runCmd(() => editor.chain().focus().toggleCodeBlock().run())} className={editor.isActive('codeBlock') ? 'is-active' : ''}>Code</button>
+        <span className={`${classPrefix}-toolbar-divider`} />
+        <button type="button" onClick={() => setModal('link')} className={editor.isActive('link') ? 'is-active' : ''}>Link</button>
+        <button type="button" onClick={() => setModal('youtube')}>YouTube</button>
       </div>
       {modal === 'link' && (
         <InputModal
           label="Enter URL"
           placeholder="https://example.com"
           onSubmit={(url: string) => {
-            editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+            editor.chain().focus().setLink({ href: url }).run();
             setModal(null);
           }}
           onCancel={() => setModal(null)}
@@ -55,7 +54,7 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, classPrefix }) =>
           label="Enter YouTube URL"
           placeholder="https://youtube.com/watch?v=..."
           onSubmit={(url: string) => {
-            editor.commands.setYoutubeVideo({ src: url });
+            editor.chain().focus().setYoutubeVideo({ src: url }).run();
             setModal(null);
           }}
           onCancel={() => setModal(null)}

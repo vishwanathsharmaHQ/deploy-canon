@@ -13,6 +13,8 @@ const TABS: { key: ViewName; label: string }[] = [
   { key: 'ingest', label: 'Ingest' },
   { key: 'timeline', label: 'Timeline' },
   { key: 'summary', label: 'Summary' },
+  { key: 'compare', label: 'Compare' },
+  { key: 'citations', label: 'Citations' },
   { key: 'dashboard', label: 'Dashboard' },
 ];
 

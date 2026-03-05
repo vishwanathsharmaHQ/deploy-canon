@@ -22,6 +22,10 @@ const ThreadContentEditor: React.FC<ThreadContentEditorProps> = ({ thread, onCon
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const effectiveContent = thread.content && thread.content !== '<p></p>'
+    ? thread.content
+    : thread.metadata?.description || thread.description || '';
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: false }),
@@ -29,14 +33,17 @@ const ThreadContentEditor: React.FC<ThreadContentEditorProps> = ({ thread, onCon
       Youtube.configure({ width: 640, height: 360 }),
       Placeholder.configure({ placeholder: 'Write your thread notes here...' }),
     ],
-    content: embedYouTubeLinks(thread.content || ''),
+    content: embedYouTubeLinks(effectiveContent),
     editable: false,
   });
 
   // Keep editor content in sync when thread changes (e.g. different thread selected)
   useEffect(() => {
     if (editor) {
-      editor.commands.setContent(embedYouTubeLinks(thread.content || ''));
+      const content = thread.content && thread.content !== '<p></p>'
+        ? thread.content
+        : thread.metadata?.description || thread.description || '';
+      editor.commands.setContent(embedYouTubeLinks(content));
       editor.setEditable(false);
       setIsEditing(false);
     }
@@ -65,7 +72,10 @@ const ThreadContentEditor: React.FC<ThreadContentEditorProps> = ({ thread, onCon
   };
 
   const handleCancel = () => {
-    editor?.commands.setContent(embedYouTubeLinks(thread.content || ''));
+    const content = thread.content && thread.content !== '<p></p>'
+      ? thread.content
+      : thread.metadata?.description || thread.description || '';
+    editor?.commands.setContent(embedYouTubeLinks(content));
     editor?.setEditable(false);
     setIsEditing(false);
   };

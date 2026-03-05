@@ -15,7 +15,7 @@ const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, load
   const formatTitle = (title: string, nodeType: NodeTypeName): string => {
     try {
       // For evidence nodes, try to extract source as title
-      if (nodeType === 'EVIDENCE' && title.startsWith('{')) {
+      if (nodeType === 'evidence' && title.startsWith('{')) {
         const jsonContent = JSON.parse(title);
         return jsonContent.source || title;
       }
@@ -44,14 +44,14 @@ const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, load
 
     try {
       // For evidence, example, and counterpoint nodes, handle JSON content
-      if (['EVIDENCE', 'EXAMPLE', 'COUNTERPOINT'].includes(nodeType)) {
+      if (['evidence', 'example', 'counterpoint'].includes(nodeType)) {
         const jsonContent = typeof actualContent === 'object' ? actualContent :
                           typeof actualContent === 'string' && actualContent.startsWith('{') ?
                           JSON.parse(actualContent) : null;
 
         if (jsonContent) {
           switch (nodeType) {
-            case 'EVIDENCE':
+            case 'evidence':
               return (
                 <div className="json-content">
                   <div className="evidence-content">
@@ -60,7 +60,7 @@ const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, load
                   </div>
                 </div>
               );
-            case 'EXAMPLE':
+            case 'example':
               return (
                 <div className="json-content">
                   <div className="example-content">
@@ -69,7 +69,7 @@ const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, load
                   </div>
                 </div>
               );
-            case 'COUNTERPOINT':
+            case 'counterpoint':
               return (
                 <div className="json-content">
                   <div className="counterpoint-content">
@@ -83,7 +83,7 @@ const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, load
       }
 
       // For non-JSON content (Summary, Context, Synthesis), format with paragraphs
-      if (['SYNTHESIS', 'CONTEXT'].includes(nodeType)) {
+      if (['synthesis', 'context'].includes(nodeType)) {
         const textContent: string = typeof actualContent === 'object' ?
                           JSON.stringify(actualContent, null, 2) : String(actualContent);
         return (
@@ -119,14 +119,14 @@ const NodeDetailsModal: React.FC<NodeDetailsModalProps> = ({ node, onClose, load
       <div className="modal-content" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">
-            <h3>{formatTitle(node.title, node.node_type)}</h3>
+            <h3>{formatTitle(node.title, node.entity_type)}</h3>
             <div className="node-type-badge">{node.node_type}</div>
           </div>
           <button className="close-button" onClick={onClose}>&times;</button>
         </div>
         <div className="modal-body">
           <div className="node-content">
-            {formatContent(node.content, node.node_type)}
+            {formatContent(node.content, node.entity_type)}
           </div>
         </div>
       </div>

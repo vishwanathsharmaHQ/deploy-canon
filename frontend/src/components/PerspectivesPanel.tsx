@@ -47,7 +47,7 @@ const PerspectivesPanel: React.FC<PerspectivesPanelProps> = ({ threadId, onSelec
   // Extract ROOT claim content from a perspective thread
   const getRootClaim = (p: PerspectiveThread): string => {
     if (p.nodes && p.nodes.length > 0) {
-      const root = p.nodes.find(n => n.node_type === 'ROOT' || n.type === 0);
+      const root = p.nodes.find(n => n.node_type === 'claim' || n.entity_type === 'claim' || n.type === 0);
       if (root) {
         let content = String(root.content || '');
         try {
@@ -162,7 +162,7 @@ const PerspectivesPanel: React.FC<PerspectivesPanelProps> = ({ threadId, onSelec
               borderRadius: 6, padding: 10,
             }}>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 8, fontWeight: 600 }}>
-                Side-by-Side ROOT Claims
+                Side-by-Side Root Nodes
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {perspectives.map((p, idx) => {

@@ -115,10 +115,11 @@ const SequenceEditor: React.FC<SequenceEditorProps> = ({ thread, onDone }) => {
     dragOverItem.current = null;
   };
 
-  const getNodeType = (node: ThreadNode): NodeTypeName => {
+  const getNodeType = (node: ThreadNode): string => {
+    if (node.entity_type) return node.entity_type;
     if (node.node_type) return node.node_type;
-    if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'ROOT';
-    return ((node.type as string) || 'ROOT') as NodeTypeName;
+    if (typeof node.type === 'number') return NODE_TYPES[node.type] || 'claim';
+    return ((node.type as string) || 'claim');
   };
 
   if (loading) {

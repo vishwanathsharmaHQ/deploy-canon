@@ -12,8 +12,8 @@ const router = Router();
 router.get('/global/summary', withSession(async (req, res) => {
   const result = await req.neo4jSession!.run(
     `MATCH (t:Thread)
-     OPTIONAL MATCH (t)-[:HAS_NODE]->(n:Node)
-     OPTIONAL MATCH (n)-[r:RELATED_TO]->(other:Node)<-[:HAS_NODE]-(t2:Thread)
+     OPTIONAL MATCH (t)-[:INCLUDES]->(n:Node)
+     OPTIONAL MATCH (n)-[r:RELATED_TO]->(other:Node)<-[:INCLUDES]-(t2:Thread)
      WHERE t2 <> t
      WITH t, count(DISTINCT n) AS nodeCount, count(DISTINCT r) AS crossLinkCount,
           collect(DISTINCT t2.id) AS linkedThreadIds
@@ -46,12 +46,12 @@ router.get('/concepts/:id/nodes', withSession(async (req, res) => {
   const conceptId = parseInt(req.params.id);
   const result = await req.neo4jSession!.run(
     `MATCH (n:Node)-[:HAS_CONCEPT]->(c:Concept {id: $id})
-     MATCH (t:Thread)-[:HAS_NODE]->(n)
+     MATCH (t:Thread)-[:INCLUDES]->(n)
      RETURN n, t.id AS threadId, t.title AS threadTitle`,
     { id: getNeo4j().int(conceptId) }
   );
   const nodes = result.records.map(r => ({
-    ...formatNode(r.get('n').properties, null),
+    ...formatNode(r.get('n').properties),
     threadId: toNum(r.get('threadId')),
     threadTitle: r.get('threadTitle'),
   }));

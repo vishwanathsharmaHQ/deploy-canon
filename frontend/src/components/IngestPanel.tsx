@@ -88,8 +88,8 @@ const IngestPanel: React.FC<IngestPanelProps> = ({ threadId, onNodesCreated, onT
           content: '',
           metadata: { title: result.title, description: result.summary, sourceUrl: result.sourceUrl },
         });
-        const rootNode = result.proposedNodes.find(n => n.type === 'ROOT');
-        const otherNodes = result.proposedNodes.filter(n => n.type !== 'ROOT');
+        const rootNode = result.proposedNodes.find(n => n.type === 'claim');
+        const otherNodes = result.proposedNodes.filter(n => n.type !== 'claim');
 
         const nodes: { title: string; content: string; nodeType: string }[] = [];
         if (rootNode) nodes.push({ title: rootNode.title, content: rootNode.content, nodeType: rootNode.type });
@@ -98,8 +98,8 @@ const IngestPanel: React.FC<IngestPanelProps> = ({ threadId, onNodesCreated, onT
         await api.createNodesBatch(newThread.id, nodes);
         onThreadCreated?.(newThread.id);
       } else {
-        const rootNode = result.proposedNodes.find(n => n.type === 'ROOT');
-        const otherNodes = result.proposedNodes.filter(n => n.type !== 'ROOT');
+        const rootNode = result.proposedNodes.find(n => n.type === 'claim');
+        const otherNodes = result.proposedNodes.filter(n => n.type !== 'claim');
         const nodes: { title: string; content: string; nodeType: string }[] = [];
         if (rootNode) nodes.push({ title: rootNode.title, content: rootNode.content, nodeType: rootNode.type });
         otherNodes.forEach(n => nodes.push({ title: n.title, content: n.content, nodeType: n.type }));

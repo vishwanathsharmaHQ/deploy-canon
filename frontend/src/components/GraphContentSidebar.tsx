@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { NODE_TYPES, NODE_TYPE_COLORS, EXPANDABLE_NODE_TYPES } from '../constants';
-import type { Thread, NodeTypeName, ThreadType } from '../types';
+import { NODE_TYPES, NODE_TYPE_COLORS, EXPANDABLE_NODE_TYPES, ENTITY_TYPE_LABELS } from '../constants';
+import type { Thread, NodeTypeName, ThreadType, Relationship } from '../types';
 import CrossThreadLinkPanel from './CrossThreadLinkPanel';
 import ReasoningValidator from './ReasoningValidator';
 import PerspectivesPanel from './PerspectivesPanel';
 import DevilsAdvocatePanel from './DevilsAdvocatePanel';
+import WebEvidencePanel from './WebEvidencePanel';
 
 // Flexible type for selected node data — can be a thread or a knowledge node
 interface SelectedNodeData {
@@ -28,8 +29,6 @@ interface GraphContentSidebarProps {
   onNavigateToThread?: (threadId: number) => void;
   formatContent: (content: unknown, nodeType: string) => React.ReactNode;
   threadType?: ThreadType;
-  onReparentNode?: (nodeId: number, newParentId: number | null) => void;
-  onReorderNode?: (nodeId: number, direction: 'earlier' | 'later') => void;
   onHighlightNodes?: (nodeIds: number[]) => void;
   onStartDebate?: () => void;
   onRefresh?: () => void;
@@ -44,6 +43,18 @@ function getChildNodes(threads: Thread[], nodeId: string) {
     const nodeIdNumber = parseInt(nodeId.replace('node-', ''));
     return (thread.nodes || []).filter(node => node.parent_id === nodeIdNumber);
   }
+}
+
+const REL_COLORS: Record<string, string> = {
+  SUPPORTS: '#00ff9d', CONTRADICTS: '#ef5350', QUALIFIES: '#fdd835',
+  DERIVES_FROM: '#4fc3f7', ILLUSTRATES: '#ab47bc', CITES: '#ffa726',
+  ADDRESSES: '#66bb6a', REFERENCES: '#90a4ae',
+};
+
+function getNodeRelationships(threads: Thread[], nodeId: number): Relationship[] {
+  const thread = threads[0];
+  if (!thread?.relationships) return [];
+  return thread.relationships.filter(r => r.source_id === nodeId || r.target_id === nodeId);
 }
 
 function getNodeTypeBadgeColor(type: string | number) {
@@ -61,14 +72,10 @@ const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
   onNavigateToThread,
   formatContent,
   threadType,
-  onReparentNode,
-  onReorderNode,
   onHighlightNodes,
   onStartDebate,
   onRefresh,
 }) => {
-  const [showChangeParent, setShowChangeParent] = useState(false);
-
   if (!selectedNode) return null;
 
   const rfIdPrefix = selectedNode.type === 'thread' ? 'thread-' : 'node-';
@@ -150,10 +157,10 @@ const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
                     className="node-card-type"
                     style={{ backgroundColor: NODE_TYPE_COLORS[NODE_TYPES[node.type] as NodeTypeName] }}
                   >
-                    {NODE_TYPES[node.type]}
+                    {ENTITY_TYPE_LABELS[(NODE_TYPES[node.type] || '').toLowerCase()] || NODE_TYPES[node.type]}
                   </div>
                   <div className="node-card-title">
-                    {node.metadata?.title || `Node ${node.id}`}
+                    {node.title || node.metadata?.title || `Node ${node.id}`}
                   </div>
                 </div>
               ))}
@@ -163,78 +170,54 @@ const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
           )}
         </div>
 
-        {/* Reorder controls for ROOT nodes in historical threads */}
-        {selectedNode.type !== 'thread' &&
-         NODE_TYPES[selectedNode.type as number] === 'ROOT' &&
-         threadType === 'historical' &&
-         onReorderNode && (
-          <div className="reorder-controls">
-            <button
-              className="reorder-btn"
-              onClick={() => onReorderNode(selectedNode.id as number, 'earlier')}
-              title="Move earlier in timeline"
-            >
-              &larr; Earlier
-            </button>
-            <button
-              className="reorder-btn"
-              onClick={() => onReorderNode(selectedNode.id as number, 'later')}
-              title="Move later in timeline"
-            >
-              Later &rarr;
-            </button>
-          </div>
-        )}
-
-        {/* Reparent controls for non-ROOT nodes */}
-        {selectedNode.type !== 'thread' && onReparentNode && (
-          <div className="reparent-controls">
-            {!!selectedNode.parent_id && (
-              <button
-                className="detach-btn"
-                onClick={() => {
-                  onReparentNode(selectedNode.id as number, null);
-                  setShowChangeParent(false);
-                }}
-              >
-                Detach (make ROOT)
-              </button>
-            )}
-            <button
-              className="change-parent-btn"
-              onClick={() => setShowChangeParent(v => !v)}
-            >
-              {showChangeParent ? 'Cancel' : 'Change Parent'}
-            </button>
-            {showChangeParent && (
-              <div className="parent-list">
-                {(threads[0]?.nodes || [])
-                  .filter(n => {
-                    const nt = n.node_type || NODE_TYPES[n.type];
-                    return EXPANDABLE_NODE_TYPES.includes(nt as NodeTypeName) && n.id !== (selectedNode.id as number);
-                  })
-                  .map(n => (
-                    <button
-                      key={n.id}
-                      className="parent-option"
+        {/* Typed relationships */}
+        {selectedNode.type !== 'thread' && (() => {
+          const rels = getNodeRelationships(threads, selectedNode.id);
+          if (rels.length === 0) return null;
+          const allNodes = threads[0]?.nodes || [];
+          return (
+            <div className="child-nodes-list" style={{ marginTop: 8 }}>
+              <h3>Relationships</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {rels.map(rel => {
+                  const isOutgoing = rel.source_id === selectedNode.id;
+                  const otherId = isOutgoing ? rel.target_id : rel.source_id;
+                  const otherNode = allNodes.find(n => n.id === otherId);
+                  const color = REL_COLORS[rel.relation_type] || '#888';
+                  return (
+                    <div
+                      key={rel.id}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '4px 8px', background: '#1a1a1a', borderRadius: 4,
+                        borderLeft: `3px solid ${color}`, cursor: 'pointer',
+                        fontSize: 12,
+                      }}
                       onClick={() => {
-                        onReparentNode(selectedNode.id as number, n.id);
-                        setShowChangeParent(false);
+                        if (otherNode) onNodeClick(otherNode as unknown as SelectedNodeData);
                       }}
                     >
-                      <span
-                        className="parent-option-type"
-                        style={{ backgroundColor: NODE_TYPE_COLORS[n.node_type as NodeTypeName] || '#666' }}
-                      >
-                        {n.node_type || NODE_TYPES[n.type]}
+                      <span style={{ color, fontWeight: 600, fontSize: 10, textTransform: 'uppercase', minWidth: 70 }}>
+                        {rel.relation_type.replace('_', ' ')}
                       </span>
-                      {n.title || `Node ${n.id}`}
-                    </button>
-                  ))}
+                      <span style={{ color: '#999', fontSize: 11 }}>{isOutgoing ? '→' : '←'}</span>
+                      <span style={{ color: '#ddd', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {otherNode?.title || `Node ${otherId}`}
+                      </span>
+                      {rel.properties?.strength != null && (
+                        <span style={{ color: '#666', fontSize: 10 }}>str:{rel.properties.strength}</span>
+                      )}
+                      {rel.properties?.confidence != null && (
+                        <span style={{ color: '#666', fontSize: 10 }}>conf:{rel.properties.confidence}</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          );
+        })()}
+
 
         {selectedNode.type === 'thread' && threads.length > 0 && (
           <ReasoningValidator
@@ -248,6 +231,13 @@ const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
             threadId={threads[0].id}
             onAcceptChallenge={() => onRefresh?.()}
             onHighlightNode={(nodeId) => onHighlightNodes?.([nodeId])}
+          />
+        )}
+
+        {selectedNode.type === 'thread' && threads.length > 0 && (
+          <WebEvidencePanel
+            threadId={threads[0].id}
+            onAcceptEvidence={() => onRefresh?.()}
           />
         )}
 

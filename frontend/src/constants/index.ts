@@ -1,31 +1,72 @@
-import type { NodeTypeName, ThreadType } from '../types';
+import type { EntityType, RelationType, ThreadType } from '../types';
 
-export const NODE_TYPES: NodeTypeName[] = [
-  'ROOT',
-  'EVIDENCE',
-  'REFERENCE',
-  'CONTEXT',
-  'EXAMPLE',
-  'COUNTERPOINT',
-  'SYNTHESIS',
+// ── Entity Types ──────────────────────────────────────────────────────────
+
+export const ENTITY_TYPES: EntityType[] = [
+  'claim',
+  'evidence',
+  'source',
+  'context',
+  'example',
+  'counterpoint',
+  'synthesis',
+  'question',
+  'note',
 ];
 
-/** Node types that can have children (expandable in the graph). */
-export const EXPANDABLE_NODE_TYPES: NodeTypeName[] = ['ROOT', 'CONTEXT', 'SYNTHESIS'];
+/** Legacy compat -- components still import NODE_TYPES */
+export const NODE_TYPES = ENTITY_TYPES;
 
-/** Node types that are leaf-level — no children allowed. */
-export const LEAF_NODE_TYPES: NodeTypeName[] = ['EVIDENCE', 'REFERENCE', 'EXAMPLE', 'COUNTERPOINT'];
+/** Display names for entity types (shown in UI). */
+export const ENTITY_TYPE_LABELS: Record<string, string> = {
+  claim: 'root',
+  evidence: 'evidence',
+  source: 'source',
+  context: 'context',
+  example: 'example',
+  counterpoint: 'counterpoint',
+  synthesis: 'synthesis',
+  question: 'question',
+  note: 'note',
+};
+export type NodeTypeName = EntityType;
 
-/** Available thread layout types. */
-export const THREAD_TYPES: { key: ThreadType; label: string; description: string }[] = [
-  { key: 'standard', label: 'Standard', description: 'Free-form circular knowledge graph' },
-  { key: 'historical', label: 'Historical', description: 'Left-to-right timeline layout' },
-  { key: 'debate', label: 'Debate', description: 'Central claim with pro/con sides' },
-  { key: 'comparison', label: 'Comparison', description: 'Side-by-side columns for comparison' },
-];
+/** All entity types can have relationships (no more leaf restriction). */
+export const EXPANDABLE_NODE_TYPES = ENTITY_TYPES;
 
-/** Canonical color mapping for node types. */
-export const NODE_TYPE_COLORS: Record<NodeTypeName | 'thread', string> = {
+/** No restrictions in the graph model. */
+export const LEAF_NODE_TYPES: EntityType[] = [];
+
+// ── Relationship Types ────────────────────────────────────────────────────
+
+export const RELATIONSHIP_TYPES: readonly RelationType[] = [
+  'SUPPORTS',
+  'CONTRADICTS',
+  'QUALIFIES',
+  'DERIVES_FROM',
+  'ILLUSTRATES',
+  'CITES',
+  'ADDRESSES',
+  'REFERENCES',
+] as const;
+
+// ── Colors ────────────────────────────────────────────────────────────────
+
+/** Canonical color mapping for entity types. */
+export const NODE_TYPE_COLORS: Record<string, string> = {
+  // New lowercase entity types
+  claim: '#ffd700',
+  evidence: '#4fc3f7',
+  source: '#aaa',
+  context: '#ff8a65',
+  example: '#66bb6a',
+  counterpoint: '#ef5350',
+  synthesis: '#fdd835',
+  question: '#ce93d8',
+  note: '#90a4ae',
+  thread: '#00ff9d',
+  root: '#ffd700',
+  // Uppercase aliases for backward compat
   ROOT: '#ffd700',
   EVIDENCE: '#4fc3f7',
   REFERENCE: '#aaa',
@@ -33,8 +74,32 @@ export const NODE_TYPE_COLORS: Record<NodeTypeName | 'thread', string> = {
   EXAMPLE: '#66bb6a',
   COUNTERPOINT: '#ef5350',
   SYNTHESIS: '#fdd835',
-  thread: '#00ff9d',
 };
+
+/** Color mapping for relationship types. */
+export const RELATION_TYPE_COLORS: Record<string, string> = {
+  SUPPORTS: '#4fc3f7',
+  CONTRADICTS: '#ef5350',
+  QUALIFIES: '#ff8a65',
+  DERIVES_FROM: '#ce93d8',
+  ILLUSTRATES: '#66bb6a',
+  CITES: '#aaa',
+  ADDRESSES: '#fdd835',
+  REFERENCES: '#00ff9d',
+};
+
+// ── Thread Types ──────────────────────────────────────────────────────────
+
+/** Available thread types. */
+export const THREAD_TYPES: { key: string; label: string; description: string }[] = [
+  { key: 'argument', label: 'Argument', description: 'Build and defend a thesis' },
+  { key: 'research', label: 'Research', description: 'Collect and organize findings' },
+  { key: 'timeline', label: 'Timeline', description: 'Chronological sequence of events' },
+  { key: 'comparison', label: 'Comparison', description: 'Compare multiple positions' },
+  { key: 'collection', label: 'Collection', description: 'General knowledge collection' },
+];
+
+// ── Misc ──────────────────────────────────────────────────────────────────
 
 export const YT_REGEX =
   /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;

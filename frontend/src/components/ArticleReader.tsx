@@ -12,7 +12,7 @@ import ConfidenceMeter from './ConfidenceMeter';
 import SecondaryNodePanel from './SecondaryNodePanel';
 import ThreadContentEditor from './ThreadContentEditor';
 import { api } from '../services/api';
-import { NODE_TYPE_COLORS } from '../constants';
+import { NODE_TYPE_COLORS, EXPANDABLE_NODE_TYPES, ENTITY_TYPE_LABELS } from '../constants';
 import {
   embedYouTubeLinks,
   getNodeType,
@@ -53,6 +53,10 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   const [secondaryOpen, setSecondaryOpen] = useState(false);
   const [selectedSecondaryId, setSelectedSecondaryId] = useState<number | string | null>(null);
   const [socraticOpen, setSocraticOpen] = useState(false);
+  const [secondaryWidth, setSecondaryWidth] = useState(400);
+  const [chatWidth, setChatWidth] = useState(0); // 0 means use CSS default (50%)
+  const resizingRef = useRef(false);
+  const chatResizingRef = useRef(false);
   // Red Team / Steelman — proposals shown in secondary panel with Accept/Discard
   const [redTeamLoading, setRedTeamLoading] = useState(false);
   const [steelmanLoading, setSteelmanLoading] = useState(false);
@@ -71,13 +75,31 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   const [editKeywords, setEditKeywords] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
+  // Root nodes: nodes without a parent (not a child of any other node)
+  const rootNodes = useMemo(() => {
+    if (!orderedNodes.length) return [];
+    // Nodes that are children via typed relationships (source RELATES_TO target, source is child)
+    const childIds = new Set(
+      (thread.relationships || []).map(r => r.source_id)
+    );
+    return orderedNodes.filter(n => !n.parent_id && !childIds.has(n.id));
+  }, [orderedNodes, thread.relationships]);
+
   // Children of the current ROOT node (empty on non-ROOT pages)
   const currentRootChildren = useMemo(() => {
-    if (currentPage === 0 || loading || !orderedNodes.length) return [];
-    const node = orderedNodes[currentPage - 1];
-    if (!node || getNodeType(node) !== 'ROOT') return [];
-    return orderedNodes.filter(n => n.parent_id === node.id);
-  }, [currentPage, orderedNodes, loading]);
+    if (currentPage === 0 || loading || !rootNodes.length) return [];
+    const node = rootNodes[currentPage - 1];
+    if (!node) return [];
+    // Find children via parent_id OR via typed relationships
+    const childByParent = orderedNodes.filter(n => n.parent_id === node.id);
+    const relChildIds = new Set(
+      (thread.relationships || [])
+        .filter(r => r.target_id === node.id)
+        .map(r => r.source_id)
+    );
+    const childByRel = orderedNodes.filter(n => relChildIds.has(n.id) && n.parent_id !== node.id);
+    return [...childByParent, ...childByRel];
+  }, [currentPage, orderedNodes, loading, thread.relationships]);
 
   // Pinned nodes (Red Team / Steelman results) take precedence over children
   const effectiveSecondaryNodes = secondaryPinnedNodes ?? currentRootChildren;
@@ -85,14 +107,14 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   // Map of lowercase node titles → { id, pageIndex, title } for cross-node linking
   const nodeLinkMap = useMemo(() => {
     const map = new Map<string, { id: number; pageIndex: number; title: string }>();
-    orderedNodes.forEach((n, idx) => {
+    rootNodes.forEach((n, idx) => {
       const title = n.title || '';
       if (title.trim()) {
         map.set(title.toLowerCase(), { id: n.id, pageIndex: idx, title });
       }
     });
     return map;
-  }, [orderedNodes]);
+  }, [rootNodes]);
 
   // Replace node title mentions in an HTML string with clickable links (excluding currentNodeId)
   const linkifyNodeMentions = useCallback((htmlStr: string, currentNodeId: number): string => {
@@ -140,12 +162,62 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
       const nodeId = link.dataset.nodeId;
       if (!nodeId) return;
       const numId = parseInt(nodeId);
-      const idx = orderedNodes.findIndex(n => n.id === numId || String(n.id) === nodeId);
+      const idx = rootNodes.findIndex(n => n.id === numId || String(n.id) === nodeId);
       if (idx >= 0) setCurrentPage(idx + 1);
     };
     body.addEventListener('click', handler);
     return () => body.removeEventListener('click', handler);
-  }, [orderedNodes]);
+  }, [rootNodes]);
+
+  // Resize handler for secondary sidebar
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = secondaryWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const delta = startX - ev.clientX;
+      setSecondaryWidth(Math.max(200, Math.min(800, startWidth + delta)));
+    };
+    const onUp = () => {
+      resizingRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [secondaryWidth]);
+
+  // Resize handler for chat/socratic sidebar
+  const handleChatResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    chatResizingRef.current = true;
+    const startX = e.clientX;
+    const container = (e.target as HTMLElement).closest('.ar-content-row');
+    const containerWidth = container?.clientWidth || window.innerWidth;
+    const startWidth = chatWidth || containerWidth * 0.5;
+    const onMove = (ev: MouseEvent) => {
+      if (!chatResizingRef.current) return;
+      const delta = startX - ev.clientX;
+      setChatWidth(Math.max(250, Math.min(containerWidth * 0.7, startWidth + delta)));
+    };
+    const onUp = () => {
+      chatResizingRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [chatWidth]);
 
   const handleRedTeam = async (node: ThreadNode) => {
     if (!currentUser) { onAuthRequired?.(); return; }
@@ -153,7 +225,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     try {
       const { proposals, parentNodeId } = await api.redTeamThread(thread.id, node.id);
       // Proposals are not saved yet — show with Accept/Discard in secondary panel
-      const previewNodes = proposals.map((p: { title: string; content: string; nodeType: string }, i: number) => ({ ...p, id: `pending-rt-${i}` as unknown as number, node_type: p.nodeType, parent_id: parentNodeId } as unknown as ThreadNode));
+      const previewNodes = proposals.map((p: { title: string; content: string; entityType: string }, i: number) => ({ ...p, id: `pending-rt-${i}` as unknown as number, node_type: p.entityType?.toUpperCase() || 'COUNTERPOINT', parent_id: parentNodeId } as unknown as ThreadNode));
       setPendingProposals({ nodes: previewNodes, parentNodeId, type: 'redteam' });
       setSecondaryPinnedNodes(previewNodes);
       setSecondaryPanelLabel('⚔ Red Team — Review');
@@ -171,7 +243,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     setSteelmanLoading(true);
     try {
       const { proposal, parentId } = await api.steelmanNode(thread.id, nodeId);
-      const previewNode = { ...proposal, id: 'pending-steelman' as unknown as number, node_type: proposal.nodeType, parent_id: parentId } as unknown as ThreadNode;
+      const previewNode = { ...proposal, id: 'pending-steelman' as unknown as number, node_type: proposal.entityType?.toUpperCase() || 'COUNTERPOINT', parent_id: parentId } as unknown as ThreadNode;
       setPendingProposals({ nodes: [previewNode], parentNodeId: parentId ?? 0, type: 'steelman' });
       setSecondaryPinnedNodes([previewNode]);
       setSecondaryPanelLabel('▲ Steelmanned — Review');
@@ -184,14 +256,18 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     }
   };
 
+  const enrichedNodeRef = useRef<number | null>(null);
+
   const handleEnrich = async (nodeId: number) => {
     if (!currentUser) { onAuthRequired?.(); return; }
     setEnrichLoading(true);
+    enrichedNodeRef.current = nodeId;
     try {
       await api.enrichNode(thread.id, nodeId);
       onNodesCreated?.(thread.id);
     } catch (err) {
       console.error('Enrich failed:', err);
+      enrichedNodeRef.current = null;
     } finally {
       setEnrichLoading(false);
     }
@@ -200,14 +276,20 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   const handleAcceptProposals = async () => {
     if (!pendingProposals) return;
     try {
-      const { createdNodes } = await api.createNodesBatch(thread.id, pendingProposals.nodes.map(n => ({
-        title: n.title,
-        content: n.content,
-        nodeType: n.node_type,
-        parentId: pendingProposals.parentNodeId,
-      })));
-      setOrderedNodes(prev => [...prev, ...createdNodes]);
-      setSecondaryPinnedNodes(createdNodes);
+      const { createdNodes } = await api.createNodesBatch(thread.id, pendingProposals.nodes.map(n => {
+        const nt = (n.node_type || '').toLowerCase();
+        const relationType = nt === 'counterpoint' ? 'CONTRADICTS' : nt === 'evidence' ? 'SUPPORTS' : nt === 'context' ? 'QUALIFIES' : nt === 'example' ? 'ILLUSTRATES' : nt === 'source' ? 'CITES' : 'SUPPORTS';
+        return {
+          title: n.title,
+          content: n.content,
+          nodeType: n.node_type,
+          parentId: pendingProposals.parentNodeId,
+          connectTo: { targetId: pendingProposals.parentNodeId, relationType },
+        };
+      }));
+      const nodesWithParent = createdNodes.map(n => ({ ...n, parent_id: pendingProposals.parentNodeId }));
+      setOrderedNodes(prev => [...prev, ...nodesWithParent]);
+      setSecondaryPinnedNodes(nodesWithParent);
       setSecondaryPanelLabel(pendingProposals.type === 'redteam' ? '⚔ Red Team' : '▲ Steelmanned');
       setSelectedSecondaryId(createdNodes[0]?.id ?? null);
       setPendingProposals(null);
@@ -282,8 +364,21 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
 
   // When initialNodeId changes (e.g. user selected a node then clicked Article tab), navigate to it
   useEffect(() => {
-    if (!initialNodeId || orderedNodes.length === 0) return;
-    const idx = orderedNodes.findIndex(n => n.id === initialNodeId);
+    if (!initialNodeId || rootNodes.length === 0) return;
+    // Check if it's a root node directly, or find its parent root
+    let idx = rootNodes.findIndex(n => n.id === initialNodeId);
+    if (idx < 0) {
+      // It's a child node — find its parent root
+      const childNode = orderedNodes.find(n => n.id === initialNodeId);
+      if (childNode?.parent_id) {
+        idx = rootNodes.findIndex(n => n.id === childNode.parent_id);
+      }
+      if (idx < 0) {
+        // Check relationships
+        const rel = (thread.relationships || []).find(r => r.source_id === initialNodeId);
+        if (rel) idx = rootNodes.findIndex(n => n.id === rel.target_id);
+      }
+    }
     if (idx >= 0) {
       setCurrentPage(idx + 1); // +1 because page 0 is thread overview
     }
@@ -304,21 +399,54 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
       } else {
         ordered = [...nodes];
       }
-      setOrderedNodes(ordered);
+      setOrderedNodes(prev => {
+        // If nodes changed (enrich/add), preserve current page
+        const isRefresh = prev.length > 0 && ordered.length > prev.length;
+        if (isRefresh) {
+          // Check if enrich just completed — auto-open sidebar for the enriched node
+          const enrichedId = enrichedNodeRef.current;
+          if (enrichedId) {
+            enrichedNodeRef.current = null;
+            // Find new children of the enriched node
+            const newChildIds = new Set(ordered.filter(n => n.parent_id === enrichedId).map(n => n.id));
+            const newRelChildIds = new Set(
+              (thread.relationships || [])
+                .filter(r => r.target_id === enrichedId)
+                .map(r => r.source_id)
+            );
+            const allChildIds = new Set([...newChildIds, ...newRelChildIds]);
+            if (allChildIds.size > 0) {
+              const children = ordered.filter(n => allChildIds.has(n.id));
+              if (children.length > 0) {
+                setSecondaryOpen(true);
+                setSecondaryPinnedNodes(null);
+                setSecondaryPanelLabel('Supporting Nodes');
+                setSelectedSecondaryId(children[0].id);
+              }
+            }
+          }
+          return ordered;
+        }
 
-      // Set initial page based on initialNodeId or default to 0
-      if (initialNodeId) {
-        const idx = ordered.findIndex(n => n.id === initialNodeId);
-        setCurrentPage(idx >= 0 ? idx + 1 : 0);
-      } else {
-        setCurrentPage(0);
-      }
+        // Initial load — set page (filter to root nodes for page index)
+        const relChildIds = new Set((thread.relationships || []).map(r => r.source_id));
+        const roots = ordered.filter(n => !n.parent_id && !relChildIds.has(n.id));
+        if (initialNodeId) {
+          const idx = roots.findIndex(n => n.id === initialNodeId);
+          setCurrentPage(idx >= 0 ? idx + 1 : 0);
+        } else {
+          setCurrentPage(0);
+        }
+        return ordered;
+      });
     } catch (err) {
       console.error('Failed to load article sequence:', err);
       const fallback = [...(thread.nodes || [])];
       setOrderedNodes(fallback);
+      const relChildIds = new Set((thread.relationships || []).map(r => r.source_id));
+      const roots = fallback.filter(n => !n.parent_id && !relChildIds.has(n.id));
       if (initialNodeId) {
-        const idx = fallback.findIndex(n => n.id === initialNodeId);
+        const idx = roots.findIndex(n => n.id === initialNodeId);
         setCurrentPage(idx >= 0 ? idx + 1 : 0);
       } else {
         setCurrentPage(0);
@@ -330,13 +458,22 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
 
   if (!thread) return null;
 
-  const totalPages = 1 + orderedNodes.length;
+  const totalPages = 1 + rootNodes.length;
 
   // Context passed to chat so it knows what article the user is viewing
   const currentArticleContext = (() => {
     if (loading) return null;
-    if (currentPage === 0) return null; // thread overview, no specific node
-    const node = orderedNodes[currentPage - 1];
+    if (currentPage === 0) {
+      // Thread overview — provide thread-level context
+      const nodeSummary = orderedNodes.slice(0, 15).map(n => `[${getNodeType(n)}] ${n.title || 'Untitled'}`).join('; ');
+      return {
+        threadTitle: thread.title || `Thread ${thread.id}`,
+        threadDescription: thread.description || '',
+        threadType: thread.thread_type || 'argument',
+        nodesSummary: nodeSummary || 'No nodes yet',
+      };
+    }
+    const node = rootNodes[currentPage - 1];
     if (!node) return null;
     return {
       nodeId: node.id,
@@ -359,17 +496,18 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     }
 
     let newContent: string;
-    if (nodeType === 'ROOT') {
+    const ntLower = nodeType.toLowerCase();
+    if (ntLower === 'claim') {
       newContent = JSON.stringify({
         title: update.title,
         description: update.description,
         keywords: existingParsed.keywords || [],
       });
-    } else if (nodeType === 'EXAMPLE') {
+    } else if (ntLower === 'example') {
       newContent = JSON.stringify({ title: update.title, description: update.description });
-    } else if (nodeType === 'COUNTERPOINT') {
+    } else if (ntLower === 'counterpoint') {
       newContent = JSON.stringify({ argument: update.title, explanation: update.description });
-    } else if (nodeType === 'EVIDENCE') {
+    } else if (ntLower === 'evidence') {
       newContent = JSON.stringify({ point: update.description, source: existingParsed.source || '' });
     } else {
       newContent = update.description;
@@ -425,13 +563,14 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
       return <ThreadContentEditor thread={thread} onContentChange={onContentChange} currentUser={currentUser} onAuthRequired={onAuthRequired} />;
     }
 
-    const node = orderedNodes[currentPage - 1];
+    const node = rootNodes[currentPage - 1];
     if (!node) return <p className="ar-empty">Node not found.</p>;
 
     const nodeType = getNodeType(node);
     const color = NODE_TYPE_COLORS[nodeType as NodeTypeName] || '#888';
     const nodeTitle = node.title || `Node ${node.id}`;
-    const nodeRendered = formatNodeContent(node, SourceVerifyBadge);
+    const nodeLinkify = (html: string) => linkifyNodeMentions(html, node.id);
+    const nodeRendered = formatNodeContent(node, SourceVerifyBadge, nodeLinkify);
     const isReactElement = React.isValidElement(nodeRendered);
 
     const handleEditStart = () => {
@@ -468,7 +607,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     return (
       <article className="ar-article">
         <div className="ar-node-header">
-          <div className="ar-node-badge" style={{ color, borderColor: color }}>{nodeType}</div>
+          <div className="ar-node-badge" style={{ color, borderColor: color }}>{ENTITY_TYPE_LABELS[nodeType.toLowerCase()] || nodeType}</div>
           <div className="ar-node-actions">
             {!isEditing && onViewInGraph && (
               <button
@@ -501,8 +640,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
                 >
                   {redTeamLoading ? '…' : '⚔ Red Team'}
                 </button>
-                {nodeType === 'ROOT' && (
-                  <>
+                {nodeType.toLowerCase() === 'claim' && (
                     <button
                       className="ar-action-btn ar-action-btn--fork"
                       onClick={() => setForkModalOpen(true)}
@@ -510,6 +648,8 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
                     >
                       ⑂ Fork
                     </button>
+                )}
+                {EXPANDABLE_NODE_TYPES.includes(nodeType.toLowerCase() as any) && (
                     <button
                       className="ar-action-btn ar-action-btn--enrich"
                       onClick={() => handleEnrich(node.id)}
@@ -518,11 +658,10 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
                     >
                       {enrichLoading ? 'Enriching...' : '✦ Enrich'}
                     </button>
-                  </>
                 )}
               </>
             )}
-            {!isEditing && nodeType === 'COUNTERPOINT' && (
+            {!isEditing && nodeType.toLowerCase() === 'counterpoint' && (
               <button
                 className="ar-action-btn ar-action-btn--steelman"
                 onClick={() => handleSteelman(node.id)}
@@ -555,7 +694,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTitle(e.target.value)}
               placeholder="Title"
             />
-            {nodeType === 'ROOT' && (
+            {nodeType === 'claim' && (
               <input
                 className="ar-edit-keywords"
                 type="text"
@@ -579,8 +718,8 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             <div className="ar-content">
               {isReactElement ? nodeRendered : renderContent(nodeRendered, (html) => linkifyNodeMentions(html, node.id))}
             </div>
-            {nodeType === 'ROOT' && <ConfidenceMeter threadId={thread.id} />}
-            {nodeType === 'ROOT' && (
+            {nodeType === 'claim' && <ConfidenceMeter threadId={thread.id} />}
+            {nodeType === 'claim' && (
               <div className="ar-export-bar" style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
                 <button
                   className="ar-action-btn"
@@ -645,7 +784,13 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
         </div>
 
         {/* ── Secondary nodes sidebar ── */}
-        <div className={`ar-secondary-sidebar${secondaryOpen ? ' ar-secondary-sidebar--open' : ''}${secondaryOpen && (chatOpen || socraticOpen) ? ' ar-secondary-sidebar--compact' : ''}`}>
+        <div
+          className={`ar-secondary-sidebar${secondaryOpen ? ' ar-secondary-sidebar--open' : ''}`}
+          style={secondaryOpen ? { flexBasis: secondaryWidth, transition: resizingRef.current ? 'none' : undefined } : undefined}
+        >
+          {secondaryOpen && (
+            <div className="ar-resize-handle" onMouseDown={handleResizeStart} />
+          )}
           <SecondaryNodePanel
             nodes={effectiveSecondaryNodes}
             selectedId={selectedSecondaryId}
@@ -657,7 +802,13 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
         </div>
 
         {/* ── Right sidebar: chat OR socratic (mutually exclusive) ── */}
-        <div className={`ar-chat-sidebar${(chatOpen || socraticOpen) ? ' ar-chat-sidebar--open' : ''}`}>
+        <div
+          className={`ar-chat-sidebar${(chatOpen || socraticOpen) ? ' ar-chat-sidebar--open' : ''}`}
+          style={(chatOpen || socraticOpen) && chatWidth ? { flexBasis: chatWidth, transition: chatResizingRef.current ? 'none' : undefined } : undefined}
+        >
+          {(chatOpen || socraticOpen) && (
+            <div className="ar-resize-handle" onMouseDown={handleChatResizeStart} />
+          )}
           {socraticOpen ? (
             <SocraticPanel
               thread={thread}
@@ -667,7 +818,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
                 setOrderedNodes(prev => [...prev, ...nodes]);
                 onNodesCreated?.(thread.id);
               }}
-              nodeContext={currentArticleContext}
+              nodeContext={currentArticleContext && 'nodeId' in currentArticleContext ? currentArticleContext as { nodeId: number; nodeType: string; title: string; content: string } : null}
             />
           ) : (
             <ChatPanel
