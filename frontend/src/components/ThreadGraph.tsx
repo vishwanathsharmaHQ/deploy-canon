@@ -207,14 +207,18 @@ function sortRootsChronologically(roots: LayoutNode[]): LayoutNode[] {
 
 function getHistoricalLayout(nodes: LayoutNode[], yOffset: number, relationships?: RelInfo[]): PositionMap {
   const positions: PositionMap = {};
-  const roots = sortRootsChronologically(nodes.filter(n => n.node_type === 'CLAIM' || n.node_type === 'claim'));
-  const nonRoots = nodes.filter(n => n.node_type !== 'CLAIM' && n.node_type !== 'claim');
 
-  // Build relationship parent map
+  // Build relationship parent map to identify child claims (created by enrich)
   const relParent: Record<number, number> = {};
   for (const rel of (relationships || [])) {
     if (!relParent[rel.source_id]) relParent[rel.source_id] = rel.target_id;
   }
+
+  // Only treat claims as roots if they don't have a relationship parent
+  const isClaim = (n: LayoutNode) => n.node_type === 'CLAIM' || n.node_type === 'claim';
+  const isRoot = (n: LayoutNode) => isClaim(n) && !n.parent_id && !relParent[n.id];
+  const roots = sortRootsChronologically(nodes.filter(isRoot));
+  const nonRoots = nodes.filter(n => !isRoot(n));
 
   // Thread node at far left
   positions['thread'] = { x: 50, y: 300 + yOffset };
@@ -683,12 +687,20 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
 
       // For timeline threads, chain claim nodes sequentially instead of star pattern
       const isHistorical = threadType === 'timeline';
+      // Build relationship parent map to identify child claims (created by enrich)
+      const relParentMap: Record<number, number> = {};
+      for (const rel of (thread.relationships || [])) {
+        if (!relParentMap[rel.source_id]) relParentMap[rel.source_id] = rel.target_id;
+      }
+
       const rootNodesOrdered = isHistorical
         ? sortRootsChronologically(
             (thread.nodes || [])
               .filter(n => {
                 const nt = n.node_type || (NODE_TYPES[n.type] || '');
-                return nt === 'CLAIM' || nt === 'claim';
+                const isClaim = nt === 'CLAIM' || nt === 'claim';
+                // Exclude claims that are children via typed relationships (e.g. created by enrich)
+                return isClaim && !n.parent_id && !relParentMap[n.id];
               })
               .map(n => ({
                 id: n.id,

@@ -543,9 +543,13 @@ Return ONLY valid JSON (no markdown fencing):
     const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
     const parsed = JSON.parse(cleaned);
 
-    // Update the node's content with enriched version
+    // Update the node's content with enriched version (preserve existing metadata like chronological_order)
     const now = new Date().toISOString();
     if (parsed.enrichedContent) {
+      const existingMeta = (() => {
+        try { return JSON.parse(nodeProps.metadata || '{}'); } catch { return {}; }
+      })();
+      const mergedMeta = { ...existingMeta, title: nodeTitle, description: String(parsed.enrichedContent).substring(0, 100) };
       await tx.run(
         `MATCH (n:Node {id: $id})
          SET n.content = $content, n.updated_at = $now,
@@ -554,7 +558,7 @@ Return ONLY valid JSON (no markdown fencing):
           id: getNeo4j().int(nodeId),
           content: parsed.enrichedContent,
           now,
-          meta: JSON.stringify({ title: nodeTitle, description: String(parsed.enrichedContent).substring(0, 100) }),
+          meta: JSON.stringify(mergedMeta),
         }
       );
     }
