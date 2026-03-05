@@ -725,9 +725,8 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         const targetId = `node-${rel.target_id}`;
         const key = `${sourceId}-${targetId}`;
         relEdgeKeys.add(key);
-        // Both source and target have a relationship parent — don't draw thread→node for either
+        // Only the source (child) has a relationship parent — the target (parent) still needs thread→node edge
         nodesWithRelParent.add(rel.source_id);
-        nodesWithRelParent.add(rel.target_id);
 
         const handles = getBestHandles(posMap[sourceId] || { x: 0, y: 0 }, posMap[targetId] || { x: 0, y: 0 });
         const color = REL_TYPE_COLORS[rel.relation_type] || 'rgba(0, 255, 157, 0.4)';
@@ -930,7 +929,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         newThreadNodes.forEach(node => {
           const targetId = `node-${node.id}`;
           let sourceId: string;
-          const nodesWithRelParent = new Set((thread.relationships || []).flatMap(r => [r.source_id, r.target_id]));
+          const nodesWithRelParent = new Set((thread.relationships || []).map(r => r.source_id));
 
           if (node.parent_id) {
             sourceId = `node-${node.parent_id}`;
@@ -1014,6 +1013,10 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     if (e.source.startsWith('thread-')) return { ...e, hidden: false };
     // For historical threads: ROOT → ROOT chain edges always visible
     if (currentThreadType === 'timeline' && rootNodeIds.has(e.source) && rootNodeIds.has(e.target)) {
+      return { ...e, hidden: false };
+    }
+    // Edges between root nodes (e.g. child claim linked to parent claim via typed relationship)
+    if (rootNodeIds.has(e.source) && rootNodeIds.has(e.target)) {
       return { ...e, hidden: false };
     }
     // ROOT → secondary: visible when that ROOT is hovered

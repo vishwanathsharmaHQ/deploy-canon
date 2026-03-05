@@ -213,7 +213,6 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
             }}
           >
             {NODE_TYPE_OPTIONS
-              .filter(t => isThread || t.label !== 'claim')
               .map(t => (
                 <option key={t.value} value={t.value}>
                   {t.displayLabel}
