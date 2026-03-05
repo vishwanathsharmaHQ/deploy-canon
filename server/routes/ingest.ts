@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
 import { aiTimeout } from '../middleware/aiTimeout.js';
 import { getOpenAI } from '../services/openai.js';
+import config from '../config.js';
 import type { IngestNode } from '../types/domain.js';
 
 const router = Router();
@@ -19,6 +20,7 @@ router.post('/url', requireAuth, aiTimeout, async (req, res, next) => {
     const tid = setTimeout(() => controller.abort(), 10000);
     const pageRes = await fetch(url, {
       signal: controller.signal,
+      redirect: 'follow',
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CanonThread/1.0)' },
     });
     clearTimeout(tid);
@@ -36,7 +38,7 @@ router.post('/url', requireAuth, aiTimeout, async (req, res, next) => {
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini', temperature: 0.3,
+      model: config.openai.chatModel, temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -55,7 +57,13 @@ Create 3-8 nodes. ROOT first, then supporting nodes.`
         { role: 'user', content: `Extract knowledge from:\nURL: ${url}\nTitle: ${pageTitle}\n\nContent:\n${text}` },
       ],
     });
-    const extracted = JSON.parse(completion.choices[0].message.content!);
+    let extracted: { title?: string; summary?: string; nodes?: IngestNode[] };
+    try {
+      extracted = JSON.parse(completion.choices[0].message.content!);
+    } catch (parseErr) {
+      console.error('URL ingest JSON parse error:', parseErr, 'Raw:', completion.choices[0].message.content);
+      return res.status(500).json({ error: 'Failed to parse AI extraction result' });
+    }
 
     const proposedNodes = (extracted.nodes || []).map((n: IngestNode) => {
       let nodeContent = n.content || '';
@@ -68,6 +76,7 @@ Create 3-8 nodes. ROOT first, then supporting nodes.`
 
     res.json({ title: extracted.title || pageTitle, summary: extracted.summary || '', sourceUrl: url, proposedNodes, threadId: threadId || null });
   } catch (err) {
+    console.error('Ingest URL error:', err);
     next(err);
   }
 });
@@ -105,7 +114,7 @@ router.post('/pdf', requireAuth, aiTimeout, async (req, res, next) => {
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini', temperature: 0.3,
+      model: config.openai.chatModel, temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -124,7 +133,13 @@ Create 3-8 nodes. ROOT first, then supporting nodes.`
         { role: 'user', content: `Extract knowledge from PDF "${filename || 'document'}":\n\n${text}` },
       ],
     });
-    const extracted = JSON.parse(completion.choices[0].message.content!);
+    let extracted: { title?: string; summary?: string; nodes?: IngestNode[] };
+    try {
+      extracted = JSON.parse(completion.choices[0].message.content!);
+    } catch (parseErr) {
+      console.error('PDF ingest JSON parse error:', parseErr, 'Raw:', completion.choices[0].message.content);
+      return res.status(500).json({ error: 'Failed to parse AI extraction result' });
+    }
 
     const proposedNodes = (extracted.nodes || []).map((n: IngestNode) => {
       let nodeContent = n.content || '';
@@ -143,6 +158,7 @@ Create 3-8 nodes. ROOT first, then supporting nodes.`
       truncated: (data.text || '').length > 12000,
     });
   } catch (err) {
+    console.error('Ingest PDF error:', err);
     next(err);
   }
 });

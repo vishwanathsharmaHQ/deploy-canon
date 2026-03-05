@@ -1,5 +1,6 @@
-import { useEffect, useCallback, useRef, useMemo } from 'react'
+import { useEffect, useCallback, useRef, useMemo, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
+import { Toaster } from 'sonner'
 import ThreadGraph from './components/ThreadGraph'
 import NodeDetailsModal from './components/NodeDetailsModal'
 import ArticleReader from './components/ArticleReader'
@@ -15,6 +16,11 @@ import ReviewMode from './components/ReviewMode'
 import IngestPanel from './components/IngestPanel'
 import ReadLaterQueue from './components/ReadLaterQueue'
 import ThreadTimeline from './components/ThreadTimeline'
+import ThreadSummaryPanel from './components/ThreadSummaryPanel'
+import EpistemologicalDashboard from './components/EpistemologicalDashboard'
+import CommandPalette from './components/CommandPalette'
+import type { Command } from './components/CommandPalette'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { api } from './services/api'
 import { NODE_TYPES, THREAD_TYPES } from './constants'
 import type { ThreadNode, ViewName } from './types'
@@ -47,12 +53,19 @@ function App() {
   } = useNodeStore()
 
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [templates, setTemplates] = useState<Array<{ key: string; name: string; description: string; nodeCount: number }>>([])
+  const [templateLoading, setTemplateLoading] = useState<string | null>(null)
 
   // ── Auth check on mount ─────────────────────────────────────────────────────
   useEffect(() => { checkAuth() }, [])
 
   // ── Load threads on mount ───────────────────────────────────────────────────
   useEffect(() => { loadThreads() }, [])
+
+  // ── Load templates on mount ────────────────────────────────────────────────
+  useEffect(() => { api.getTemplates().then(setTemplates).catch(() => {}) }, [])
 
   // ── Require login helper ────────────────────────────────────────────────────
   function requireLogin(action: () => void) {
@@ -188,6 +201,24 @@ function App() {
     }
   }, [])
 
+  // ── Keyboard shortcuts & command palette ────────────────────────────────────
+  const commandPaletteCommands: Command[] = useMemo(() => [
+    { id: 'search', name: 'Search threads', description: 'Focus the search input', shortcut: '/', action: () => { searchInputRef.current?.focus() } },
+    { id: 'new-thread', name: 'Create new thread', description: 'Open the create thread modal', shortcut: 'Mod+n', action: () => requireLogin(() => setShowCreateThreadModal(true)) },
+    { id: 'graph', name: 'Graph view', description: 'Switch to graph tab', action: () => setView('graph') },
+    { id: 'article', name: 'Article view', description: 'Switch to article tab', action: () => setView('article') },
+    { id: 'chat', name: 'Chat', description: 'Switch to chat tab', action: () => setView('chat') },
+    { id: 'global', name: 'Global graph', description: 'Switch to global view', action: () => setView('global') },
+    { id: 'fullscreen', name: 'Toggle fullscreen', description: 'Enter or exit fullscreen mode', action: toggleFullScreen },
+    { id: 'signin', name: 'Sign in', description: 'Open the authentication modal', action: () => setShowAuthModal(true) },
+  ], [toggleFullScreen, currentUser])
+
+  useKeyboardShortcuts(useMemo(() => ({
+    'Mod+k': { action: () => setShowCommandPalette(prev => !prev), description: 'Toggle command palette' },
+    'Mod+n': { action: () => requireLogin(() => setShowCreateThreadModal(true)), description: 'Create new thread' },
+    '/': { action: () => searchInputRef.current?.focus(), description: 'Focus search' },
+  }), [currentUser]))
+
   // ── Click outside dropdown ──────────────────────────────────────────────────
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -206,6 +237,13 @@ function App() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="app">
+      <Toaster
+        theme="dark"
+        position="top-right"
+        toastOptions={{
+          style: { background: '#1a1a1a', border: '1px solid #333', color: '#fff' },
+        }}
+      />
       {error && <div className="error">{error}</div>}
 
       <div className="header">
@@ -229,11 +267,11 @@ function App() {
       </div>
 
       <div className="main-content">
-        {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest') && (
+        {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest' || view === 'dashboard') && (
           <ViewTabBar
             view={view}
             onChangeView={(newView: ViewName) => {
-              if (['sequence', 'editor', 'canvas', 'review', 'ingest', 'timeline'].includes(newView)) {
+              if (['sequence', 'editor', 'canvas', 'review', 'ingest', 'timeline', 'summary'].includes(newView)) {
                 requireLogin(() => setView(newView))
               } else { setView(newView) }
             }}
@@ -281,6 +319,10 @@ function App() {
           </div>
         ) : view === 'timeline' && threadToShow ? (
           <ThreadTimeline threadId={threadToShow.id} threadTitle={threadToShow?.metadata?.title || threadToShow?.title} />
+        ) : view === 'summary' && threadToShow ? (
+          <ThreadSummaryPanel threadId={threadToShow.id} threadTitle={threadToShow?.metadata?.title || threadToShow?.title || `Thread ${threadToShow.id}`} />
+        ) : view === 'dashboard' ? (
+          <EpistemologicalDashboard onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }} />
         ) : view === 'article' && threadToShow ? (
           <ArticleReader
             thread={threadToShow}
@@ -338,6 +380,7 @@ function App() {
 
             <div className="search-container">
               <input
+                ref={searchInputRef}
                 type="text"
                 className="search-input"
                 placeholder="Search threads... (3+ words for semantic)"
@@ -381,7 +424,7 @@ function App() {
           </div>
 
           {showSemanticSearch && (
-            <div style={{ position: 'absolute', top: '50px', left: 0, right: 0, bottom: 0, zIndex: 20, background: '#1a1a2e' }}>
+            <div style={{ position: 'absolute', top: '50px', left: 0, right: 0, bottom: 0, zIndex: 20, background: '#1a1a1a' }}>
               <SemanticSearchPanel
                 onSelectThread={(tid: number) => { setSelectedThreadId(tid); setShowSemanticSearch(false); setView('graph') }}
                 onSelectNode={(nodeId: number, tid: number) => { setSelectedThreadId(tid); setGraphSelectedNodeId(nodeId); setShowSemanticSearch(false); setView('article') }}
@@ -423,7 +466,7 @@ function App() {
                     value={threadType}
                     onChange={(e) => setThreadType(e.target.value)}
                     className="thread-input"
-                    style={{ padding: '8px 12px', background: '#2a2a3e', color: '#e0e0e0', border: '1px solid #444', borderRadius: '6px' }}
+                    style={{ padding: '8px 12px', background: '#2a2a2a', color: '#e0e0e0', border: '1px solid #444', borderRadius: '6px' }}
                   >
                     {THREAD_TYPES.map(t => (
                       <option key={t.key} value={t.key}>{t.label} — {t.description}</option>
@@ -442,6 +485,57 @@ function App() {
                       {loading ? 'Creating...' : 'Create Thread'}
                     </button>
                   </div>
+
+                  {templates.length > 0 && (
+                    <div style={{ marginTop: '20px', borderTop: '1px solid #333', paddingTop: '16px' }}>
+                      <h4 style={{ margin: '0 0 12px', color: '#aaa', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Or start from a template</h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        {templates.map(t => (
+                          <button
+                            key={t.key}
+                            disabled={!!templateLoading}
+                            onClick={async () => {
+                              const threadTitle = title.trim() || t.name
+                              setTemplateLoading(t.key)
+                              try {
+                                const newThread = await api.createThreadFromTemplate(t.key, threadTitle, description || undefined)
+                                await loadThreads()
+                                setSelectedThreadId(newThread.id)
+                                setShowCreateThreadModal(false)
+                                setTitle('')
+                                setDescription('')
+                                useUIStore.getState().setView('graph')
+                              } catch (err: unknown) {
+                                setError('Failed to create from template: ' + (err as Error).message)
+                              } finally {
+                                setTemplateLoading(null)
+                              }
+                            }}
+                            style={{
+                              padding: '10px 12px',
+                              background: templateLoading === t.key ? '#2a2a2a' : '#242424',
+                              border: '1px solid #444',
+                              borderRadius: '8px',
+                              cursor: templateLoading ? 'wait' : 'pointer',
+                              textAlign: 'left' as const,
+                              transition: 'border-color 0.2s',
+                              opacity: templateLoading && templateLoading !== t.key ? 0.5 : 1,
+                            }}
+                            onMouseEnter={e => { if (!templateLoading) (e.currentTarget.style.borderColor = '#00ff9d') }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = '#444' }}
+                          >
+                            <div style={{ color: '#e0e0e0', fontWeight: 600, fontSize: '13px', marginBottom: '4px' }}>
+                              {templateLoading === t.key ? 'Creating...' : t.name}
+                            </div>
+                            <div style={{ color: '#888', fontSize: '11px', lineHeight: '1.3' }}>
+                              {t.description}
+                            </div>
+                            <div style={{ color: '#666', fontSize: '10px', marginTop: '4px' }}>{t.nodeCount} nodes</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -460,6 +554,13 @@ function App() {
           <AuthModal
             onSuccess={() => { useAuthStore.getState().checkAuth(); setShowAuthModal(false) }}
             onClose={() => setShowAuthModal(false)}
+          />
+        )}
+
+        {showCommandPalette && (
+          <CommandPalette
+            commands={commandPaletteCommands}
+            onClose={() => setShowCommandPalette(false)}
           />
         )}
       </div>

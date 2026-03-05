@@ -10,6 +10,7 @@ export interface Thread {
   updated_at: string;
   nodes: ThreadNode[];
   edges?: Edge[];
+  forked_from?: number | null;
 }
 
 export type ThreadType = 'standard' | 'historical' | 'debate' | 'comparison';
@@ -35,6 +36,7 @@ export interface ThreadNode {
   created_at: string;
   updated_at: string;
   threadId?: number;
+  confidence_score?: number | null;
 }
 
 export interface NodeMetadata {
@@ -96,6 +98,21 @@ export interface Snapshot {
   nodeCount: number;
   confidenceScore?: number | null;
   created_at: string;
+}
+
+export interface ValidationIssue {
+  type: 'fallacy' | 'missing_link' | 'circular' | 'over_reliance' | 'unsupported' | 'contradiction';
+  fallacy_name?: string;
+  node_ids: number[];
+  description: string;
+  severity: 'high' | 'medium' | 'low';
+  suggestion: string;
+}
+
+export interface ValidationResult {
+  chain_strength: number;
+  summary: string;
+  issues: ValidationIssue[];
 }
 
 export interface ConfidenceRecord {
@@ -181,7 +198,28 @@ export type ViewName =
   | 'review'
   | 'ingest'
   | 'timeline'
-  | 'editor';
+  | 'editor'
+  | 'summary'
+  | 'dashboard';
+
+export interface DashboardStats {
+  totalThreads: number;
+  totalNodes: number;
+  nodeTypeDistribution: Record<string, number>;
+  averageConfidence: number | null;
+  lowConfidenceThreads: Array<{ id: number; title: string; confidence: number }>;
+  recentNodes: Array<{ id: number; title: string; nodeType: string; threadId: number; threadTitle: string; created_at: string }>;
+  totalEvidence: number;
+  totalCounterpoints: number;
+}
+
+export interface ThreadSummary {
+  executive_summary: string;
+  key_arguments: Array<{ title: string; supporting_evidence_count: number; confidence: number }>;
+  overall_verdict: string;
+  word_count: number;
+  generated_at: string;
+}
 
 // ── API return types ────────────────────────────────────────────────────────
 
@@ -394,6 +432,20 @@ export interface VerifySourceResult {
   confidence: number;
   explanation: string;
   status?: string;
+}
+
+export interface DevilsAdvocateChallenge {
+  targetNodeId: number;
+  targetNodeTitle: string;
+  challengeQuestion: string;
+  counterargument: { title: string; content: string; nodeType: string };
+  severity: 'high' | 'medium' | 'low';
+}
+
+export interface DevilsAdvocateResult {
+  challenges: DevilsAdvocateChallenge[];
+  unchallengedCount: number;
+  totalNodes: number;
 }
 
 export interface ChatRecord {

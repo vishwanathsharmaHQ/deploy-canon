@@ -18,6 +18,7 @@ export interface ThreadData {
   created_at: string;
   updated_at: string;
   nodes: NodeData[];
+  forked_from?: number | null;
 }
 
 // Return shape from formatNode
@@ -31,6 +32,7 @@ export interface NodeData {
   created_at: string;
   updated_at: string;
   type: number;
+  confidence_score?: number | null;
 }
 
 // Snapshot diff structures

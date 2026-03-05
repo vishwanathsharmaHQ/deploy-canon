@@ -36,7 +36,7 @@ export async function vectorQuery(session: Session, indexName: string, k: number
   }
 }
 
-export function formatThread(props: Neo4jProps) {
+export function formatThread(props: Neo4jProps, forkedFrom?: number | null) {
   return {
     id: toNum(props.id),
     title: props.title as string,
@@ -50,6 +50,7 @@ export function formatThread(props: Neo4jProps) {
     created_at: props.created_at as string,
     updated_at: props.updated_at as string,
     nodes: [] as NodeData[],
+    ...(forkedFrom !== undefined ? { forked_from: forkedFrom } : {}),
   };
 }
 
@@ -68,5 +69,6 @@ export function formatNode(props: Neo4jProps, parentId: unknown) {
     created_at: props.created_at as string,
     updated_at: props.updated_at as string,
     type: NODE_TYPES.indexOf(props.node_type as typeof NODE_TYPES[number]),
+    confidence_score: (props.confidence_score as number) ?? null,
   };
 }

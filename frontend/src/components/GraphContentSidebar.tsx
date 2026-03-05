@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { NODE_TYPES, NODE_TYPE_COLORS, EXPANDABLE_NODE_TYPES } from '../constants';
 import type { Thread, NodeTypeName, ThreadType } from '../types';
 import CrossThreadLinkPanel from './CrossThreadLinkPanel';
+import ReasoningValidator from './ReasoningValidator';
+import PerspectivesPanel from './PerspectivesPanel';
+import DevilsAdvocatePanel from './DevilsAdvocatePanel';
 
 // Flexible type for selected node data — can be a thread or a knowledge node
 interface SelectedNodeData {
@@ -27,6 +30,9 @@ interface GraphContentSidebarProps {
   threadType?: ThreadType;
   onReparentNode?: (nodeId: number, newParentId: number | null) => void;
   onReorderNode?: (nodeId: number, direction: 'earlier' | 'later') => void;
+  onHighlightNodes?: (nodeIds: number[]) => void;
+  onStartDebate?: () => void;
+  onRefresh?: () => void;
 }
 
 function getChildNodes(threads: Thread[], nodeId: string) {
@@ -57,6 +63,9 @@ const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
   threadType,
   onReparentNode,
   onReorderNode,
+  onHighlightNodes,
+  onStartDebate,
+  onRefresh,
 }) => {
   const [showChangeParent, setShowChangeParent] = useState(false);
 
@@ -104,6 +113,15 @@ const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
               title="Read this node in Article view"
             >
               Read →
+            </button>
+          )}
+          {selectedNode.type === 'thread' && onStartDebate && (
+            <button
+              className="add-node-button"
+              onClick={onStartDebate}
+              title="Debate a Clone - stress-test this thread's position"
+            >
+              Debate
             </button>
           )}
           {(selectedNode.type === 'thread' || EXPANDABLE_NODE_TYPES.includes(NODE_TYPES[selectedNode.type as number] as NodeTypeName)) && (
@@ -216,6 +234,28 @@ const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
               </div>
             )}
           </div>
+        )}
+
+        {selectedNode.type === 'thread' && threads.length > 0 && (
+          <ReasoningValidator
+            threadId={threads[0].id}
+            onHighlightNodes={onHighlightNodes}
+          />
+        )}
+
+        {selectedNode.type === 'thread' && threads.length > 0 && (
+          <DevilsAdvocatePanel
+            threadId={threads[0].id}
+            onAcceptChallenge={() => onRefresh?.()}
+            onHighlightNode={(nodeId) => onHighlightNodes?.([nodeId])}
+          />
+        )}
+
+        {selectedNode.type === 'thread' && threads.length > 0 && (
+          <PerspectivesPanel
+            threadId={threads[0].id}
+            onSelectThread={onNavigateToThread}
+          />
         )}
 
         <div className="content-sidebar-metadata">

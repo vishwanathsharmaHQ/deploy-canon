@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
 import { api } from '../services/api';
 import type { AnalysisResult } from '../types';
 
@@ -65,7 +66,7 @@ const ConfidenceMeter: React.FC<ConfidenceMeterProps> = ({ threadId }) => {
                     verdict: data.verdict,
                     node_count: data.nodeCount || 0,
                   });
-                  alert('Confidence recorded to timeline');
+                  toast.success('Confidence recorded to timeline');
                 } catch (e) { console.error('Failed to record confidence:', e); }
               }}
               title="Save current confidence score to timeline"

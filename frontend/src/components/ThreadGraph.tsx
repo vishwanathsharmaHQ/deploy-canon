@@ -15,6 +15,7 @@ import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
 import { formatContent } from '../utils/graphContent';
 import type { Thread, ThreadNode, NodeTypeName, LayoutData, DecayDataPoint, ThreadType } from '../types';
 import GraphContentSidebar from './GraphContentSidebar';
+import DebateMode from './DebateMode';
 
 interface GraphNodeData {
   label: string;
@@ -24,6 +25,9 @@ interface GraphNodeData {
   nodeColor: string;
   isMatteMode: boolean;
   decayPercent?: number | null;
+  confidenceScore?: number | null;
+  showHeatmap?: boolean;
+  highlighted?: boolean;
   crossLinkCount?: number;
   originalData: Record<string, unknown>;
 }
@@ -48,14 +52,26 @@ interface RFEdge {
   hidden?: boolean;
 }
 
-// Custom node component with decay visualization
+function confidenceColor(score: number): string {
+  if (score >= 70) return '#66bb6a';
+  if (score >= 45) return '#fdd835';
+  return '#ef5350';
+}
+
+// Custom node component with decay and confidence visualization
 function GraphNode({ data }: { data: GraphNodeData }) {
-  const color = data.nodeColor || '#666';
   const isThread = data.isThread;
   const radius = isThread ? 25 : 15;
   const matteClass = data.isMatteMode ? 'matte' : '';
   const decay: number | null = data.decayPercent ?? null;
+  const confidence: number | null = data.confidenceScore ?? null;
+  const showHeatmap = data.showHeatmap ?? false;
+  const highlighted = data.highlighted ?? false;
   const hasLinks = (data.crossLinkCount ?? 0) > 0;
+
+  // In heatmap mode, override the node fill color based on confidence
+  const baseColor = data.nodeColor || '#666';
+  const fillColor = showHeatmap && confidence != null ? confidenceColor(confidence) : baseColor;
 
   // Decay: reduce opacity, add colored ring
   const decayOpacity = decay != null ? Math.max(0.3, 1 - (decay / 150)) : 1;
@@ -80,13 +96,32 @@ function GraphNode({ data }: { data: GraphNodeData }) {
           borderRadius: '50%', border: `2px solid ${ringColor}`, pointerEvents: 'none',
         }} />
       )}
+      {showHeatmap && confidence != null && (
+        <div style={{
+          position: 'absolute', top: -5, left: -5, width: radius * 2 + 10, height: radius * 2 + 10,
+          borderRadius: '50%', border: `3px solid ${confidenceColor(confidence)}`,
+          boxShadow: `0 0 8px ${confidenceColor(confidence)}40`,
+          pointerEvents: 'none',
+        }} />
+      )}
+      {highlighted && (
+        <div
+          className="highlight-pulse"
+          style={{
+            position: 'absolute', top: -7, left: -7, width: radius * 2 + 14, height: radius * 2 + 14,
+            borderRadius: '50%', border: '2px solid #ff6b6b',
+            boxShadow: '0 0 12px rgba(255, 107, 107, 0.6)',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
       <div
         className="graph-node-circle"
         style={{
           width: radius * 2,
           height: radius * 2,
           borderRadius: '50%',
-          background: color,
+          background: fillColor,
           border: '2px solid #fff',
           cursor: 'pointer',
         }}
@@ -98,6 +133,16 @@ function GraphNode({ data }: { data: GraphNodeData }) {
           fontSize: '7px', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           L
+        </div>
+      )}
+      {showHeatmap && confidence != null && (
+        <div style={{
+          position: 'absolute', bottom: -14, left: '50%', transform: 'translateX(-50%)',
+          fontSize: '9px', color: confidenceColor(confidence), fontWeight: 600,
+          textShadow: '0 0 3px #000',
+          whiteSpace: 'nowrap',
+        }}>
+          {confidence}
         </div>
       )}
       <div className="graph-node-label">
@@ -277,6 +322,11 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
   const [hoveredRootId, setHoveredRootId] = useState<string | null>(null);
   const [decayMap, setDecayMap] = useState<Record<number, number>>({});
   const [linkCountMap, setLinkCountMap] = useState<Record<number, number>>({});
+  const [confidenceMap, setConfidenceMap] = useState<Record<number, number>>({});
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [heatmapLoading, setHeatmapLoading] = useState(false);
+  const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<number>>(new Set());
+  const [showDebate, setShowDebate] = useState(false);
   const { fitView } = useReactFlow();
 
   useEffect(() => {
@@ -475,6 +525,8 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
             nodeColor: color,
             isMatteMode,
             decayPercent: decayMap[node.id] ?? null,
+            confidenceScore: confidenceMap[node.id] ?? null,
+            showHeatmap,
             crossLinkCount: linkCountMap[node.id] || 0,
             originalData: { ...node, type: nodeType, content: parsedContent }
           },
@@ -539,7 +591,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     setNodes(rfNodes);
     setEdges(rfEdges);
     setLoading(false);
-  }, [nodes, isMatteMode, decayMap, linkCountMap]);
+  }, [nodes, isMatteMode, decayMap, linkCountMap, confidenceMap, showHeatmap]);
 
   // When threads change but we already have a saved layout, rebuild immediately
   useEffect(() => {
@@ -558,6 +610,22 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
       data: { ...n.data, isMatteMode }
     })));
   }, [isMatteMode]);
+
+  // Update heatmap mode and highlights on existing nodes without resetting positions
+  useEffect(() => {
+    setNodes(prev => prev.map(n => {
+      const nodeId = n.id.startsWith('node-') ? parseInt(n.id.slice(5)) : null;
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          showHeatmap,
+          confidenceScore: nodeId != null ? (confidenceMap[nodeId] ?? null) : null,
+          highlighted: nodeId != null && highlightedNodeIds.has(nodeId),
+        }
+      };
+    }));
+  }, [showHeatmap, confidenceMap, highlightedNodeIds]);
 
   // Compute which nodes/edges are visible based on showAllSecondary + hover
   const visibleNodes = useMemo(() => nodes.map(n => {
@@ -787,6 +855,27 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         )}
         <div className="bottom-right-controls">
           <button
+            className={`control-button ${showHeatmap ? 'active' : ''}`}
+            disabled={heatmapLoading}
+            onClick={async () => {
+              if (showHeatmap) {
+                setShowHeatmap(false);
+                return;
+              }
+              if (!threads?.[0]) return;
+              setHeatmapLoading(true);
+              try {
+                const { scores } = await api.getNodeConfidence(threads[0].id);
+                setConfidenceMap(scores);
+                setShowHeatmap(true);
+              } catch { /* toast shown by api layer */ }
+              finally { setHeatmapLoading(false); }
+            }}
+            title={showHeatmap ? 'Hide confidence heatmap' : 'Show confidence heatmap (AI-scored)'}
+          >
+            {heatmapLoading ? '...' : 'H'}
+          </button>
+          <button
             className={`control-button ${showAllSecondary ? 'active' : ''}`}
             onClick={() => setShowAllSecondary(v => !v)}
             title={showAllSecondary ? 'Hide secondary nodes (show roots only)' : 'Show all secondary nodes'}
@@ -825,6 +914,29 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
         </div>
       </div>
 
+      {showHeatmap && (
+        <div style={{
+          position: 'absolute', bottom: 50, left: 12, zIndex: 10,
+          background: 'rgba(26,26,26,0.9)', border: '1px solid #333',
+          borderRadius: 6, padding: '8px 12px', fontSize: 11, color: '#aaa',
+          display: 'flex', flexDirection: 'column', gap: 4,
+        }}>
+          <div style={{ fontWeight: 600, color: '#fff', marginBottom: 2 }}>Confidence</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#66bb6a', display: 'inline-block' }} />
+            70-100 Strong
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fdd835', display: 'inline-block' }} />
+            45-69 Moderate
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef5350', display: 'inline-block' }} />
+            0-44 Weak
+          </div>
+        </div>
+      )}
+
       <div className={`content-sidebar ${selectedNode ? 'open' : ''}`}>
         <GraphContentSidebar
           selectedNode={selectedNode}
@@ -838,8 +950,23 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           threadType={(threads[0]?.metadata?.thread_type || 'standard') as ThreadType}
           onReparentNode={handleReparentNode}
           onReorderNode={handleReorderNode}
+          onHighlightNodes={(nodeIds: number[]) => {
+            setHighlightedNodeIds(new Set(nodeIds));
+            // Auto-clear highlights after 5 seconds
+            setTimeout(() => setHighlightedNodeIds(new Set()), 5000);
+          }}
+          onStartDebate={() => setShowDebate(true)}
+          onRefresh={refetchAndRebuild}
         />
       </div>
+
+      {showDebate && threads.length > 0 && (
+        <DebateMode
+          threadId={threads[0].id}
+          threadTitle={threads[0].metadata?.title || threads[0].title || `Thread ${threads[0].id}`}
+          onClose={() => setShowDebate(false)}
+        />
+      )}
     </div>
   );
 };

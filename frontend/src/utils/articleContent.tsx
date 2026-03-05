@@ -46,35 +46,55 @@ export function getEditableContent(node: { content: unknown; title?: string; nod
   if (typeof raw === 'string' && (raw.startsWith('{') || raw.startsWith('['))) {
     try { parsed = JSON.parse(raw); } catch (e) { /* keep as string */ }
   }
+  // Helper: get string value from parsed object field, or fall back to raw string
+  const rawStr = typeof raw === 'string' ? raw : '';
+  const isObj = typeof parsed === 'object' && parsed !== null;
+
   switch (nodeType) {
     case 'ROOT':
       return {
-        title: (typeof parsed === 'object' ? parsed?.title : null) || node.title || '',
-        html: (typeof parsed === 'object' ? parsed?.description : null) || '',
-        keywords: typeof parsed === 'object' && parsed?.keywords
+        title: (isObj ? parsed?.title : null) || node.title || '',
+        html: (isObj ? parsed?.description : null) || rawStr,
+        keywords: isObj && parsed?.keywords
           ? (Array.isArray(parsed.keywords) ? parsed.keywords.join(', ') : parsed.keywords)
           : '',
       };
     case 'EVIDENCE':
       return {
-        title: (typeof parsed === 'object' ? parsed?.source : null) || node.title || '',
-        html: (typeof parsed === 'object' ? parsed?.point : null) || '',
+        title: (isObj ? parsed?.source : null) || node.title || '',
+        html: (isObj ? parsed?.point : null) || rawStr,
       };
     case 'EXAMPLE':
       return {
-        title: (typeof parsed === 'object' ? parsed?.title : null) || node.title || '',
-        html: (typeof parsed === 'object' ? parsed?.description : null) || '',
+        title: (isObj ? parsed?.title : null) || node.title || '',
+        html: (isObj ? parsed?.description : null) || rawStr,
       };
     case 'COUNTERPOINT':
       return {
-        title: (typeof parsed === 'object' ? parsed?.argument : null) || node.title || '',
-        html: (typeof parsed === 'object' ? parsed?.explanation : null) || '',
+        title: (isObj ? parsed?.argument : null) || node.title || '',
+        html: (isObj ? parsed?.explanation : null) || rawStr,
       };
-    default:
+    case 'REFERENCE':
       return {
-        title: node.title || '',
-        html: typeof raw === 'string' ? raw : '',
+        title: (isObj ? parsed?.title : null) || node.title || '',
+        html: (isObj ? (parsed?.url || parsed?.content || parsed?.description || '') : null) || rawStr,
       };
+    case 'CONTEXT':
+    case 'SYNTHESIS':
+      return {
+        title: (isObj ? parsed?.title : null) || node.title || '',
+        html: (isObj ? (parsed?.description || parsed?.content || parsed?.text || '') : null) || rawStr,
+      };
+    default: {
+      let html = '';
+      if (isObj) {
+        html = parsed.description || parsed.content || parsed.text || parsed.explanation || parsed.point || '';
+        if (!html) html = JSON.stringify(parsed, null, 2);
+      } else {
+        html = rawStr;
+      }
+      return { title: node.title || '', html };
+    }
   }
 }
 

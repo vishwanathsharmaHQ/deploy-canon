@@ -12,6 +12,8 @@ const TABS: { key: ViewName; label: string }[] = [
   { key: 'review', label: 'Review' },
   { key: 'ingest', label: 'Ingest' },
   { key: 'timeline', label: 'Timeline' },
+  { key: 'summary', label: 'Summary' },
+  { key: 'dashboard', label: 'Dashboard' },
 ];
 
 interface ViewTabBarProps {

@@ -344,7 +344,8 @@ Additional rules:
 - Each node's content should be self-contained and meaningful.
 - Only include nodes that add real knowledge value — skip trivial/filler.
 - If the reply is a simple acknowledgment or clarification, return an empty nodes array.
-- If the question is about an existing node (nodeContext provided), and the reply suggests updating that node, set proposedUpdate with the updated fields.`;
+- If the question is about an existing node (nodeContext provided), and the reply suggests updating that node, set proposedUpdate with the updated fields.
+- If the conversation mentions YouTube videos or video URLs, include them as REFERENCE nodes. Put the full YouTube URL in the content field as a markdown link so it can be embedded.`;
 
     const extractionMessages = [
       { role: 'system' as const, content: extractionPrompt },
@@ -438,11 +439,20 @@ Additional rules:
       for (const cit of citations) {
         const title = (cit.title || cit.url).substring(0, 120);
         if (!existingRefTitles.has(title.toLowerCase())) {
-          proposedNodes.push({
-            type: 'REFERENCE',
-            title,
-            content: JSON.stringify({ url: cit.url, title: cit.title || cit.url }),
-          });
+          const isYouTube = /(?:youtube\.com\/watch\?v=|youtu\.be\/)/.test(cit.url);
+          if (isYouTube) {
+            proposedNodes.push({
+              type: 'REFERENCE',
+              title,
+              content: `[${cit.title || 'Watch Video'}](${cit.url})\n\n${cit.url}`,
+            });
+          } else {
+            proposedNodes.push({
+              type: 'REFERENCE',
+              title,
+              content: JSON.stringify({ url: cit.url, title: cit.title || cit.url }),
+            });
+          }
         }
       }
     }
@@ -804,6 +814,198 @@ router.put(
     } catch (err) {
       console.error('PUT chat error:', err);
       res.status(500).json({ error: 'Failed to update chat' });
+    }
+  })
+);
+
+/* ──────────────────────────────────────────────────────────────────────────────
+   POST /chat/debate — SSE streaming debate mode ("Debate a Clone")
+   User can defend or attack a thread's position while AI plays the opposite role.
+   ────────────────────────────────────────────────────────────────────────────── */
+router.post(
+  '/chat/debate',
+  requireAuth,
+  withSession(async (req, res) => {
+    const { message, threadId, mode, history = [] } = req.body;
+    if (!message) return res.status(400).json({ error: 'message is required' });
+    if (!threadId) return res.status(400).json({ error: 'threadId is required' });
+    if (!mode || !['defend', 'attack'].includes(mode)) {
+      return res.status(400).json({ error: 'mode must be "defend" or "attack"' });
+    }
+
+    const session = req.neo4jSession!;
+
+    // ── SSE setup ──────────────────────────────────────────────────────────────
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    let _streamClosed = false;
+    const send = (obj: Record<string, unknown>) => {
+      if (!_streamClosed) res.write(`data: ${JSON.stringify(obj)}\n\n`);
+    };
+    const closeStream = () => {
+      if (!_streamClosed) {
+        _streamClosed = true;
+        res.end();
+      }
+    };
+
+    try {
+      // ── Fetch thread context ─────────────────────────────────────────────────
+      let rootClaim = '';
+      let threadTitle = '';
+      let nodeContents: string[] = [];
+
+      try {
+        const tResult = await session.run(
+          'MATCH (t:Thread {id: $id}) RETURN t',
+          { id: getNeo4j().int(threadId) }
+        );
+        if (tResult.records.length) {
+          const props = tResult.records[0].get('t').properties;
+          threadTitle = props.title || '';
+          rootClaim = props.title || '';
+        }
+
+        const nResult = await session.run(
+          `MATCH (t:Thread {id: $id})-[:HAS_NODE]->(n:Node)
+           RETURN n ORDER BY n.id`,
+          { id: getNeo4j().int(threadId) }
+        );
+        if (nResult.records.length) {
+          for (const r of nResult.records) {
+            const p = r.get('n').properties;
+            const nodeType = p.node_type || 'UNKNOWN';
+            const txt = extractContentText(p.content);
+            if (nodeType === 'ROOT' && !rootClaim) {
+              rootClaim = p.title || txt.substring(0, 200);
+            }
+            nodeContents.push(`[${nodeType}] ${p.title}: ${txt.substring(0, 300)}`);
+          }
+        }
+      } catch (e) {
+        console.error('Debate thread fetch error:', e);
+      }
+
+      if (!rootClaim) rootClaim = threadTitle || 'the topic under discussion';
+
+      // ── Build system prompt based on mode ────────────────────────────────────
+      let systemPrompt: string;
+      if (mode === 'defend') {
+        systemPrompt = `You are defending the position: "${rootClaim}". Use ONLY the following evidence from the user's research:\n\n${nodeContents.join('\n')}\n\nIf the user raises a point you can't counter with existing evidence, acknowledge the gap. Stay in character as a passionate but honest defender of this position. Use markdown formatting.`;
+      } else {
+        systemPrompt = `You are a rigorous critic attacking the position: "${rootClaim}". Find weaknesses, ask probing questions, challenge assumptions. When the user makes a good defense, acknowledge it but press harder. Here is the evidence the position relies on:\n\n${nodeContents.join('\n')}\n\nYour goal is to stress-test this position by finding every possible weakness. Use markdown formatting.`;
+      }
+
+      // Fresh OpenAI client
+      const client = new OpenAI({
+        apiKey: config.openai.apiKey,
+        timeout: config.openai.timeout,
+      });
+
+      const model = config.openai.chatModel;
+
+      const llmMessages: ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemPrompt },
+        ...history,
+        { role: 'user', content: message },
+      ];
+
+      let fullReply = '';
+
+      // ── Try Responses API first, fallback to chat.completions ────────────────
+      let usedResponsesApi = false;
+      try {
+        // @ts-expect-error — Responses API not yet in openai types
+        const response = await client.responses.create({
+          model,
+          input: llmMessages,
+          stream: true,
+        });
+
+        usedResponsesApi = true;
+
+        for await (const event of response as AsyncIterable<Record<string, unknown>>) {
+          if (_streamClosed) break;
+
+          if (event.type === 'response.output_text.delta') {
+            const token = event.delta as string | undefined;
+            if (token) {
+              fullReply += token;
+              send({ type: 'token', content: token });
+            }
+          }
+        }
+      } catch (responsesErr: unknown) {
+        if (usedResponsesApi) {
+          send({ type: 'error', error: (responsesErr as Error).message });
+          closeStream();
+          return;
+        }
+
+        // ── Fallback: chat.completions streaming ───────────────────────────
+        const stream = await client.chat.completions.create({
+          model,
+          messages: llmMessages,
+          stream: true,
+        });
+
+        for await (const chunk of stream) {
+          if (_streamClosed) break;
+          const token = chunk.choices?.[0]?.delta?.content;
+          if (token) {
+            fullReply += token;
+            send({ type: 'token', content: token });
+          }
+        }
+      }
+
+      // ── Extract weaknesses from the conversation ─────────────────────────────
+      let weaknesses_found: { description: string; severity: 'high' | 'medium' | 'low' }[] = [];
+
+      try {
+        const extractionMessages: ChatCompletionMessageParam[] = [
+          {
+            role: 'system',
+            content: `You are analyzing a debate about the position: "${rootClaim}".
+Given the conversation history and the latest exchange, extract any weaknesses or gaps in the position that were revealed.
+Return ONLY valid JSON (no markdown fencing):
+{
+  "weaknesses": [
+    { "description": "brief description of the weakness", "severity": "high|medium|low" }
+  ]
+}
+If no new weaknesses were revealed in this exchange, return {"weaknesses": []}.`,
+          },
+          {
+            role: 'user',
+            content: `Conversation:\n${history.map((h: { role: string; content: string }) => `${h.role}: ${h.content}`).join('\n')}\nuser: ${message}\nassistant: ${fullReply}`,
+          },
+        ];
+
+        const extraction = await client.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: extractionMessages,
+          temperature: 0.1,
+        });
+
+        const raw = extraction.choices?.[0]?.message?.content || '{}';
+        const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+        const parsed = JSON.parse(cleaned);
+        weaknesses_found = parsed.weaknesses || [];
+      } catch (e) {
+        console.error('Debate weakness extraction error:', e);
+      }
+
+      // Done event
+      send({ type: 'done', reply: fullReply, weaknesses_found });
+      closeStream();
+    } catch (err: unknown) {
+      console.error('POST /chat/debate error:', err);
+      send({ type: 'error', error: (err as Error).message || 'Internal error' });
+      closeStream();
     }
   })
 );

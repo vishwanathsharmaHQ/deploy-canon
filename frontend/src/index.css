@@ -1,3 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Brand Colors ── */
+  --color-accent: #00ff9d;
+  --color-accent-dim: rgba(0, 255, 157, 0.35);
+  --color-accent-glow: rgba(0, 255, 157, 0.2);
+  --color-accent-subtle: rgba(0, 255, 157, 0.08);
+
+  /* ── Surface / Background ── */
+  --color-surface-dark: #1a1a1a;
+  --color-surface: #242424;
+  --color-surface-light: #2a2a2a;
+  --color-surface-hover: #333;
+  --color-surface-glass: rgba(36, 36, 36, 0.9);
+  --color-surface-glass-heavy: rgba(36, 36, 36, 0.95);
+
+  /* ── Borders ── */
+  --color-border: #333;
+  --color-border-light: #444;
+  --color-border-hover: #666;
+  --color-border-glass: rgba(68, 68, 68, 0.8);
+  --color-border-glass-light: rgba(74, 74, 74, 0.4);
+
+  /* ── Text ── */
+  --color-text: #fff;
+  --color-text-muted: #aaa;
+  --color-text-dim: #888;
+  --color-text-placeholder: #666;
+
+  /* ── Node Type Colors ── */
+  --color-node-root: #ffd700;
+  --color-node-evidence: #4fc3f7;
+  --color-node-reference: #aaa;
+  --color-node-context: #ff8a65;
+  --color-node-example: #66bb6a;
+  --color-node-counterpoint: #ef5350;
+  --color-node-synthesis: #fdd835;
+
+  /* ── Heatmap / Score Colors ── */
+  --color-score-high: #66bb6a;
+  --color-score-mid: #fdd835;
+  --color-score-low: #ef5350;
+
+  /* ── Status Colors ── */
+  --color-success: #4caf50;
+  --color-warning: #fdd835;
+  --color-error: #ef5350;
+  --color-info: #4fc3f7;
+
+  /* ── Legacy button default ── */
+  --color-btn-default: #646cff;
+  --color-btn-default-hover: #535bf2;
+}
+
+/* ── Base Resets ── */
 :root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   line-height: 1.5;
@@ -5,7 +61,7 @@
 
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  background-color: var(--color-surface);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -28,6 +84,6 @@ body {
     background-color: #ffffff;
   }
   button {
-    background-color: #646cff;
+    background-color: var(--color-btn-default);
   }
 }

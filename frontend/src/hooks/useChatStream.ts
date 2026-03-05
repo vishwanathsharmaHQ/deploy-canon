@@ -72,7 +72,7 @@ export function useChatStream({
   const handleLoadChat = useCallback(async (chatId: number) => {
     try {
       const chat = await api.getChat(chatId);
-      setMessages(chat.messages || []);
+      setMessages((chat.messages || []) as ChatMessage[]);
       savedChatIdRef.current = chatId;
       setActiveChatId(chatId);
       if (chat.threadId && chat.threadId !== activeThreadIdRef.current) {
