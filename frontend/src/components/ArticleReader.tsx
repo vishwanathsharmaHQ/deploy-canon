@@ -400,15 +400,22 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
         ordered = [...nodes];
       }
       setOrderedNodes(prev => {
-        // If nodes changed (enrich/add), preserve current page
-        const isRefresh = prev.length > 0 && ordered.length > prev.length;
-        if (isRefresh) {
+        // Already have nodes — preserve previous order, update data, append new ones
+        if (prev.length > 0) {
+          const prevIds = new Set(prev.map(n => n.id));
+          const updatedMap = new Map(ordered.map(n => [n.id, n]));
+          // Update existing nodes with fresh data, keep order
+          const preserved = prev
+            .map(n => updatedMap.get(n.id) || n)
+            .filter(n => ordered.some(o => o.id === n.id)); // remove deleted nodes
+          const newNodes = ordered.filter(n => !prevIds.has(n.id));
+          const merged = [...preserved, ...newNodes];
+
           // Check if enrich just completed — auto-open sidebar for the enriched node
           const enrichedId = enrichedNodeRef.current;
           if (enrichedId) {
             enrichedNodeRef.current = null;
-            // Find new children of the enriched node
-            const newChildIds = new Set(ordered.filter(n => n.parent_id === enrichedId).map(n => n.id));
+            const newChildIds = new Set(merged.filter(n => n.parent_id === enrichedId).map(n => n.id));
             const newRelChildIds = new Set(
               (thread.relationships || [])
                 .filter(r => r.target_id === enrichedId)
@@ -416,7 +423,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             );
             const allChildIds = new Set([...newChildIds, ...newRelChildIds]);
             if (allChildIds.size > 0) {
-              const children = ordered.filter(n => allChildIds.has(n.id));
+              const children = merged.filter(n => allChildIds.has(n.id));
               if (children.length > 0) {
                 setSecondaryOpen(true);
                 setSecondaryPinnedNodes(null);
@@ -425,7 +432,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
               }
             }
           }
-          return ordered;
+          return merged;
         }
 
         // Initial load — set page (filter to root nodes for page index)

@@ -29,6 +29,14 @@
   flex: 0 0 auto;
 }
 
+.header-center h1 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  margin: 0;
+}
+
 .header-right {
   display: flex;
   gap: 15px;

@@ -519,7 +519,8 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
   useEffect(() => {
     if (!threads || threads.length === 0) return;
     const threadId = threads[0].id;
-    if (lastThreadIdRef.current === threadId && savedLayoutRef.current) return;
+    // Only run for new thread IDs — same-thread refreshes are handled incrementally
+    if (lastThreadIdRef.current === threadId) return;
     lastThreadIdRef.current = threadId;
 
     hasFitRef.current = false;
@@ -781,14 +782,173 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
     setLoading(false);
   }, [nodes, isMatteMode, decayMap, linkCountMap, confidenceMap, showHeatmap]);
 
-  // When threads change but we already have a saved layout, rebuild immediately
+  // When threads data changes for the SAME thread (e.g. after enrich), do incremental update
+  // instead of full rebuild to preserve existing node positions and edges
   useEffect(() => {
     if (!threads || threads.length === 0) return;
-    const threadId = threads[0].id;
-    // Only do the synchronous rebuild if we already loaded the layout for this thread
-    if (lastThreadIdRef.current === threadId && savedLayoutRef.current !== undefined) {
-      buildGraph(threads, savedLayoutRef.current);
-    }
+    const thread = threads[0];
+    const threadId = thread.id;
+    // Only handle same-thread refreshes here (new thread is handled by the layout-loading effect)
+    if (lastThreadIdRef.current !== threadId || savedLayoutRef.current === undefined) return;
+
+    // Check if there are genuinely new nodes to add
+    setNodes(prevNodes => {
+      const existingIds = new Set(prevNodes.map(n => n.id));
+      const newThreadNodes = (thread.nodes || []).filter(n => !existingIds.has(`node-${n.id}`));
+      if (newThreadNodes.length === 0) {
+        // No new nodes — just update data on existing nodes (e.g. content changes)
+        const nodeDataMap = new Map((thread.nodes || []).map(n => [n.id, n]));
+        return prevNodes.map(n => {
+          if (!n.id.startsWith('node-')) return n;
+          const nodeId = parseInt(n.id.slice(5));
+          const freshNode = nodeDataMap.get(nodeId);
+          if (!freshNode) return n;
+          // Update originalData but keep position
+          let parsedContent: unknown = freshNode.content;
+          try {
+            if (typeof freshNode.content === 'string' && (freshNode.content.startsWith('{') || freshNode.content.startsWith('['))) {
+              parsedContent = JSON.parse(freshNode.content);
+            }
+          } catch (e) { /* keep as string */ }
+          const nodeType = typeof freshNode.type === 'number' ? freshNode.type : NODE_TYPES.indexOf(freshNode.node_type?.toLowerCase() as any);
+          return { ...n, data: { ...n.data, originalData: { ...freshNode, type: nodeType, content: parsedContent } } };
+        });
+      }
+
+      // Build position map from current live nodes
+      const posMap: Record<string, { x: number; y: number }> = {};
+      prevNodes.forEach(n => { posMap[n.id] = n.position; });
+
+      // Build relationship parent map
+      const relParentMap: Record<number, number> = {};
+      for (const rel of (thread.relationships || [])) {
+        if (!relParentMap[rel.source_id]) relParentMap[rel.source_id] = rel.target_id;
+      }
+
+      // Create RF nodes for new thread nodes, positioned near their parent
+      const addedNodes: RFNode[] = [];
+      newThreadNodes.forEach((node, ni) => {
+        const nodeType = typeof node.type === 'number' ? node.type : NODE_TYPES.indexOf(node.node_type?.toLowerCase() as any);
+        const typeLabel = NODE_TYPES[nodeType] || '';
+        const color = NODE_TYPE_COLORS[typeLabel as NodeTypeName] || '#666';
+        const displayType = ENTITY_TYPE_LABELS[typeLabel] || typeLabel;
+        const truncTitle = node.title
+          ? (node.title.split(/\s+/).slice(0, 3).join(' ') + (node.title.split(/\s+/).length > 3 ? '…' : ''))
+          : displayType;
+
+        let parsedContent: unknown = node.content;
+        try {
+          if (typeof node.content === 'string' && (node.content.startsWith('{') || node.content.startsWith('['))) {
+            parsedContent = JSON.parse(node.content);
+          }
+        } catch (e) { /* keep as string */ }
+
+        // Position relative to parent's actual current position
+        const parentId = node.parent_id || relParentMap[node.id];
+        const parentPos = parentId ? posMap[`node-${parentId}`] : null;
+        let position: { x: number; y: number };
+        if (parentPos) {
+          const fanOffset = (ni - (newThreadNodes.length - 1) / 2) * 140;
+          position = { x: parentPos.x + fanOffset, y: parentPos.y + 160 };
+        } else {
+          // No parent found — place near the rightmost existing node
+          const maxX = Math.max(...prevNodes.map(n => n.position.x), 400);
+          position = { x: maxX + 150 + ni * 140, y: 300 };
+        }
+
+        const isRoot = typeLabel === 'claim';
+        const parentRfId = node.parent_id ? `node-${node.parent_id}` : null;
+        const nodeId = `node-${node.id}`;
+
+        addedNodes.push({
+          id: nodeId,
+          type: 'graphNode',
+          position,
+          data: {
+            label: truncTitle,
+            isThread: false,
+            isRoot,
+            parentRfId,
+            nodeColor: color,
+            isMatteMode,
+            decayPercent: decayMap[node.id] ?? null,
+            confidenceScore: confidenceMap[node.id] ?? null,
+            showHeatmap,
+            crossLinkCount: linkCountMap[node.id] || 0,
+            originalData: { ...node, type: nodeType, content: parsedContent },
+          },
+          draggable: true,
+        });
+        // Register position for edge building
+        posMap[nodeId] = position;
+      });
+
+      // Also add new edges for the new nodes
+      setEdges(prevEdges => {
+        const existingEdgeIds = new Set(prevEdges.map(e => e.id));
+        const newEdges: RFEdge[] = [];
+        const relEdgeKeys = new Set(prevEdges.filter(e => e.id.startsWith('rel-')).map(e => `${e.source}-${e.target}`));
+
+        // Add typed relationship edges for new relationships
+        (thread.relationships || []).forEach(rel => {
+          const edgeId = `rel-${rel.id}`;
+          if (existingEdgeIds.has(edgeId)) return;
+          const sourceId = `node-${rel.source_id}`;
+          const targetId = `node-${rel.target_id}`;
+          relEdgeKeys.add(`${sourceId}-${targetId}`);
+          const handles = getBestHandles(posMap[sourceId] || { x: 0, y: 0 }, posMap[targetId] || { x: 0, y: 0 });
+          const color = REL_TYPE_COLORS[rel.relation_type] || 'rgba(0, 255, 157, 0.4)';
+          newEdges.push({
+            id: edgeId,
+            source: sourceId,
+            target: targetId,
+            sourceHandle: handles.sourceHandle,
+            targetHandle: handles.targetHandle,
+            label: REL_TYPE_LABELS[rel.relation_type] || rel.relation_type,
+            labelStyle: { fontSize: 9, fontWeight: 600, fill: color },
+            labelBgStyle: { fill: '#1a1a1a', fillOpacity: 0.85 },
+            labelBgPadding: [4, 2] as [number, number],
+            style: { stroke: color, strokeWidth: 2 },
+            animated: rel.relation_type === 'CONTRADICTS',
+            data: { relationType: rel.relation_type, properties: rel.properties },
+          });
+        });
+
+        // Add structural edges for new nodes
+        newThreadNodes.forEach(node => {
+          const targetId = `node-${node.id}`;
+          let sourceId: string;
+          const nodesWithRelParent = new Set((thread.relationships || []).flatMap(r => [r.source_id, r.target_id]));
+
+          if (node.parent_id) {
+            sourceId = `node-${node.parent_id}`;
+          } else if (nodesWithRelParent.has(node.id)) {
+            return; // already connected via typed relationship
+          } else {
+            sourceId = `thread-${threadId}`;
+          }
+
+          const edgeId = `e-${sourceId}-${targetId}`;
+          if (existingEdgeIds.has(edgeId)) return;
+          if (relEdgeKeys.has(`${sourceId}-${targetId}`) || relEdgeKeys.has(`${targetId}-${sourceId}`)) return;
+
+          const handles = getBestHandles(posMap[sourceId] || { x: 0, y: 0 }, posMap[targetId] || { x: 0, y: 0 });
+          newEdges.push({
+            id: edgeId,
+            source: sourceId,
+            target: targetId,
+            sourceHandle: handles.sourceHandle,
+            targetHandle: handles.targetHandle,
+            style: { stroke: 'rgba(0, 255, 157, 0.3)', strokeWidth: 1.5 },
+            animated: false,
+          });
+        });
+
+        return [...prevEdges, ...newEdges];
+      });
+
+      return [...prevNodes, ...addedNodes];
+    });
   }, [threads]);
 
   // Update matte mode on existing nodes without resetting positions
