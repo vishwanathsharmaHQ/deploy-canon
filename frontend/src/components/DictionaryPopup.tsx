@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../services/api';
 import './DictionaryPopup.css';
 
@@ -21,39 +21,76 @@ const DictionaryPopup: React.FC = () => {
   const [showLookup, setShowLookup] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  const handleMouseUp = useCallback((e: MouseEvent) => {
-    // Ignore selections inside the popup itself
-    if (popupRef.current?.contains(e.target as Node) || buttonRef.current?.contains(e.target as Node)) return;
-
+  const showForSelection = useCallback(() => {
     const selection = window.getSelection();
     const text = selection?.toString().trim() || '';
 
     if (text && text.length > 0 && text.length < 200) {
-      const range = selection!.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      setSelectedText(text);
-      setPosition({ x: rect.left + rect.width / 2, y: rect.bottom + 8 });
-      setLookup(null);
-      setSaved(false);
-      setAlreadyExists(false);
-      setShowLookup(false);
-    } else {
-      // Small delay to allow clicking the popup button
-      setTimeout(() => {
-        if (!popupRef.current?.contains(document.activeElement) && !buttonRef.current?.contains(document.activeElement)) {
-          setSelectedText('');
-          setPosition(null);
-          setShowLookup(false);
-        }
-      }, 200);
+      try {
+        const range = selection!.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        // Position above the selection on mobile (avoids OS handles), below on desktop
+        const isMobile = 'ontouchstart' in window;
+        const y = isMobile ? rect.top - 40 : rect.bottom + 8;
+        setSelectedText(text);
+        setPosition({ x: rect.left + rect.width / 2, y });
+        setLookup(null);
+        setSaved(false);
+        setAlreadyExists(false);
+        setShowLookup(false);
+      } catch {
+        // getRangeAt can throw if selection is gone
+      }
     }
   }, []);
 
+  const dismiss = useCallback(() => {
+    if (popupRef.current?.contains(document.activeElement) || buttonRef.current?.contains(document.activeElement)) return;
+    setSelectedText('');
+    setPosition(null);
+    setShowLookup(false);
+  }, []);
+
+  // Desktop: mouseup
   useEffect(() => {
+    const handleMouseUp = (e: MouseEvent) => {
+      if (popupRef.current?.contains(e.target as Node) || buttonRef.current?.contains(e.target as Node)) return;
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() || '';
+      if (text) {
+        showForSelection();
+      } else {
+        setTimeout(dismiss, 200);
+      }
+    };
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
-  }, [handleMouseUp]);
+  }, [showForSelection, dismiss]);
+
+  // Mobile: selectionchange — fires after the OS selection UI settles
+  useEffect(() => {
+    if (!('ontouchstart' in window)) return; // only on touch devices
+
+    const handleSelectionChange = () => {
+      clearTimeout(dismissTimer.current);
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() || '';
+      if (text && text.length > 0 && text.length < 200) {
+        // Delay to let the OS selection handles settle
+        dismissTimer.current = setTimeout(() => showForSelection(), 300);
+      } else {
+        dismissTimer.current = setTimeout(dismiss, 400);
+      }
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      clearTimeout(dismissTimer.current);
+    };
+  }, [showForSelection, dismiss]);
 
   // Adjust position if popup would go off-screen
   useEffect(() => {
@@ -64,6 +101,7 @@ const DictionaryPopup: React.FC = () => {
     let { x, y } = position;
     if (rect.right > vw - 16) x = vw - rect.width / 2 - 16;
     if (rect.left < 16) x = rect.width / 2 + 16;
+    if (y < 8) y = 8;
     if (rect.bottom > vh - 16) y = position.y - rect.height - 50;
     if (x !== position.x || y !== position.y) setPosition({ x, y });
   }, [lookup, showLookup]);
@@ -121,6 +159,7 @@ const DictionaryPopup: React.FC = () => {
           className="dict-trigger"
           style={{ left: position.x, top: position.y }}
           onMouseDown={(e) => e.preventDefault()}
+          onTouchStart={(e) => e.stopPropagation()}
           onClick={handleLookup}
         >
           Define
@@ -134,6 +173,7 @@ const DictionaryPopup: React.FC = () => {
           className="dict-popup"
           style={{ left: position.x, top: position.y }}
           onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
         >
           <button className="dict-close" onClick={handleClose}>&times;</button>
 
