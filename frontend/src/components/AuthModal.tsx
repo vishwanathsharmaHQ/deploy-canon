@@ -9,8 +9,7 @@ interface AuthModalProps {
 }
 
 const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose }) => {
-  const [tab, setTab] = useState<'signin' | 'register'>('signin');
-  const [name, setName] = useState('');
+  const [tab] = useState<'signin'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -21,12 +20,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose }) => {
     setError('');
     setLoading(true);
     try {
-      let user: User;
-      if (tab === 'signin') {
-        user = await api.login({ email, password });
-      } else {
-        user = await api.register({ name, email, password });
-      }
+      const user = await api.login({ email, password });
       onSuccess(user);
     } catch (err: unknown) {
       setError((err as Error).message);
@@ -35,42 +29,19 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose }) => {
     }
   };
 
-  const switchTab = (newTab: 'signin' | 'register') => {
-    setTab(newTab);
-    setError('');
-  };
-
   return (
     <div className="auth-overlay" onClick={onClose}>
       <div className="auth-modal" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
         <button className="auth-close" onClick={onClose}>x</button>
         <div className="auth-tabs">
           <button
-            className={`auth-tab${tab === 'signin' ? ' auth-tab--active' : ''}`}
-            onClick={() => switchTab('signin')}
+            className="auth-tab auth-tab--active"
             type="button"
           >
             Sign In
           </button>
-          <button
-            className={`auth-tab${tab === 'register' ? ' auth-tab--active' : ''}`}
-            onClick={() => switchTab('register')}
-            type="button"
-          >
-            Register
-          </button>
         </div>
         <form className="auth-form" onSubmit={handleSubmit}>
-          {tab === 'register' && (
-            <input
-              className="auth-input"
-              type="text"
-              placeholder="Name"
-              value={name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
-              autoComplete="name"
-            />
-          )}
           <input
             className="auth-input"
             type="email"
@@ -87,11 +58,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose }) => {
             value={password}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
             required
-            autoComplete={tab === 'signin' ? 'current-password' : 'new-password'}
+            autoComplete="current-password"
           />
           {error && <div className="auth-error">{error}</div>}
           <button className="auth-submit" type="submit" disabled={loading}>
-            {loading ? '...' : tab === 'signin' ? 'Sign In' : 'Create Account'}
+            {loading ? '...' : 'Sign In'}
           </button>
         </form>
       </div>

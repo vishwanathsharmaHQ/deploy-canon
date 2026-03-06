@@ -2,50 +2,16 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import config from '../config.js';
-import { getNeo4j, toNum } from '../db/driver.js';
-import { getNextId } from '../db/queries.js';
+import { toNum } from '../db/driver.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
 
 const router = Router();
 
-// POST /register - create a new user account
-router.post(
-  '/register',
-  withSession(async (req, res) => {
-    const { name, email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password required' });
-    }
-
-    const session = req.neo4jSession!;
-
-    const existing = await session.run(
-      'MATCH (u:User {email: $email}) RETURN u',
-      { email }
-    );
-    if (existing.records.length > 0) {
-      return res.status(409).json({ error: 'Email already registered' });
-    }
-
-    const hash = await bcrypt.hash(password, 10);
-    const id = await getNextId('user', session);
-    const now = new Date().toISOString();
-
-    await session.run(
-      'CREATE (u:User {id: $id, name: $name, email: $email, password: $hash, created_at: $now})',
-      { id: getNeo4j().int(id), name: name || '', email, hash, now }
-    );
-
-    const token = jwt.sign(
-      { id, email, name: name || '' },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
-    );
-
-    res.json({ token, user: { id, email, name: name || '' } });
-  })
-);
+// POST /register - disabled (registration closed)
+router.post('/register', (_req, res) => {
+  res.status(403).json({ error: 'Registration is currently disabled' });
+});
 
 // POST /login - authenticate an existing user
 router.post(
