@@ -629,3 +629,51 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  .content-sidebar {
+    width: 100% !important;
+    max-width: none;
+  }
+
+  .content-sidebar-header {
+    padding: 14px 14px 10px;
+    gap: 10px;
+  }
+
+  .content-sidebar-header h2 {
+    font-size: 1.15rem;
+  }
+
+  .content-sidebar-body {
+    padding: 14px;
+  }
+
+  .nodes-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bottom-right-controls {
+    bottom: 12px;
+    gap: 6px;
+  }
+
+  .control-button {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .header-actions {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .add-node-button,
+  .read-article-btn,
+  .open-in-article-button {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+}

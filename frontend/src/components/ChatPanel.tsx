@@ -62,7 +62,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
   });
 
   const [input, setInput] = useState('');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => defaultSidebarCollapsed || window.innerWidth <= 768);
   const [excludedNodes, setExcludedNodes] = useState<Record<number, Set<number>>>({}); // { [msgIndex]: Set<nodeIndex> }
   const [acceptingIndex, setAcceptingIndex] = useState<number | null>(null);
   const [threadTypeOverrides, setThreadTypeOverrides] = useState<Record<number, string>>({}); // { [msgIndex]: threadType }

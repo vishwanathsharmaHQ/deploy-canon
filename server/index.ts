@@ -16,6 +16,7 @@ import layoutRoutes from './routes/layout.js';
 import chatRoutes from './routes/chat.js';
 import searchRoutes from './routes/search.js';
 import reviewRoutes from './routes/review.js';
+import vocabularyRoutes from './routes/vocabulary.js';
 import ingestRoutes from './routes/ingest.js';
 import linkRoutes from './routes/links.js';
 import graphRoutes from './routes/graph.js';
@@ -51,6 +52,7 @@ app.use('/api/threads', layoutRoutes); // /api/threads/:threadId/layout, canvas,
 app.use('/api', chatRoutes);            // /api/chat, /api/socratic, /api/threads/:id/chats, etc.
 app.use('/api/search', searchRoutes);
 app.use('/api/review', reviewRoutes);
+app.use('/api/vocabulary', vocabularyRoutes);
 app.use('/api/ingest', ingestRoutes);
 app.use('/api/links', linkRoutes);
 app.use('/api/graph', graphRoutes);

@@ -475,6 +475,38 @@ export interface ConceptNode {
   threadTitle: string;
 }
 
+export interface VocabWord {
+  id: number | null;
+  word: string;
+  definition: string;
+  partOfSpeech: string;
+  pronunciation: string;
+  exampleSentence: string;
+  etymology: string;
+  context: string;
+  createdAt: string;
+  reviewDueDate: string;
+  reviewInterval: number;
+  reviewEasiness: number;
+  reviewRepetitions: number;
+}
+
+export interface VocabStats {
+  total: number | null;
+  due: number | null;
+  mastered: number | null;
+  reviewed: number | null;
+}
+
+export interface VocabLookupResult {
+  word: string;
+  definition: string;
+  partOfSpeech: string;
+  pronunciation: string;
+  example: string;
+  etymology: string;
+}
+
 export interface DecayDataPoint {
   nodeId: number | null;
   decayPercent: number;

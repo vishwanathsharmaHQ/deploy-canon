@@ -89,3 +89,35 @@
   border-color: #00ff9d;
   background: rgba(0, 255, 157, 0.08);
 }
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  .view-tab-bar {
+    flex-direction: column;
+    height: auto;
+    padding: 6px 8px;
+    gap: 4px;
+  }
+
+  .vtb-thread-nav {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .vtb-thread-title {
+    max-width: 200px;
+    font-size: 12px;
+  }
+
+  .vtb-tabs {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+
+  .vtb-tab {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+}

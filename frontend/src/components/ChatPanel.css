@@ -774,3 +774,57 @@
 .cp-auth-gate-btn:hover {
   opacity: 0.85;
 }
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  /* Hide the chat history sidebar entirely on mobile */
+  .cp-sidebar {
+    display: none;
+  }
+
+  .cp-sidebar--collapsed {
+    display: none;
+  }
+
+  .cp-header {
+    padding: 0 12px;
+    height: 44px;
+  }
+
+  .cp-title {
+    font-size: 0.82rem;
+  }
+
+  .cp-messages {
+    padding: 16px 12px 12px;
+  }
+
+  .cp-bubble {
+    max-width: 92%;
+    font-size: 0.85rem;
+    padding: 10px 14px;
+  }
+
+  .cp-input-area {
+    padding: 8px 10px;
+    min-height: 56px;
+  }
+
+  .cp-input {
+    font-size: 0.85rem;
+    padding: 8px 12px;
+  }
+
+  .cp-empty {
+    padding: 40px 20px;
+  }
+
+  .cp-empty p {
+    font-size: 0.82rem;
+  }
+
+  .cp-key-input {
+    width: 140px;
+    font-size: 0.78rem;
+  }
+}

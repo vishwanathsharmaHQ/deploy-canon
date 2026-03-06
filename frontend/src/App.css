@@ -774,3 +774,67 @@ button:disabled {
   max-height: 90vh;
   overflow-y: auto;
 }
+
+/* ── Mobile Responsive ──────────────────────────────────────── */
+@media (max-width: 768px) {
+  .header {
+    padding: 8px 12px;
+    height: 48px;
+  }
+
+  .header-center h1 {
+    font-size: 1rem;
+  }
+
+  .user-email {
+    display: none;
+  }
+
+  .btn-outline, .btn-primary {
+    font-size: 0.72rem;
+    padding: 5px 10px;
+  }
+
+  .fullscreen-toggle {
+    display: none;
+  }
+
+  .thread-controls {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    max-width: none;
+    flex-wrap: wrap;
+  }
+
+  .custom-select {
+    min-width: 140px;
+    flex: 1;
+  }
+
+  .search-container {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .thread-selector {
+    font-size: 0.85rem;
+    padding: 6px 10px;
+    padding-right: 28px;
+  }
+
+  .search-input {
+    font-size: 0.85rem;
+    padding: 6px 10px;
+  }
+
+  .modal-content {
+    width: 96%;
+    max-width: none;
+    margin: 8px;
+  }
+
+  .modal-header h3 {
+    font-size: 1.15rem;
+  }
+}

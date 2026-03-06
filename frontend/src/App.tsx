@@ -13,6 +13,7 @@ import AuthModal from './components/AuthModal'
 import GlobalGraphView from './components/GlobalGraphView'
 import SemanticSearchPanel from './components/SemanticSearchPanel'
 import ReviewMode from './components/ReviewMode'
+import DictionaryPopup from './components/DictionaryPopup'
 import IngestPanel from './components/IngestPanel'
 import ReadLaterQueue from './components/ReadLaterQueue'
 import ThreadTimeline from './components/ThreadTimeline'
@@ -270,7 +271,7 @@ function App() {
       </div>
 
       <div className="main-content">
-        {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest' || view === 'dashboard' || view === 'compare' || view === 'citations') && (
+        {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest' || view === 'dashboard' || view === 'compare' || view === 'citations' || view === 'review') && (
           <ViewTabBar
             view={view}
             onChangeView={(newView: ViewName) => {
@@ -301,8 +302,8 @@ function App() {
           <ReactFlowProvider>
             <GlobalGraphView onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }} />
           </ReactFlowProvider>
-        ) : view === 'review' && threadToShow ? (
-          <ReviewMode threadId={threadToShow.id} onClose={() => setView('graph')} />
+        ) : view === 'review' ? (
+          <ReviewMode onClose={() => setView('graph')} />
         ) : view === 'ingest' ? (
           <div style={{ flex: 1, overflow: 'auto' }}>
             <IngestPanel
@@ -575,6 +576,9 @@ function App() {
           />
         )}
       </div>
+
+      {/* Dictionary popup — available globally on text selection when logged in */}
+      {currentUser && <DictionaryPopup />}
     </div>
   )
 }

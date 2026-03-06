@@ -11,14 +11,16 @@ interface SecondaryNodePanelProps {
   label?: string;
   onAccept?: () => void;
   onDiscard?: () => void;
+  onClose?: () => void;
 }
 
-const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selectedId, onSelect, label, onAccept, onDiscard }) => {
+const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selectedId, onSelect, label, onAccept, onDiscard, onClose }) => {
   if (!nodes || nodes.length === 0) {
     return (
       <div className="ar-snp">
         <div className="ar-snp-header">
           <span className="ar-snp-label">{label || 'Supporting Nodes'}</span>
+          {onClose && <button className="ar-snp-close" onClick={onClose}>&times;</button>}
         </div>
         <div className="ar-snp-empty">
           <p>No supporting nodes for this page.</p>
@@ -35,7 +37,10 @@ const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selected
     <div className="ar-snp">
       <div className="ar-snp-header">
         <span className="ar-snp-label">{label || 'Supporting Nodes'}</span>
-        <span className="ar-snp-count">{nodes.length}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="ar-snp-count">{nodes.length}</span>
+          {onClose && <button className="ar-snp-close" onClick={onClose}>&times;</button>}
+        </div>
       </div>
 
       <div className="ar-snp-tabs">

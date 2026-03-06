@@ -75,31 +75,39 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   const [editKeywords, setEditKeywords] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
-  // Root nodes: nodes without a parent (not a child of any other node)
+  // Root nodes: top-level nodes that are not children of any other node
   const rootNodes = useMemo(() => {
     if (!orderedNodes.length) return [];
-    // Nodes that are children via typed relationships (source RELATES_TO target, source is child)
-    const childIds = new Set(
-      (thread.relationships || []).map(r => r.source_id)
-    );
-    return orderedNodes.filter(n => !n.parent_id && !childIds.has(n.id));
+    // Collect ALL child IDs — via parent_id and via relationships (source is child of target)
+    const childIds = new Set<number>();
+    for (const n of orderedNodes) {
+      if (n.parent_id) childIds.add(n.id);
+    }
+    for (const r of (thread.relationships || [])) {
+      childIds.add(r.source_id);
+    }
+    return orderedNodes.filter(n => !childIds.has(n.id));
   }, [orderedNodes, thread.relationships]);
 
-  // Children of the current ROOT node (empty on non-ROOT pages)
+  // Supporting nodes for the current root node (via parent_id or relationships)
   const currentRootChildren = useMemo(() => {
     if (currentPage === 0 || loading || !rootNodes.length) return [];
     const node = rootNodes[currentPage - 1];
     if (!node) return [];
-    // Find children via parent_id OR via typed relationships
-    const childByParent = orderedNodes.filter(n => n.parent_id === node.id);
+    const seen = new Set<number>();
+    const children: ThreadNode[] = [];
+    const addChild = (n: ThreadNode) => { if (!seen.has(n.id)) { seen.add(n.id); children.push(n); } };
+    // Children via parent_id
+    orderedNodes.filter(n => n.parent_id === node.id).forEach(addChild);
+    // Children via typed relationships (source → target, source is child)
     const relChildIds = new Set(
       (thread.relationships || [])
         .filter(r => r.target_id === node.id)
         .map(r => r.source_id)
     );
-    const childByRel = orderedNodes.filter(n => relChildIds.has(n.id) && n.parent_id !== node.id);
-    return [...childByParent, ...childByRel];
-  }, [currentPage, orderedNodes, loading, thread.relationships]);
+    orderedNodes.filter(n => relChildIds.has(n.id)).forEach(addChild);
+    return children;
+  }, [currentPage, orderedNodes, loading, rootNodes, thread.relationships]);
 
   // Pinned nodes (Red Team / Steelman results) take precedence over children
   const effectiveSecondaryNodes = secondaryPinnedNodes ?? currentRootChildren;
@@ -342,18 +350,20 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   }, [currentPage]);
 
   // Auto-open secondary panel when on a ROOT page with children; clear pins on navigation.
-  // Never auto-close — prevents layout jump when paginating between nodes with/without children.
+  // On mobile, never auto-open — the panel is a full-screen overlay and would hijack navigation.
+  const isMobile = window.innerWidth <= 768;
   useEffect(() => {
     setSecondaryPinnedNodes(null);
     setSecondaryPanelLabel('Supporting Nodes');
     if (currentRootChildren.length > 0) {
-      setSecondaryOpen(true);
+      if (!isMobile) setSecondaryOpen(true);
       setSelectedSecondaryId((id: number | string | null) =>
         id && currentRootChildren.some(n => n.id === id) ? id : currentRootChildren[0].id
       );
     } else {
       setSelectedSecondaryId(null);
-      // Don't setSecondaryOpen(false) — sidebar stays to avoid layout jump
+      if (isMobile) setSecondaryOpen(false);
+      // On desktop: don't auto-close — prevents layout jump when paginating
     }
   }, [currentPage]); // intentionally only re-runs on page change
 
@@ -805,6 +815,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             label={secondaryPanelLabel}
             onAccept={pendingProposals ? handleAcceptProposals : undefined}
             onDiscard={pendingProposals ? handleDiscardProposals : undefined}
+            onClose={() => setSecondaryOpen(false)}
           />
         </div>
 
@@ -815,6 +826,14 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
         >
           {(chatOpen || socraticOpen) && (
             <div className="ar-resize-handle" onMouseDown={handleChatResizeStart} />
+          )}
+          {/* Mobile-only close bar for chat/socratic overlay */}
+          {(chatOpen || socraticOpen) && (
+            <div className="ar-mobile-close-bar">
+              <button className="ar-mobile-close-btn" onClick={() => { setChatOpen(false); setSocraticOpen(false); }}>
+                &larr; Back to Article
+              </button>
+            </div>
           )}
           {socraticOpen ? (
             <SocraticPanel

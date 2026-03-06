@@ -187,6 +187,29 @@
   padding: 1px 8px;
 }
 
+/* Close button — hidden on desktop, shown on mobile */
+.ar-snp-close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: all 0.15s;
+}
+
+.ar-snp-close:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
 .ar-snp-proposal-footer {
   flex-shrink: 0;
   display: flex;
@@ -283,7 +306,7 @@
   border-color: currentColor; /* overridden by inline style */
 }
 
-.ar-snp-tab-badge {
+.ar-snp-tab-badge.ar-node-badge {
   flex-shrink: 0;
   font-size: 9px;
   padding: 2px 7px;
@@ -1375,4 +1398,102 @@
 .ar-empty {
   color: rgba(255, 255, 255, 0.3);
   font-style: italic;
+}
+
+/* Mobile close bar — hidden on desktop */
+.ar-mobile-close-bar {
+  display: none;
+}
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  /* Both sidebars become full-screen overlays — no squishing */
+  .ar-secondary-sidebar--open,
+  .ar-chat-sidebar--open {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    flex: none !important;
+    z-index: 100;
+    border: none !important;
+    background: #111;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Hide the resize handles on mobile */
+  .ar-resize-handle {
+    display: none;
+  }
+
+  /* Show close button inside secondary panel on mobile */
+  .ar-snp-close {
+    display: flex;
+  }
+
+  /* Hide the floating toggle buttons behind full-screen overlays.
+     They are not needed — overlays have their own close buttons. */
+  .ar-secondary-toggle,
+  .ar-chat-toggle,
+  .ar-socratic-toggle {
+    z-index: 50;
+  }
+
+  /* Show mobile close bar inside chat/socratic overlay */
+  .ar-mobile-close-bar {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background: #161616;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+  }
+
+  /* Make ChatPanel/SocraticPanel fill remaining space in overlay */
+  .ar-chat-sidebar--open > .cp-panel,
+  .ar-chat-sidebar--open > div:last-child {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .ar-mobile-close-btn {
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.7);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .ar-mobile-close-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+
+  /* Tighter article padding */
+  .ar-content {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .ar-article-title {
+    font-size: 1.6rem;
+  }
+
+  .ar-page-nav {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .ar-page-nav button {
+    padding: 6px 14px;
+    font-size: 0.82rem;
+  }
 }

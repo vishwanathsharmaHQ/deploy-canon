@@ -1,21 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
-import QuizMode from './QuizMode';
-import { NODE_TYPES, QUALITY_BUTTONS } from '../constants';
-import type { ReviewStats } from '../types';
+import { QUALITY_BUTTONS } from '../constants';
+import type { VocabWord, VocabStats } from '../types';
 import './ReviewMode.css';
-
-interface DueNode {
-  id: number | null;
-  title: string;
-  content: string;
-  node_type: string;
-  parent_id: number | null;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-  type: number;
-}
 
 interface SessionStats {
   reviewed: number;
@@ -23,30 +10,27 @@ interface SessionStats {
   totalQuality: number;
 }
 
-interface ReviewModeProps {
-  threadId: number;
-  onClose?: () => void;
-}
-
-const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
-  const [dueNodes, setDueNodes] = useState<DueNode[]>([]);
+const ReviewMode: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
+  const [dueWords, setDueWords] = useState<VocabWord[]>([]);
+  const [allWords, setAllWords] = useState<VocabWord[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
-  const [stats, setStats] = useState<ReviewStats | null>(null);
+  const [stats, setStats] = useState<VocabStats | null>(null);
   const [sessionStats, setSessionStats] = useState<SessionStats>({ reviewed: 0, avgQuality: 0, totalQuality: 0 });
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<'review' | 'quiz'>('review');
-  const [initialized, setInitialized] = useState(false);
+  const [tab, setTab] = useState<'review' | 'list'>('review');
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [due, reviewStats] = await Promise.all([
-        api.getDueReviews(threadId),
-        api.getReviewStats(threadId),
+      const [due, vocabStats, words] = await Promise.all([
+        api.vocabDue(),
+        api.vocabStats(),
+        api.vocabList(),
       ]);
-      setDueNodes(due);
-      setStats(reviewStats);
+      setDueWords(due);
+      setStats(vocabStats);
+      setAllWords(words);
       setCurrentIndex(0);
       setRevealed(false);
     } catch (err) {
@@ -54,25 +38,15 @@ const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
     } finally {
       setLoading(false);
     }
-  }, [threadId]);
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleInit = async () => {
-    try {
-      await api.initReview(threadId);
-      setInitialized(true);
-      await loadData();
-    } catch (err) {
-      console.error('Init error:', err);
-    }
-  };
-
   const handleRate = async (quality: number) => {
-    const node = dueNodes[currentIndex];
-    if (!node || node.id == null) return;
+    const word = dueWords[currentIndex];
+    if (!word?.id) return;
     try {
-      await api.submitReview(node.id, quality);
+      await api.vocabReview(word.id, quality);
       const newSessionStats: SessionStats = {
         reviewed: sessionStats.reviewed + 1,
         totalQuality: sessionStats.totalQuality + quality,
@@ -80,11 +54,10 @@ const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
       };
       setSessionStats(newSessionStats);
 
-      if (currentIndex < dueNodes.length - 1) {
+      if (currentIndex < dueWords.length - 1) {
         setCurrentIndex(prev => prev + 1);
         setRevealed(false);
       } else {
-        // Session complete - reload
         await loadData();
       }
     } catch (err) {
@@ -92,107 +65,147 @@ const ReviewMode: React.FC<ReviewModeProps> = ({ threadId, onClose }) => {
     }
   };
 
-  const currentNode = dueNodes[currentIndex];
-
-  const parseContent = (node: DueNode | undefined): { title: string; body: string; nodeType: string } => {
-    if (!node) return { title: '', body: '', nodeType: 'claim' };
-    let body = node.content || '';
+  const handleDelete = async (wordId: number) => {
     try {
-      const parsed = JSON.parse(body);
-      body = parsed.description || parsed.point || parsed.explanation || parsed.argument || body;
-    } catch (e) {}
-    body = body.replace(/<[^>]+>/g, '');
-    return { title: node.title, body, nodeType: node.node_type };
+      await api.vocabDelete(wordId);
+      setAllWords(prev => prev.filter(w => w.id !== wordId));
+      setDueWords(prev => prev.filter(w => w.id !== wordId));
+      if (stats) setStats({ ...stats, total: (stats.total || 0) - 1 });
+    } catch (err) {
+      console.error('Delete error:', err);
+    }
   };
 
-  if (loading) return <div className="review-mode"><div className="rm-loading">Loading review data...</div></div>;
+  const currentWord = dueWords[currentIndex];
 
-  if (!stats?.reviewable && !initialized) {
-    return (
-      <div className="review-mode">
-        <div className="rm-empty">
-          <h3>No Review Data</h3>
-          <p>Initialize spaced repetition for this thread to start reviewing nodes.</p>
-          <button className="rm-init-btn" onClick={handleInit}>Initialize Review</button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!dueNodes.length) {
-    return (
-      <div className="review-mode">
-        <div className="rm-complete">
-          <h3>All caught up!</h3>
-          <p>No nodes are due for review right now.</p>
-          {stats && (
-            <div className="rm-stats-grid">
-              <div className="rm-stat"><span className="rm-stat-num">{stats.reviewable}</span><span className="rm-stat-label">Total</span></div>
-              <div className="rm-stat"><span className="rm-stat-num">{stats.mastered}</span><span className="rm-stat-label">Mastered</span></div>
-              <div className="rm-stat"><span className="rm-stat-num">{stats.due}</span><span className="rm-stat-label">Due</span></div>
-            </div>
-          )}
-          {sessionStats.reviewed > 0 && (
-            <p className="rm-session">This session: {sessionStats.reviewed} reviewed, avg quality {sessionStats.avgQuality}</p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (mode === 'quiz' && currentNode) {
-    return <QuizMode node={currentNode as any} onBack={() => setMode('review')} onRate={handleRate} />;
-  }
-
-  const { title, body, nodeType } = parseContent(currentNode);
+  if (loading) return <div className="review-mode"><div className="rm-loading">Loading vocabulary...</div></div>;
 
   return (
     <div className="review-mode">
-      <div className="rm-header">
-        <div className="rm-progress">
-          <div className="rm-progress-bar" style={{ width: `${((currentIndex) / dueNodes.length) * 100}%` }} />
-        </div>
-        <span className="rm-counter">{currentIndex + 1} / {dueNodes.length}</span>
-        <button className="rm-quiz-btn" onClick={() => setMode('quiz')}>Quiz</button>
+      {/* Tab switcher */}
+      <div className="rm-tabs">
+        <button className={`rm-tab ${tab === 'review' ? 'active' : ''}`} onClick={() => setTab('review')}>
+          Review {stats?.due ? `(${stats.due})` : ''}
+        </button>
+        <button className={`rm-tab ${tab === 'list' ? 'active' : ''}`} onClick={() => setTab('list')}>
+          All Words {stats?.total ? `(${stats.total})` : ''}
+        </button>
       </div>
 
-      <div className="rm-card" onClick={() => !revealed && setRevealed(true)}>
-        <div className="rm-card-front">
-          <span className="rm-card-type" style={{ color: nodeType === 'claim' ? '#ffd700' : '#aaa' }}>{nodeType}</span>
-          <h3 className="rm-card-title">{title}</h3>
-          {!revealed && <p className="rm-card-hint">Click to reveal</p>}
+      {tab === 'list' ? (
+        /* ── Word list ── */
+        <div className="rm-word-list">
+          {allWords.length === 0 ? (
+            <div className="rm-empty">
+              <h3>No words yet</h3>
+              <p>Select any text on the site and click "Define" to start building your vocabulary.</p>
+            </div>
+          ) : (
+            allWords.map(word => (
+              <div key={word.id} className="rm-word-item">
+                <div className="rm-word-top">
+                  <div className="rm-word-term">
+                    <span className="rm-word-text">{word.word}</span>
+                    {word.partOfSpeech && <span className="rm-word-pos">{word.partOfSpeech}</span>}
+                  </div>
+                  <div className="rm-word-meta">
+                    <span className="rm-word-reps">
+                      {(word.reviewRepetitions || 0) >= 5 ? 'mastered' : `${word.reviewRepetitions || 0} reps`}
+                    </span>
+                    <button className="rm-word-delete" onClick={() => word.id && handleDelete(word.id)} title="Remove">&times;</button>
+                  </div>
+                </div>
+                <p className="rm-word-def">{word.definition}</p>
+                {word.exampleSentence && <p className="rm-word-example">"{word.exampleSentence}"</p>}
+              </div>
+            ))
+          )}
         </div>
-        {revealed && (
-          <div className="rm-card-back">
-            <p>{body}</p>
-          </div>
-        )}
-      </div>
+      ) : (
+        /* ── Review mode ── */
+        <>
+          {!dueWords.length ? (
+            <div className="rm-complete">
+              <h3>
+                {(stats?.total || 0) === 0 ? 'No words yet' : 'All caught up!'}
+              </h3>
+              <p>
+                {(stats?.total || 0) === 0
+                  ? 'Select any text on the site and click "Define" to look up words and add them to your vocabulary.'
+                  : 'No words are due for review right now.'}
+              </p>
+              {stats && (stats.total || 0) > 0 && (
+                <div className="rm-stats-grid">
+                  <div className="rm-stat"><span className="rm-stat-num">{stats.total}</span><span className="rm-stat-label">Total</span></div>
+                  <div className="rm-stat"><span className="rm-stat-num">{stats.mastered}</span><span className="rm-stat-label">Mastered</span></div>
+                  <div className="rm-stat"><span className="rm-stat-num">{stats.reviewed}</span><span className="rm-stat-label">Reviewed</span></div>
+                </div>
+              )}
+              {sessionStats.reviewed > 0 && (
+                <p className="rm-session">This session: {sessionStats.reviewed} reviewed, avg quality {sessionStats.avgQuality}</p>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="rm-header">
+                <div className="rm-progress">
+                  <div className="rm-progress-bar" style={{ width: `${((currentIndex) / dueWords.length) * 100}%` }} />
+                </div>
+                <span className="rm-counter">{currentIndex + 1} / {dueWords.length}</span>
+              </div>
 
-      {revealed && (
-        <div className="rm-rating">
-          <p className="rm-rating-prompt">How well did you remember?</p>
-          <div className="rm-rating-buttons">
-            {QUALITY_BUTTONS.map(({ quality, label, color }) => (
-              <button
-                key={quality}
-                className="rm-rate-btn"
-                style={{ borderColor: color, color }}
-                onClick={() => handleRate(quality)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+              <div className="rm-card" onClick={() => !revealed && setRevealed(true)}>
+                <div className="rm-card-front">
+                  {currentWord?.partOfSpeech && (
+                    <span className="rm-card-type">{currentWord.partOfSpeech}</span>
+                  )}
+                  <h3 className="rm-card-title">{currentWord?.word}</h3>
+                  {currentWord?.pronunciation && (
+                    <span className="rm-card-pronunciation">{currentWord.pronunciation}</span>
+                  )}
+                  {!revealed && <p className="rm-card-hint">Click to reveal definition</p>}
+                </div>
+                {revealed && (
+                  <div className="rm-card-back">
+                    <p className="rm-card-definition">{currentWord?.definition}</p>
+                    {currentWord?.exampleSentence && (
+                      <p className="rm-card-example">"{currentWord.exampleSentence}"</p>
+                    )}
+                    {currentWord?.etymology && (
+                      <p className="rm-card-etymology">{currentWord.etymology}</p>
+                    )}
+                  </div>
+                )}
+              </div>
 
-      {stats && (
-        <div className="rm-footer-stats">
-          <span>Due: {stats.due}</span>
-          <span>Mastered: {stats.mastered}</span>
-          <span>Session: {sessionStats.reviewed}</span>
-        </div>
+              {revealed && (
+                <div className="rm-rating">
+                  <p className="rm-rating-prompt">How well did you know this?</p>
+                  <div className="rm-rating-buttons">
+                    {QUALITY_BUTTONS.map(({ quality, label, color }) => (
+                      <button
+                        key={quality}
+                        className="rm-rate-btn"
+                        style={{ borderColor: color, color }}
+                        onClick={() => handleRate(quality)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {stats && (
+                <div className="rm-footer-stats">
+                  <span>Due: {stats.due}</span>
+                  <span>Mastered: {stats.mastered}</span>
+                  <span>Session: {sessionStats.reviewed}</span>
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
     </div>
   );

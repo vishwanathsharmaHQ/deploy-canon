@@ -26,6 +26,9 @@ import type {
   ReviewStats,
   DecayDataPoint,
   QuizResult,
+  VocabWord,
+  VocabStats,
+  VocabLookupResult,
   IngestResult,
   Bookmark,
   Snapshot,
@@ -918,6 +921,57 @@ export const api = {
       headers: authHeaders(),
       body: JSON.stringify({ nodeId, quizType }),
     }, 'Quiz generation failed');
+  },
+
+  // ── Vocabulary ────────────────────────────────────────────────────────────
+
+  async vocabLookup(word: string, context: string): Promise<VocabLookupResult> {
+    return fetchWithAuth<VocabLookupResult>(`${API_BASE_URL}/vocabulary/lookup`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ word, context }),
+    }, 'Dictionary lookup failed');
+  },
+
+  async vocabSave(data: { word: string; definition: string; partOfSpeech?: string; pronunciation?: string; example?: string; etymology?: string; context?: string }): Promise<{ id: number; word: string; definition: string; created?: boolean; alreadyExists?: boolean }> {
+    return fetchWithAuth(`${API_BASE_URL}/vocabulary/words`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    }, 'Failed to save word');
+  },
+
+  async vocabList(): Promise<VocabWord[]> {
+    return fetchWithAuth<VocabWord[]>(`${API_BASE_URL}/vocabulary/words`, {
+      headers: authHeaders(),
+    }, 'Failed to fetch vocabulary');
+  },
+
+  async vocabDelete(wordId: number): Promise<{ ok: boolean }> {
+    return fetchWithAuth(`${API_BASE_URL}/vocabulary/words/${wordId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }, 'Failed to delete word');
+  },
+
+  async vocabDue(): Promise<VocabWord[]> {
+    return fetchWithAuth<VocabWord[]>(`${API_BASE_URL}/vocabulary/due`, {
+      headers: authHeaders(),
+    }, 'Failed to fetch due words');
+  },
+
+  async vocabReview(wordId: number, quality: number): Promise<{ easiness: number; interval: number; repetitions: number; dueDate: string }> {
+    return fetchWithAuth(`${API_BASE_URL}/vocabulary/review`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ wordId, quality }),
+    }, 'Review submit failed');
+  },
+
+  async vocabStats(): Promise<VocabStats> {
+    return fetchWithAuth<VocabStats>(`${API_BASE_URL}/vocabulary/stats`, {
+      headers: authHeaders(),
+    }, 'Failed to fetch vocab stats');
   },
 
   // ── Ingest ──────────────────────────────────────────────────────────────
