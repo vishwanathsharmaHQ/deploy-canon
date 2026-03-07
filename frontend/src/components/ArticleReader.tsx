@@ -74,6 +74,9 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   const [editTitle, setEditTitle] = useState('');
   const [editKeywords, setEditKeywords] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  // Highlights
+  const [highlights, setHighlights] = useState<Record<number, string[]>>({});
+  const highlightSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Root nodes: top-level nodes that are not children of any other node
   const rootNodes = useMemo(() => {
@@ -473,6 +476,172 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     }
   };
 
+  // ── Highlights: load, save, apply ──────────────────────────────────────────
+
+  // Load highlights when thread changes
+  useEffect(() => {
+    if (!thread?.id) return;
+    api.loadHighlights(thread.id).then(h => setHighlights(h || {}));
+  }, [thread?.id]);
+
+  // Persist highlights (debounced)
+  const persistHighlights = useCallback((updated: Record<number, string[]>) => {
+    if (highlightSaveTimer.current) clearTimeout(highlightSaveTimer.current);
+    highlightSaveTimer.current = setTimeout(() => {
+      api.saveHighlights(thread.id, updated).catch(e => console.error('Failed to save highlights:', e));
+    }, 800);
+  }, [thread.id]);
+
+  // Listen for highlight events from DictionaryPopup
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (!text || currentPage === 0) return;
+      const node = rootNodes[currentPage - 1];
+      if (!node) return;
+      const nodeId = node.id;
+      setHighlights(prev => {
+        const nodeHighlights = prev[nodeId] || [];
+        if (nodeHighlights.includes(text)) return prev;
+        const updated = { ...prev, [nodeId]: [...nodeHighlights, text] };
+        persistHighlights(updated);
+        return updated;
+      });
+    };
+    window.addEventListener('article-highlight', handler);
+    return () => window.removeEventListener('article-highlight', handler);
+  }, [currentPage, rootNodes, persistHighlights]);
+
+  // Click delegation on body ref for highlight removal
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const handler = (e: MouseEvent) => {
+      const mark = (e.target as HTMLElement).closest('mark.ar-highlight') as HTMLElement | null;
+      if (!mark) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const text = mark.dataset.highlightText;
+      if (!text || currentPage === 0) return;
+      const node = rootNodes[currentPage - 1];
+      if (!node) return;
+      setHighlights(prev => {
+        const nodeHighlights = (prev[node.id] || []).filter(h => h !== text);
+        const updated = { ...prev };
+        if (nodeHighlights.length === 0) {
+          delete updated[node.id];
+        } else {
+          updated[node.id] = nodeHighlights;
+        }
+        persistHighlights(updated);
+        return updated;
+      });
+    };
+    body.addEventListener('click', handler);
+    return () => body.removeEventListener('click', handler);
+  }, [currentPage, rootNodes, persistHighlights]);
+
+  // Build an HTML transform that wraps highlighted text in <mark> tags.
+  // Works across tag boundaries (e.g. text spanning <a>, <strong>, <p> tags).
+  const applyHighlightsToHtml = useCallback((html: string, nodeId: number): string => {
+    const nodeHighlights = highlights[nodeId];
+    if (!nodeHighlights || nodeHighlights.length === 0) return html;
+
+    // Split HTML into parts: text segments and tag segments
+    const parts = html.split(/(<[^>]*>)/);
+    // Build plain text and a map from plain-text offset → parts index + local offset
+    let plainText = '';
+    const partMeta: { isTag: boolean; start: number; end: number }[] = [];
+    for (const part of parts) {
+      const isTag = part.startsWith('<');
+      const start = plainText.length;
+      if (!isTag) plainText += part;
+      partMeta.push({ isTag, start, end: plainText.length });
+    }
+
+    // Find all highlight ranges in the plain text (non-overlapping, longest first)
+    const sorted = [...nodeHighlights].sort((a, b) => b.length - a.length);
+    const ranges: { start: number; end: number; text: string }[] = [];
+    const taken = new Uint8Array(plainText.length);
+
+    for (const hl of sorted) {
+      const lower = plainText.toLowerCase();
+      const hlLower = hl.toLowerCase();
+      let searchFrom = 0;
+      while (searchFrom < lower.length) {
+        const idx = lower.indexOf(hlLower, searchFrom);
+        if (idx === -1) break;
+        // Check no overlap with already-claimed ranges
+        let overlap = false;
+        for (let i = idx; i < idx + hl.length; i++) {
+          if (taken[i]) { overlap = true; break; }
+        }
+        if (!overlap) {
+          ranges.push({ start: idx, end: idx + hl.length, text: hl });
+          for (let i = idx; i < idx + hl.length; i++) taken[i] = 1;
+        }
+        searchFrom = idx + 1;
+      }
+    }
+
+    if (ranges.length === 0) return html;
+    ranges.sort((a, b) => a.start - b.start);
+
+    // Rebuild HTML, inserting <mark> and </mark> at the right plain-text offsets
+    let result = '';
+    let rangeIdx = 0;
+    let inMark = false;
+
+    for (let pi = 0; pi < parts.length; pi++) {
+      const part = parts[pi];
+      const meta = partMeta[pi];
+
+      if (meta.isTag) {
+        result += part;
+        continue;
+      }
+
+      // Walk through this text segment character by character
+      let localPos = 0;
+      const text = part;
+
+      while (localPos < text.length) {
+        const plainPos = meta.start + localPos;
+
+        // Close mark if we've reached the end of the current range
+        if (inMark && rangeIdx < ranges.length && plainPos >= ranges[rangeIdx].end) {
+          result += '</mark>';
+          inMark = false;
+          rangeIdx++;
+        }
+
+        // Open mark if we've reached the start of the next range
+        if (!inMark && rangeIdx < ranges.length && plainPos >= ranges[rangeIdx].start && plainPos < ranges[rangeIdx].end) {
+          const hl = ranges[rangeIdx].text;
+          const safe = hl.replace(/"/g, '&quot;');
+          result += `<mark class="ar-highlight" data-highlight-text="${safe}">`;
+          inMark = true;
+        }
+
+        // Find how many characters to emit before the next boundary
+        let nextBoundary = text.length;
+        if (inMark && rangeIdx < ranges.length) {
+          nextBoundary = Math.min(nextBoundary, ranges[rangeIdx].end - meta.start);
+        } else if (!inMark && rangeIdx < ranges.length) {
+          nextBoundary = Math.min(nextBoundary, ranges[rangeIdx].start - meta.start);
+        }
+        nextBoundary = Math.max(nextBoundary, localPos + 1); // advance at least 1
+
+        result += text.slice(localPos, nextBoundary);
+        localPos = nextBoundary;
+      }
+    }
+
+    if (inMark) result += '</mark>';
+
+    return result;
+  }, [highlights]);
+
   if (!thread) return null;
 
   const totalPages = 1 + rootNodes.length;
@@ -586,7 +755,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     const nodeType = getNodeType(node);
     const color = NODE_TYPE_COLORS[nodeType as NodeTypeName] || '#888';
     const nodeTitle = node.title || `Node ${node.id}`;
-    const nodeLinkify = (html: string) => linkifyNodeMentions(html, node.id);
+    const nodeLinkify = (html: string) => applyHighlightsToHtml(linkifyNodeMentions(html, node.id), node.id);
     const nodeRendered = formatNodeContent(node, SourceVerifyBadge, nodeLinkify);
     const isReactElement = React.isValidElement(nodeRendered);
 
@@ -733,7 +902,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             <h1 className="ar-title">{nodeTitle}</h1>
             <hr className="ar-divider" />
             <div className="ar-content">
-              {isReactElement ? nodeRendered : renderContent(nodeRendered, (html) => linkifyNodeMentions(html, node.id))}
+              {isReactElement ? nodeRendered : renderContent(nodeRendered, (html) => applyHighlightsToHtml(linkifyNodeMentions(html, node.id), node.id))}
             </div>
             {nodeType === 'claim' && <ConfidenceMeter threadId={thread.id} />}
             {nodeType === 'claim' && (

@@ -457,6 +457,19 @@
   color: rgba(255, 255, 255, 0.82);
 }
 
+/* ── Highlights ── */
+.ar-highlight {
+  background: rgba(255, 213, 79, 0.25);
+  color: #ffe082;
+  border-radius: 2px;
+  padding: 1px 0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ar-highlight:hover {
+  background: rgba(255, 213, 79, 0.45);
+}
+
 .ar-content p {
   margin: 0 0 1.4em;
 }

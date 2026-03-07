@@ -23,11 +23,13 @@ const DictionaryPopup: React.FC = () => {
   const buttonRef = useRef<HTMLDivElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
 
+  const [inArticle, setInArticle] = useState(false);
+
   const showForSelection = useCallback(() => {
     const selection = window.getSelection();
     const text = selection?.toString().trim() || '';
 
-    if (text && text.length > 0 && text.length < 200) {
+    if (text && text.length > 0 && text.length < 5000) {
       try {
         const range = selection!.getRangeAt(0);
         const rect = range.getBoundingClientRect();
@@ -40,6 +42,9 @@ const DictionaryPopup: React.FC = () => {
         setSaved(false);
         setAlreadyExists(false);
         setShowLookup(false);
+        // Check if selection is inside an article content area
+        const anchor = selection!.anchorNode;
+        setInArticle(!!anchor && !!(anchor as Element).closest?.('.ar-content') || !!anchor?.parentElement?.closest('.ar-content'));
       } catch {
         // getRangeAt can throw if selection is gone
       }
@@ -77,7 +82,7 @@ const DictionaryPopup: React.FC = () => {
       clearTimeout(dismissTimer.current);
       const selection = window.getSelection();
       const text = selection?.toString().trim() || '';
-      if (text && text.length > 0 && text.length < 200) {
+      if (text && text.length > 0 && text.length < 5000) {
         // Delay to let the OS selection handles settle
         dismissTimer.current = setTimeout(() => showForSelection(), 300);
       } else {
@@ -141,6 +146,12 @@ const DictionaryPopup: React.FC = () => {
     }
   };
 
+  const handleHighlight = () => {
+    window.dispatchEvent(new CustomEvent('article-highlight', { detail: { text: selectedText } }));
+    setSelectedText('');
+    setPosition(null);
+  };
+
   const handleClose = () => {
     setSelectedText('');
     setPosition(null);
@@ -152,7 +163,7 @@ const DictionaryPopup: React.FC = () => {
 
   return (
     <>
-      {/* Small "Define" button shown on text selection */}
+      {/* Small action buttons shown on text selection */}
       {!showLookup && (
         <div
           ref={buttonRef}
@@ -160,9 +171,9 @@ const DictionaryPopup: React.FC = () => {
           style={{ left: position.x, top: position.y }}
           onMouseDown={(e) => e.preventDefault()}
           onTouchStart={(e) => e.stopPropagation()}
-          onClick={handleLookup}
         >
-          Define
+          {selectedText.length < 200 && <span className="dict-trigger-btn" onClick={handleLookup}>Define</span>}
+          {inArticle && <span className="dict-trigger-btn dict-trigger-highlight" onClick={handleHighlight}>Highlight</span>}
         </div>
       )}
 

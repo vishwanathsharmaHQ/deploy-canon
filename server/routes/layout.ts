@@ -105,6 +105,28 @@ router.get('/:threadId/sequence', withSession(async (req, res) => {
   res.json(seqStr ? JSON.parse(seqStr) : null);
 }));
 
+// ── Highlights ───────────────────────────────────────────────────────────────
+
+router.get('/:threadId/highlights', withSession(async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const result = await req.neo4jSession!.run(
+    'MATCH (t:Thread {id: $threadId}) RETURN t.highlights AS highlights',
+    { threadId: getNeo4j().int(threadId) }
+  );
+  const str = result.records[0]?.get('highlights');
+  res.json(str ? JSON.parse(str) : {});
+}));
+
+router.put('/:threadId/highlights', requireAuth, withSession(async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { highlights } = req.body;
+  await req.neo4jSession!.run(
+    'MATCH (t:Thread {id: $threadId}) SET t.highlights = $highlights',
+    { threadId: getNeo4j().int(threadId), highlights: JSON.stringify(highlights) }
+  );
+  res.json({ highlights });
+}));
+
 // ── Suggest sequence (AI) ────────────────────────────────────────────────────
 
 router.post('/:threadId/sequence/suggest', requireAuth, withSession(async (req, res) => {

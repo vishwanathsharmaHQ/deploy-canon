@@ -184,6 +184,8 @@ const nodeTypes = { graphNode: GraphNode };
 
 // ── Layout algorithms for thread types ──────────────────────────────────────
 
+import dagre from '@dagrejs/dagre';
+
 interface LayoutNode {
   id: number;
   node_type: string;
@@ -424,6 +426,108 @@ function getComparisonLayout(nodes: LayoutNode[], yOffset: number): PositionMap 
   return positions;
 }
 
+/** Dagre-based auto layout — works for any thread type */
+function getDagreLayout(
+  nodes: LayoutNode[],
+  relationships: RelInfo[],
+  threadType: string,
+  _yOffset: number
+): PositionMap {
+  const positions: PositionMap = {};
+  if (!nodes.length) return positions;
+
+  const g = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+
+  // Choose direction based on thread type
+  const rankdir = threadType === 'timeline' ? 'LR' : 'TB';
+  g.setGraph({
+    rankdir,
+    nodesep: 80,
+    ranksep: 120,
+    edgesep: 40,
+    marginx: 40,
+    marginy: 40,
+  });
+
+  const nodeWidth = 160;
+  const nodeHeight = 60;
+
+  // Add thread node
+  g.setNode('thread', { width: nodeWidth, height: nodeHeight });
+
+  // Build parent map from relationships
+  const relParent: Record<number, number> = {};
+  for (const rel of relationships) {
+    if (!relParent[rel.source_id]) relParent[rel.source_id] = rel.target_id;
+  }
+
+  const parentOf = (n: LayoutNode): number | null => {
+    if (n.parent_id) return n.parent_id;
+    return relParent[n.id] ?? null;
+  };
+
+  // Identify roots (no parent)
+  const roots = nodes.filter(n => !parentOf(n));
+  const nodesWithRelParent = new Set(Object.keys(relParent).map(Number));
+
+  // Add all nodes to dagre
+  nodes.forEach(n => {
+    g.setNode(`node-${n.id}`, { width: nodeWidth, height: nodeHeight });
+  });
+
+  // For timeline, chain roots sequentially
+  if (threadType === 'timeline') {
+    const sortedRoots = sortRootsChronologically(roots);
+    // thread → first root
+    if (sortedRoots.length > 0) {
+      g.setEdge('thread', `node-${sortedRoots[0].id}`);
+    }
+    // chain roots
+    for (let i = 1; i < sortedRoots.length; i++) {
+      g.setEdge(`node-${sortedRoots[i - 1].id}`, `node-${sortedRoots[i].id}`);
+    }
+    // Non-root nodes connect to their parent
+    nodes.forEach(n => {
+      if (roots.some(r => r.id === n.id)) return;
+      const pid = parentOf(n);
+      if (pid != null) {
+        g.setEdge(`node-${n.id}`, `node-${pid}`);
+      } else {
+        g.setEdge('thread', `node-${n.id}`);
+      }
+    });
+  } else {
+    // Standard: thread → roots, parent → children
+    nodes.forEach(n => {
+      const pid = parentOf(n);
+      if (pid != null) {
+        // child → parent edge (source supports target)
+        g.setEdge(`node-${n.id}`, `node-${pid}`);
+      } else if (!nodesWithRelParent.has(n.id)) {
+        // root node — connect from thread
+        g.setEdge('thread', `node-${n.id}`);
+      }
+    });
+  }
+
+  dagre.layout(g);
+
+  // Extract positions (dagre uses center coords, convert to top-left)
+  const threadPos = g.node('thread');
+  if (threadPos) {
+    positions['thread'] = { x: threadPos.x - nodeWidth / 2, y: threadPos.y - nodeHeight / 2 };
+  }
+
+  nodes.forEach(n => {
+    const pos = g.node(`node-${n.id}`);
+    if (pos) {
+      positions[`node-${n.id}`] = { x: pos.x - nodeWidth / 2, y: pos.y - nodeHeight / 2 };
+    }
+  });
+
+  return positions;
+}
+
 interface ThreadGraphProps {
   threads: Thread[];
   onNodeClick?: (node: ThreadNode) => void;
@@ -580,15 +684,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           metadata: n.metadata,
         }));
         const rels = (thread.relationships || []).map(r => ({ source_id: r.source_id, target_id: r.target_id }));
-        if (threadType === 'timeline') {
-          typeLayoutPositions = getHistoricalLayout(layoutNodes, yOffset, rels);
-        } else if (threadType === 'comparison') {
-          typeLayoutPositions = getDebateLayout(layoutNodes, yOffset);
-        } else if (threadType === 'collection') {
-          typeLayoutPositions = getComparisonLayout(layoutNodes, yOffset);
-        } else {
-          typeLayoutPositions = getDefaultLayout(layoutNodes, rels, yOffset);
-        }
+        typeLayoutPositions = getDagreLayout(layoutNodes, rels, threadType, yOffset);
       }
 
       const threadNodeId = `thread-${thread.id}`;

@@ -2,20 +2,32 @@
   position: fixed;
   transform: translateX(-50%);
   background: #242424;
-  color: #00ff9d;
   border: 1px solid #00ff9d44;
   border-radius: 6px;
-  padding: 4px 12px;
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
   z-index: 10000;
   user-select: none;
-  transition: background 0.15s;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  display: flex;
+  overflow: hidden;
 }
-.dict-trigger:hover {
+
+.dict-trigger-btn {
+  padding: 4px 12px;
+  cursor: pointer;
+  color: #00ff9d;
+  transition: background 0.15s;
+}
+.dict-trigger-btn:hover {
   background: #00ff9d22;
+}
+.dict-trigger-highlight {
+  color: #ffd54f;
+  border-left: 1px solid #00ff9d33;
+}
+.dict-trigger-highlight:hover {
+  background: #ffd54f22;
 }
 
 .dict-popup {

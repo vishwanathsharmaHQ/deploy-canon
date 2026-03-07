@@ -391,6 +391,27 @@ export const api = {
     }
   },
 
+  // ── Highlights ─────────────────────────────────────────────────────────────
+
+  async loadHighlights(threadId: number): Promise<Record<number, string[]>> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/threads/${threadId}/highlights`);
+      if (!response.ok) return {};
+      const data = await response.json();
+      return data || {};
+    } catch {
+      return {};
+    }
+  },
+
+  async saveHighlights(threadId: number, highlights: Record<number, string[]>): Promise<void> {
+    await fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/highlights`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ highlights }),
+    }, 'Failed to save highlights');
+  },
+
   async deleteArticleSequence(threadId: number): Promise<{ success: boolean }> {
     return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/sequence`, {
       method: 'DELETE',
