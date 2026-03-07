@@ -8,13 +8,14 @@ interface SecondaryNodePanelProps {
   nodes: ThreadNode[];
   selectedId: number | string | null;
   onSelect: (id: number | string) => void;
+  onOpenNode?: (node: ThreadNode) => void;
   label?: string;
   onAccept?: () => void;
   onDiscard?: () => void;
   onClose?: () => void;
 }
 
-const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selectedId, onSelect, label, onAccept, onDiscard, onClose }) => {
+const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selectedId, onSelect, onOpenNode, label, onAccept, onDiscard, onClose }) => {
   if (!nodes || nodes.length === 0) {
     return (
       <div className="ar-snp">
@@ -53,7 +54,9 @@ const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selected
               key={node.id}
               className={`ar-snp-tab${isActive ? ' ar-snp-tab--active' : ''}`}
               onClick={() => onSelect(node.id)}
+              onDoubleClick={() => onOpenNode?.(node)}
               style={isActive ? { borderColor: color } : {}}
+              title="Double-click to open in full view"
             >
               <span
                 className="ar-snp-tab-badge ar-node-badge"
@@ -68,7 +71,7 @@ const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selected
       </div>
 
       {selectedNode && (
-        <div className="ar-snp-content">
+        <div className="ar-snp-content" onDoubleClick={() => onOpenNode?.(selectedNode)} style={{ cursor: onOpenNode ? 'pointer' : undefined }}>
           <div
             className="ar-node-badge"
             style={{ color: selectedColor, borderColor: selectedColor }}

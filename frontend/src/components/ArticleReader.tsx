@@ -48,12 +48,14 @@ interface ArticleReaderProps {
 
 const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired, savedPage, onPageChange }) => {
   const [currentPage, setCurrentPageRaw] = useState(savedPage ?? 0);
+  const [focusedSecondaryNode, setFocusedSecondaryNode] = useState<ThreadNode | null>(null);
   const setCurrentPage = useCallback((v: number | ((prev: number) => number)) => {
     setCurrentPageRaw(prev => {
       const next = typeof v === 'function' ? v(prev) : v;
       onPageChange?.(next);
       return next;
     });
+    setFocusedSecondaryNode(null);
   }, [onPageChange]);
   const [orderedNodes, setOrderedNodes] = useState<ThreadNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -754,11 +756,11 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   };
 
   const renderPage = (): React.ReactNode => {
-    if (currentPage === 0) {
+    if (currentPage === 0 && !focusedSecondaryNode) {
       return <ThreadContentEditor thread={thread} onContentChange={onContentChange} currentUser={currentUser} onAuthRequired={onAuthRequired} />;
     }
 
-    const node = rootNodes[currentPage - 1];
+    const node = focusedSecondaryNode || rootNodes[currentPage - 1];
     if (!node) return <p className="ar-empty">Node not found.</p>;
 
     const nodeType = getNodeType(node);
@@ -801,6 +803,14 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
 
     return (
       <article className="ar-article">
+        {focusedSecondaryNode && (
+          <button
+            className="ar-back-btn"
+            onClick={() => setFocusedSecondaryNode(null)}
+          >
+            ← Back to parent
+          </button>
+        )}
         <div className="ar-node-header">
           <div className="ar-node-badge" style={{ color, borderColor: color }}>{ENTITY_TYPE_LABELS[nodeType.toLowerCase()] || nodeType}</div>
           <div className="ar-node-actions">
@@ -990,6 +1000,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             nodes={effectiveSecondaryNodes}
             selectedId={selectedSecondaryId}
             onSelect={setSelectedSecondaryId}
+            onOpenNode={(node) => setFocusedSecondaryNode(node)}
             label={secondaryPanelLabel}
             onAccept={pendingProposals ? handleAcceptProposals : undefined}
             onDiscard={pendingProposals ? handleDiscardProposals : undefined}
