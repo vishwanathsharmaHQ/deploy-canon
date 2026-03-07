@@ -7,15 +7,19 @@ import { withSession } from '../middleware/session.js';
 
 const router = Router();
 
-// Configure web-push with VAPID keys
-webpush.setVapidDetails(
-  config.vapid.email,
-  config.vapid.publicKey,
-  config.vapid.privateKey
-);
+// Configure web-push with VAPID keys (only if set — avoids crashing the server)
+const pushEnabled = !!(config.vapid.publicKey && config.vapid.privateKey);
+if (pushEnabled) {
+  webpush.setVapidDetails(
+    config.vapid.email,
+    config.vapid.publicKey,
+    config.vapid.privateKey
+  );
+}
 
 // GET /vapid-key — public key for the frontend to subscribe
 router.get('/vapid-key', (_req, res) => {
+  if (!pushEnabled) return res.status(503).json({ error: 'Push not configured' });
   res.json({ publicKey: config.vapid.publicKey });
 });
 
