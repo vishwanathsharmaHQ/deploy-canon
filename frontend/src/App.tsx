@@ -329,7 +329,7 @@ function App() {
         ) : view === 'sequence' && threadToShow ? (
           <SequenceEditor thread={threadToShow} onDone={() => setView('article')} />
         ) : view === 'canvas' && threadToShow ? (
-          <ThreadCanvas thread={threadToShow} />
+          <ThreadCanvas key={threadToShow.id} thread={threadToShow} />
         ) : view === 'global' ? (
           <ReactFlowProvider>
             <GlobalGraphView onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }} />

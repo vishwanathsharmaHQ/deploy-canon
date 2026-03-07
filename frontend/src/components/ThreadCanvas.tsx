@@ -13,7 +13,7 @@ const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
   const [initialData, setInitialData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const excalidrawAPIRef = useRef<{ getSceneElements: () => unknown; getAppState: () => unknown } | null>(null);
+  const pendingSaveRef = useRef<{ threadId: number; scene: Record<string, unknown> } | null>(null);
 
   // Load saved canvas data on mount
   useEffect(() => {
@@ -37,26 +37,35 @@ const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
   const handleChange = useCallback((elements: unknown[], appState: Record<string, unknown>) => {
     if (loading) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    const scene = {
+      elements,
+      appState: {
+        viewBackgroundColor: appState.viewBackgroundColor,
+        zoom: appState.zoom,
+        scrollX: appState.scrollX,
+        scrollY: appState.scrollY,
+      },
+    };
+    pendingSaveRef.current = { threadId: thread.id, scene };
     saveTimeoutRef.current = setTimeout(() => {
-      const scene = {
-        elements,
-        appState: {
-          viewBackgroundColor: appState.viewBackgroundColor,
-          zoom: appState.zoom,
-          scrollX: appState.scrollX,
-          scrollY: appState.scrollY,
-        },
-      };
+      pendingSaveRef.current = null;
       api.saveThreadCanvas(thread.id, scene).catch((e: unknown) =>
         console.error('Failed to save canvas:', e)
       );
     }, 2000);
   }, [thread.id, loading]);
 
-  // Cleanup timeout on unmount
+  // Flush pending save on unmount (don't lose data)
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (pendingSaveRef.current) {
+        const { threadId, scene } = pendingSaveRef.current;
+        api.saveThreadCanvas(threadId, scene).catch((e: unknown) =>
+          console.error('Failed to flush canvas save:', e)
+        );
+        pendingSaveRef.current = null;
+      }
     };
   }, []);
 
