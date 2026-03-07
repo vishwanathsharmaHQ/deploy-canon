@@ -1,5 +1,3 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
-
 function authHeaders(): HeadersInit {
   const token = localStorage.getItem('token');
   return {
@@ -21,7 +19,7 @@ export async function subscribeToPush(): Promise<boolean> {
     await navigator.serviceWorker.ready;
 
     // Get VAPID public key from server
-    const resp = await fetch(`${API_BASE_URL}/api/push/vapid-key`);
+    const resp = await fetch(`/api/push/vapid-key`);
     const { publicKey } = await resp.json();
 
     // Check existing subscription
@@ -37,7 +35,7 @@ export async function subscribeToPush(): Promise<boolean> {
     }
 
     // Send subscription to server
-    await fetch(`${API_BASE_URL}/api/push/subscribe`, {
+    await fetch(`/api/push/subscribe`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ subscription: subscription.toJSON() }),
@@ -64,7 +62,7 @@ export async function unsubscribeFromPush(): Promise<void> {
     const endpoint = subscription.endpoint;
     await subscription.unsubscribe();
 
-    await fetch(`${API_BASE_URL}/api/push/subscribe`, {
+    await fetch(`/api/push/subscribe`, {
       method: 'DELETE',
       headers: authHeaders(),
       body: JSON.stringify({ endpoint }),
