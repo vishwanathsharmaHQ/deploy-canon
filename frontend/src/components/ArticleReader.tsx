@@ -42,10 +42,19 @@ interface ArticleReaderProps {
   onViewInGraph?: (nodeId: number) => void;
   currentUser: User | null | undefined;
   onAuthRequired?: () => void;
+  savedPage?: number;
+  onPageChange?: (page: number) => void;
 }
 
-const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired }) => {
-  const [currentPage, setCurrentPage] = useState(0);
+const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired, savedPage, onPageChange }) => {
+  const [currentPage, setCurrentPageRaw] = useState(savedPage ?? 0);
+  const setCurrentPage = useCallback((v: number | ((prev: number) => number)) => {
+    setCurrentPageRaw(prev => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      onPageChange?.(next);
+      return next;
+    });
+  }, [onPageChange]);
   const [orderedNodes, setOrderedNodes] = useState<ThreadNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);

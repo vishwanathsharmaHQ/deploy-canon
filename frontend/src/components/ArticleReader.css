@@ -1490,22 +1490,67 @@
     color: #fff;
   }
 
-  /* Tighter article padding */
+  /* ── Mobile article layout cleanup ── */
+
   .ar-content {
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
   .ar-article-title {
     font-size: 1.6rem;
   }
 
-  .ar-page-nav {
+  /* Stack header: badge on top, actions below */
+  .ar-node-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  /* Action buttons: horizontal scroll instead of wrapping */
+  .ar-node-actions {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
+    padding-bottom: 4px;
+  }
+  .ar-node-actions::-webkit-scrollbar { display: none; }
+
+  .ar-action-btn,
+  .ar-edit-btn,
+  .ar-graph-btn,
+  .ar-delete-btn {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    padding: 4px 10px;
+  }
+
+  /* Smaller title */
+  .ar-title {
+    font-size: 1.4rem;
+    line-height: 1.3;
+    margin-bottom: 6px;
+  }
+
+  /* Hide floating toggle icons on mobile — use overlays instead */
+  .ar-secondary-toggle,
+  .ar-chat-toggle,
+  .ar-socratic-toggle {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+
+  /* Compact nav bar */
+  .ar-nav {
     padding: 8px 12px;
     gap: 8px;
   }
-
-  .ar-page-nav button {
+  .ar-nav-btn {
     padding: 6px 14px;
     font-size: 0.82rem;
   }

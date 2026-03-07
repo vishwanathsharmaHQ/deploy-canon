@@ -30,6 +30,12 @@ const config = {
     maxEmbeddingChars: 8_000,
   },
 
+  vapid: {
+    publicKey: process.env.VAPID_PUBLIC_KEY!,
+    privateKey: process.env.VAPID_PRIVATE_KEY!,
+    email: process.env.VAPID_EMAIL || 'mailto:admin@canonthread.com',
+  },
+
   limits: {
     backfillThreads: 20,
     backfillNodes: 50,

@@ -22,6 +22,18 @@ export function withSession(handler: RouteHandler) {
 }
 
 /**
+ * Standalone session wrapper for non-request contexts (cron jobs, etc.).
+ */
+export async function withSessionAsync<T>(fn: (session: ReturnType<typeof getSession>) => Promise<T>): Promise<T> {
+  const session = getSession();
+  try {
+    return await fn(session);
+  } finally {
+    await session.close();
+  }
+}
+
+/**
  * Wraps a route handler to auto-open/close a Neo4j transaction.
  * The transaction is available as req.neo4jTx and session as req.neo4jSession.
  * Auto-commits on success, auto-rollbacks on error.

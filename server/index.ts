@@ -22,6 +22,7 @@ import linkRoutes from './routes/links.js';
 import graphRoutes from './routes/graph.js';
 import snapshotRoutes from './routes/snapshots.js';
 import sourceRoutes from './routes/sources.js';
+import pushRoutes, { sendVocabReminders } from './routes/push.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +59,7 @@ app.use('/api/links', linkRoutes);
 app.use('/api/graph', graphRoutes);
 app.use('/api/sources', sourceRoutes);
 app.use('/api/threads', snapshotRoutes); // /api/threads/:threadId/snapshots, confidence, timeline, export
+app.use('/api/push', pushRoutes);
 
 // ── Standalone endpoints ────────────────────────────────────────────────────
 app.post('/api/verify-source', async (req, res, next) => {
@@ -110,6 +112,14 @@ if (!process.env.VERCEL) {
     ensureVectorIndexes()
       .then(() => backfillEmbeddings())
       .catch(e => console.warn('Startup embedding setup:', e.message));
+
+    // Vocab review reminder — check every hour
+    if (process.env.VAPID_PUBLIC_KEY) {
+      setInterval(() => {
+        sendVocabReminders().catch(e => console.warn('Vocab reminder error:', e.message));
+      }, 60 * 60 * 1000); // 1 hour
+      console.log('Push notification reminders enabled (hourly).');
+    }
   });
 }
 

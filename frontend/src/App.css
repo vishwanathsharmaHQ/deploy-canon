@@ -51,6 +51,16 @@
   gap: 10px;
 }
 
+.btn-notif {
+  font-size: 16px;
+  padding: 4px 8px;
+  min-width: auto;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.btn-notif:hover { opacity: 0.8; }
+.btn-notif--on { opacity: 1; }
+
 .user-email {
   color: #888;
   font-size: 0.8rem;

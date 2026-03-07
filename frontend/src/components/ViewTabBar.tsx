@@ -10,6 +10,7 @@ const TABS: { key: ViewName; label: string }[] = [
   { key: 'canvas', label: 'Canvas' },
   { key: 'chat', label: 'Chat' },
   { key: 'review', label: 'Review' },
+  { key: 'highlights', label: 'Highlights' },
   { key: 'ingest', label: 'Ingest' },
   { key: 'timeline', label: 'Timeline' },
   { key: 'summary', label: 'Summary' },

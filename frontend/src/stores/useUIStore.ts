@@ -12,6 +12,7 @@ interface UIState {
   isSearchLoading: boolean;
   loading: boolean;
   error: string | null;
+  articlePage: Record<number, number>; // threadId → currentPage
 
   setView: (view: ViewName) => void;
   toggleFullScreen: () => void;
@@ -23,6 +24,7 @@ interface UIState {
   setIsSearchLoading: (loading: boolean) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+  setArticlePage: (threadId: number, page: number) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -36,6 +38,7 @@ export const useUIStore = create<UIState>((set) => ({
   isSearchLoading: false,
   loading: false,
   error: null,
+  articlePage: {},
 
   setView: (view) => set({ view }),
   toggleFullScreen: () => set((state) => ({ isFullScreen: !state.isFullScreen })),
@@ -47,4 +50,5 @@ export const useUIStore = create<UIState>((set) => ({
   setIsSearchLoading: (loading) => set({ isSearchLoading: loading }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
+  setArticlePage: (threadId, page) => set((state) => ({ articlePage: { ...state.articlePage, [threadId]: page } })),
 }));

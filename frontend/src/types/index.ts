@@ -259,7 +259,8 @@ export type ViewName =
   | 'summary'
   | 'dashboard'
   | 'compare'
-  | 'citations';
+  | 'citations'
+  | 'highlights';
 
 export interface CitationSource {
   id: string;

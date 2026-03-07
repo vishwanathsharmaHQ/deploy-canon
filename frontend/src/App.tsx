@@ -14,6 +14,7 @@ import GlobalGraphView from './components/GlobalGraphView'
 import SemanticSearchPanel from './components/SemanticSearchPanel'
 import ReviewMode from './components/ReviewMode'
 import DictionaryPopup from './components/DictionaryPopup'
+import HighlightsView from './components/HighlightsView'
 import IngestPanel from './components/IngestPanel'
 import ReadLaterQueue from './components/ReadLaterQueue'
 import ThreadTimeline from './components/ThreadTimeline'
@@ -25,6 +26,7 @@ import CommandPalette from './components/CommandPalette'
 import type { Command } from './components/CommandPalette'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { api } from './services/api'
+import { subscribeToPush, unsubscribeFromPush, isPushSubscribed, isPushSupported } from './services/push'
 import { NODE_TYPES, THREAD_TYPES } from './constants'
 import type { ThreadNode, ViewName } from './types'
 import { useAuthStore } from './stores/useAuthStore'
@@ -43,6 +45,7 @@ function App() {
     showSemanticSearch, setShowSemanticSearch,
     showThreadDropdown, setShowThreadDropdown,
     searchQuery, setSearchQuery, isSearchLoading, setIsSearchLoading,
+    articlePage, setArticlePage,
   } = useUIStore()
   const {
     threads, selectedThreadId, setSelectedThreadId,
@@ -60,6 +63,26 @@ function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [templates, setTemplates] = useState<Array<{ key: string; name: string; description: string; nodeCount: number }>>([])
   const [templateLoading, setTemplateLoading] = useState<string | null>(null)
+
+  // ── Push notifications ─────────────────────────────────────────────────────
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const pushSupported = isPushSupported()
+
+  useEffect(() => {
+    if (currentUser && pushSupported) {
+      isPushSubscribed().then(setPushEnabled)
+    }
+  }, [currentUser])
+
+  const togglePush = async () => {
+    if (pushEnabled) {
+      await unsubscribeFromPush()
+      setPushEnabled(false)
+    } else {
+      const ok = await subscribeToPush()
+      setPushEnabled(ok)
+    }
+  }
 
   // ── Auth check on mount ─────────────────────────────────────────────────────
   useEffect(() => { checkAuth() }, [])
@@ -256,6 +279,15 @@ function App() {
           {currentUser ? (
             <div className="user-menu">
               <span className="user-email">{currentUser.email}</span>
+              {pushSupported && (
+                <button
+                  className={`btn-outline btn-notif${pushEnabled ? ' btn-notif--on' : ''}`}
+                  onClick={togglePush}
+                  title={pushEnabled ? 'Notifications on — click to disable' : 'Enable notifications'}
+                >
+                  {pushEnabled ? '🔔' : '🔕'}
+                </button>
+              )}
               <button className="btn-outline" onClick={() => { logout() }}>Sign out</button>
             </div>
           ) : (
@@ -271,7 +303,7 @@ function App() {
       </div>
 
       <div className="main-content">
-        {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest' || view === 'dashboard' || view === 'compare' || view === 'citations' || view === 'review') && (
+        {(threadToShow || view === 'chat' || view === 'global' || view === 'ingest' || view === 'dashboard' || view === 'compare' || view === 'citations' || view === 'review' || view === 'highlights') && (
           <ViewTabBar
             view={view}
             onChangeView={(newView: ViewName) => {
@@ -341,6 +373,8 @@ function App() {
             initialNodeId={graphSelectedNodeId}
             currentUser={currentUser}
             onAuthRequired={() => setShowAuthModal(true)}
+            savedPage={articlePage[threadToShow.id]}
+            onPageChange={(page) => setArticlePage(threadToShow.id, page)}
             onContentChange={(html: string) => {
               setThreads(threads.map(t =>
                 t.id === threadToShow.id ? { ...t, content: html } : t
@@ -350,6 +384,15 @@ function App() {
             onNodesCreated={onNodesCreated}
             onThreadCreated={onThreadCreated}
             onViewInGraph={(nodeId: number) => { setGraphSelectedNodeId(nodeId); setView('graph') }}
+          />
+        ) : view === 'highlights' ? (
+          <HighlightsView
+            threads={threads}
+            onNavigate={(threadId, nodeId) => {
+              setSelectedThreadId(threadId)
+              setGraphSelectedNodeId(nodeId)
+              setView('article')
+            }}
           />
         ) : null}
 
