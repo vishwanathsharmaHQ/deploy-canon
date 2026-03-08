@@ -50,11 +50,13 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   const [currentPage, setCurrentPageRaw] = useState(savedPage ?? 0);
   const [focusedSecondaryNode, setFocusedSecondaryNode] = useState<ThreadNode | null>(null);
   const setCurrentPage = useCallback((v: number | ((prev: number) => number)) => {
+    let nextPage: number;
     setCurrentPageRaw(prev => {
-      const next = typeof v === 'function' ? v(prev) : v;
-      onPageChange?.(next);
-      return next;
+      nextPage = typeof v === 'function' ? v(prev) : v;
+      return nextPage;
     });
+    // Update parent outside the state updater to avoid setState-during-render
+    queueMicrotask(() => onPageChange?.(nextPage!));
     setFocusedSecondaryNode(null);
   }, [onPageChange]);
   const [orderedNodes, setOrderedNodes] = useState<ThreadNode[]>([]);
@@ -492,7 +494,12 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   // Load highlights when thread changes
   useEffect(() => {
     if (!thread?.id) return;
-    api.loadHighlights(thread.id).then(h => setHighlights(h || {}));
+    api.loadHighlights(thread.id).then(h => {
+      // Normalize string keys from JSON to numbers
+      const normalized: Record<number, string[]> = {};
+      for (const [k, v] of Object.entries(h || {})) normalized[Number(k)] = v as string[];
+      setHighlights(normalized);
+    });
   }, [thread?.id]);
 
   // Persist highlights (debounced)
@@ -508,9 +515,15 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     const handler = (e: Event) => {
       const text = (e as CustomEvent).detail?.text;
       if (!text || currentPage === 0) return;
-      const node = rootNodes[currentPage - 1];
-      if (!node) return;
-      const nodeId = node.id;
+      // Find which node actually contains the highlighted text
+      const rootNode = rootNodes[currentPage - 1];
+      if (!rootNode) return;
+      const candidates = [rootNode, ...orderedNodes.filter(n => n.id !== rootNode.id)];
+      const matchNode = candidates.find(n => {
+        const c = typeof n.content === 'string' ? n.content : JSON.stringify(n.content || '');
+        return c.toLowerCase().includes(text.toLowerCase());
+      });
+      const nodeId = matchNode?.id ?? rootNode.id;
       setHighlights(prev => {
         const nodeHighlights = prev[nodeId] || [];
         if (nodeHighlights.includes(text)) return prev;
@@ -521,7 +534,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     };
     window.addEventListener('article-highlight', handler);
     return () => window.removeEventListener('article-highlight', handler);
-  }, [currentPage, rootNodes, persistHighlights]);
+  }, [currentPage, rootNodes, orderedNodes, persistHighlights]);
 
   // Click delegation on body ref for highlight removal
   useEffect(() => {
@@ -533,16 +546,15 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
       e.preventDefault();
       e.stopPropagation();
       const text = mark.dataset.highlightText;
-      if (!text || currentPage === 0) return;
-      const node = rootNodes[currentPage - 1];
-      if (!node) return;
+      const markNodeId = Number(mark.dataset.highlightNodeId);
+      if (!text || !markNodeId) return;
       setHighlights(prev => {
-        const nodeHighlights = (prev[node.id] || []).filter(h => h !== text);
+        const nodeHighlights = (prev[markNodeId] || []).filter(h => h !== text);
         const updated = { ...prev };
         if (nodeHighlights.length === 0) {
-          delete updated[node.id];
+          delete updated[markNodeId];
         } else {
-          updated[node.id] = nodeHighlights;
+          updated[markNodeId] = nodeHighlights;
         }
         persistHighlights(updated);
         return updated;
@@ -630,7 +642,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
         if (!inMark && rangeIdx < ranges.length && plainPos >= ranges[rangeIdx].start && plainPos < ranges[rangeIdx].end) {
           const hl = ranges[rangeIdx].text;
           const safe = hl.replace(/"/g, '&quot;');
-          result += `<mark class="ar-highlight" data-highlight-text="${safe}">`;
+          result += `<mark class="ar-highlight" data-highlight-text="${safe}" data-highlight-node-id="${nodeId}">`;
           inMark = true;
         }
 
