@@ -29,6 +29,20 @@
 .dict-trigger-highlight:hover {
   background: #ffd54f22;
 }
+.dict-trigger-ask {
+  color: #64b5f6;
+  border-left: 1px solid #00ff9d33;
+}
+.dict-trigger-ask:hover {
+  background: #64b5f622;
+}
+.dict-trigger-custom {
+  color: #ce93d8;
+  border-left: 1px solid #00ff9d33;
+}
+.dict-trigger-custom:hover {
+  background: #ce93d822;
+}
 
 .dict-popup {
   position: fixed;
@@ -169,12 +183,136 @@
   font-size: 13px;
 }
 
+/* ── Ask popup ── */
+.dict-ask-popup {
+  width: 440px;
+  max-height: 500px;
+}
+
+.dict-ask-question {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64b5f6;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.dict-ask-selected {
+  font-size: 13px;
+  color: #aaa;
+  font-style: italic;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 2px solid #64b5f6;
+  border-radius: 0 4px 4px 0;
+  max-height: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dict-ask-answer {
+  font-size: 14px;
+  color: #e0e0e0;
+  line-height: 1.7;
+}
+
+.dict-ask-answer p { margin: 0 0 0.6em; }
+.dict-ask-answer p:last-child { margin-bottom: 0; }
+.dict-ask-answer h1, .dict-ask-answer h2, .dict-ask-answer h3 {
+  color: #fff;
+  font-weight: 600;
+  margin: 0.8em 0 0.3em;
+  font-size: 1rem;
+}
+.dict-ask-answer ul, .dict-ask-answer ol {
+  padding-left: 18px;
+  margin: 0.3em 0 0.6em;
+}
+.dict-ask-answer li { margin: 0.2em 0; }
+.dict-ask-answer strong { color: #fff; }
+.dict-ask-answer code {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+  color: #00ff9d;
+}
+.dict-ask-answer a {
+  color: #00ff9d;
+  text-decoration: underline;
+}
+
+.dict-ask-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 14px;
+  background: #64b5f6;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: dict-blink 0.8s step-end infinite;
+}
+@keyframes dict-blink {
+  50% { opacity: 0; }
+}
+
+/* ── Custom question input ── */
+.dict-custom-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dict-custom-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  padding: 8px 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.dict-custom-input:focus {
+  border-color: #ce93d8;
+}
+.dict-custom-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.dict-custom-send {
+  background: #ce93d820;
+  border: 1px solid #ce93d844;
+  color: #ce93d8;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.dict-custom-send:hover:not(:disabled) {
+  background: #ce93d835;
+}
+.dict-custom-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ── Mobile ── */
 @media (max-width: 768px) {
   .dict-popup {
     width: calc(100vw - 24px);
     max-width: 360px;
     left: 50% !important;
+  }
+
+  .dict-ask-popup {
+    max-width: 440px;
   }
 
   .dict-word {

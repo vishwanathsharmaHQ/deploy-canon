@@ -10,7 +10,7 @@ interface SessionStats {
   totalQuality: number;
 }
 
-const ReviewMode: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
+const ReviewMode: React.FC<{ onClose?: () => void; threadId?: number | null }> = ({ onClose, threadId }) => {
   const [dueWords, setDueWords] = useState<VocabWord[]>([]);
   const [allWords, setAllWords] = useState<VocabWord[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -24,9 +24,9 @@ const ReviewMode: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
     setLoading(true);
     try {
       const [due, vocabStats, words] = await Promise.all([
-        api.vocabDue(),
-        api.vocabStats(),
-        api.vocabList(),
+        api.vocabDue(threadId),
+        api.vocabStats(threadId),
+        api.vocabList(threadId),
       ]);
       setDueWords(due);
       setStats(vocabStats);
@@ -38,7 +38,7 @@ const ReviewMode: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [threadId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 

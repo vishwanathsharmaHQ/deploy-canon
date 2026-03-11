@@ -56,7 +56,7 @@ Return JSON with this exact structure:
 
 // ── Save a word to vocabulary (auto-creates SRS card) ────────────────────────
 router.post('/words', requireAuth, withSession(async (req, res) => {
-  const { word, definition, partOfSpeech, pronunciation, example, etymology, context } = req.body;
+  const { word, definition, partOfSpeech, pronunciation, example, etymology, context, threadId } = req.body;
   if (!word?.trim() || !definition?.trim()) {
     return res.status(400).json({ error: 'word and definition are required' });
   }
@@ -98,6 +98,7 @@ router.post('/words', requireAuth, withSession(async (req, res) => {
       example_sentence: $example,
       etymology: $etymology,
       context: $context,
+      source_thread_id: $threadId,
       created_by: $userId,
       created_at: $now,
       review_easiness: 2.5,
@@ -117,6 +118,7 @@ router.post('/words', requireAuth, withSession(async (req, res) => {
       example: example || '',
       etymology: etymology || '',
       context: context || '',
+      threadId: threadId ? getNeo4j().int(threadId) : null,
       userId: getNeo4j().int(userId),
       now,
     }
@@ -129,11 +131,17 @@ router.post('/words', requireAuth, withSession(async (req, res) => {
 router.get('/words', requireAuth, withSession(async (req, res) => {
   const session = req.neo4jSession!;
   const userId = (req.user as { id: number }).id;
+  const threadId = req.query.threadId ? Number(req.query.threadId) : null;
+
+  const threadFilter = threadId ? ' AND v.source_thread_id = $threadId' : '';
+  const params: Record<string, unknown> = { userId: getNeo4j().int(userId) };
+  if (threadId) params.threadId = getNeo4j().int(threadId);
 
   const result = await session.run(
     `MATCH (v:VocabWord {created_by: $userId})
+     WHERE true${threadFilter}
      RETURN v ORDER BY v.created_at DESC`,
-    { userId: getNeo4j().int(userId) }
+    params
   );
 
   const words = result.records.map(r => {
@@ -147,6 +155,7 @@ router.get('/words', requireAuth, withSession(async (req, res) => {
       exampleSentence: p.example_sentence || '',
       etymology: p.etymology || '',
       context: p.context || '',
+      sourceThreadId: toNum(p.source_thread_id) || null,
       createdAt: p.created_at,
       reviewDueDate: p.review_due_date,
       reviewInterval: toNum(p.review_interval) || 0,
@@ -177,12 +186,17 @@ router.get('/due', requireAuth, withSession(async (req, res) => {
   const session = req.neo4jSession!;
   const userId = (req.user as { id: number }).id;
   const today = new Date().toISOString().split('T')[0];
+  const threadId = req.query.threadId ? Number(req.query.threadId) : null;
+
+  const threadFilter = threadId ? ' AND v.source_thread_id = $threadId' : '';
+  const params: Record<string, unknown> = { userId: getNeo4j().int(userId), today };
+  if (threadId) params.threadId = getNeo4j().int(threadId);
 
   const result = await session.run(
     `MATCH (v:VocabWord {created_by: $userId})
-     WHERE v.review_due_date IS NOT NULL AND v.review_due_date <= $today
+     WHERE v.review_due_date IS NOT NULL AND v.review_due_date <= $today${threadFilter}
      RETURN v ORDER BY v.review_due_date ASC`,
-    { userId: getNeo4j().int(userId), today }
+    params
   );
 
   const words = result.records.map(r => {
@@ -257,15 +271,21 @@ router.get('/stats', requireAuth, withSession(async (req, res) => {
   const session = req.neo4jSession!;
   const userId = (req.user as { id: number }).id;
   const today = new Date().toISOString().split('T')[0];
+  const threadId = req.query.threadId ? Number(req.query.threadId) : null;
+
+  const threadFilter = threadId ? ' AND v.source_thread_id = $threadId' : '';
+  const params: Record<string, unknown> = { userId: getNeo4j().int(userId), today };
+  if (threadId) params.threadId = getNeo4j().int(threadId);
 
   const result = await session.run(
     `MATCH (v:VocabWord {created_by: $userId})
+     WHERE true${threadFilter}
      WITH count(v) AS total,
           count(CASE WHEN v.review_due_date <= $today AND v.review_due_date IS NOT NULL THEN 1 END) AS due,
           count(CASE WHEN v.review_repetitions >= 5 THEN 1 END) AS mastered,
           count(CASE WHEN v.review_last_date IS NOT NULL THEN 1 END) AS reviewed
      RETURN total, due, mastered, reviewed`,
-    { userId: getNeo4j().int(userId), today }
+    params
   );
 
   const r = result.records[0];

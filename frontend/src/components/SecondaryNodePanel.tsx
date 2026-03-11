@@ -37,10 +37,12 @@ const SecondaryNodePanel: React.FC<SecondaryNodePanelProps> = ({ nodes, selected
   return (
     <div className="ar-snp">
       <div className="ar-snp-header">
-        <span className="ar-snp-label">{label || 'Supporting Nodes'}</span>
+        <span className="ar-snp-label" style={label?.startsWith('←') ? { cursor: 'pointer' } : undefined} onClick={label?.startsWith('←') ? onClose : undefined}>
+          {label || 'Supporting Nodes'}
+        </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span className="ar-snp-count">{nodes.length}</span>
-          {onClose && <button className="ar-snp-close" onClick={onClose}>&times;</button>}
+          {onClose && <button className="ar-snp-close" onClick={onClose} title={label?.startsWith('←') ? 'Go back' : 'Close'}>{label?.startsWith('←') ? '←' : '×'}</button>}
         </div>
       </div>
 

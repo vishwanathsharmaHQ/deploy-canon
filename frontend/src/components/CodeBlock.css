@@ -1,0 +1,114 @@
+/* ── Code block with syntax highlighting ── */
+.code-block-wrapper {
+  position: relative;
+  margin: 0.8em 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0d1117;
+}
+
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.code-block-lang {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.code-block-copy {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  padding: 2px 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.code-block-copy:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.code-block-pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  background: transparent;
+  border: none;
+}
+
+.code-block-pre code {
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  line-height: 1.6;
+  color: #e6edf3;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* ── highlight.js GitHub Dark theme (inline) ── */
+.code-block-pre .hljs-comment,
+.code-block-pre .hljs-quote { color: #8b949e; font-style: italic; }
+
+.code-block-pre .hljs-keyword,
+.code-block-pre .hljs-selector-tag,
+.code-block-pre .hljs-type { color: #ff7b72; }
+
+.code-block-pre .hljs-string,
+.code-block-pre .hljs-addition { color: #a5d6ff; }
+
+.code-block-pre .hljs-number,
+.code-block-pre .hljs-literal { color: #79c0ff; }
+
+.code-block-pre .hljs-built_in,
+.code-block-pre .hljs-builtin-name { color: #ffa657; }
+
+.code-block-pre .hljs-function .hljs-title,
+.code-block-pre .hljs-title.function_ { color: #d2a8ff; }
+
+.code-block-pre .hljs-variable,
+.code-block-pre .hljs-template-variable,
+.code-block-pre .hljs-attr { color: #79c0ff; }
+
+.code-block-pre .hljs-attribute { color: #7ee787; }
+
+.code-block-pre .hljs-tag { color: #7ee787; }
+.code-block-pre .hljs-name { color: #7ee787; }
+
+.code-block-pre .hljs-selector-class,
+.code-block-pre .hljs-selector-id { color: #d2a8ff; }
+
+.code-block-pre .hljs-deletion { color: #ffa198; background: rgba(255, 129, 130, 0.1); }
+.code-block-pre .hljs-addition { background: rgba(63, 185, 80, 0.1); }
+
+.code-block-pre .hljs-emphasis { font-style: italic; }
+.code-block-pre .hljs-strong { font-weight: 700; }
+
+.code-block-pre .hljs-meta { color: #79c0ff; }
+.code-block-pre .hljs-regexp { color: #a5d6ff; }
+.code-block-pre .hljs-symbol { color: #ffa657; }
+
+/* Scrollbar for code blocks */
+.code-block-pre::-webkit-scrollbar {
+  height: 6px;
+}
+.code-block-pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+.code-block-pre::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}

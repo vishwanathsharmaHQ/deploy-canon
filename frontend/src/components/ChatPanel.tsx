@@ -67,6 +67,8 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
   const [acceptingIndex, setAcceptingIndex] = useState<number | null>(null);
   const [threadTypeOverrides, setThreadTypeOverrides] = useState<Record<number, string>>({}); // { [msgIndex]: threadType }
 
+  const [chatHighlights, setChatHighlights] = useState<string[]>([]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -95,6 +97,18 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
   useEffect(() => {
     loadChatHistory(selectedThreadId);
   }, [selectedThreadId, loadChatHistory]);
+
+  // Listen for chat highlight events
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (!text) return;
+      setChatHighlights(prev => prev.includes(text) ? prev : [...prev, text]);
+    };
+    window.addEventListener('chat-highlight', handler);
+    return () => window.removeEventListener('chat-highlight', handler);
+  }, []);
+
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || loading) return;
@@ -267,7 +281,33 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                     </>
                   ) : (
                     <>
-                      <div className="cp-markdown">
+                      <div className="cp-markdown" ref={(el) => {
+                        if (el && chatHighlights.length > 0) {
+                          // Apply highlights to rendered text nodes
+                          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                          const nodes: Text[] = [];
+                          let textNode: Text | null;
+                          while ((textNode = walker.nextNode() as Text)) nodes.push(textNode);
+                          for (const tn of nodes) {
+                            if (tn.parentElement?.closest('mark.cp-chat-highlight')) continue;
+                            let html = tn.textContent || '';
+                            let changed = false;
+                            for (const hl of chatHighlights) {
+                              const escaped = hl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                              const re = new RegExp(`(${escaped})`, 'gi');
+                              if (re.test(html)) {
+                                html = html.replace(re, '<mark class="cp-chat-highlight" data-hl="$1">$1</mark>');
+                                changed = true;
+                              }
+                            }
+                            if (changed) {
+                              const span = document.createElement('span');
+                              span.innerHTML = html;
+                              tn.replaceWith(span);
+                            }
+                          }
+                        }
+                      }}>
                         <ReactMarkdown components={mdComponents as Record<string, React.ComponentType>}>{msg.content}</ReactMarkdown>
                       </div>
 
@@ -416,7 +456,23 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
               )}
 
               {msg.role === 'error' && (
-                <div className="cp-bubble cp-bubble--error">{msg.content}</div>
+                <div className="cp-bubble cp-bubble--error">
+                  {msg.content}
+                  <button
+                    className="cp-retry-btn"
+                    onClick={() => {
+                      // Find the last user message before this error
+                      const lastUserMsg = [...messages].slice(0, i).reverse().find(m => m.role === 'user');
+                      if (lastUserMsg) {
+                        // Remove error message and retry
+                        setMessages(prev => prev.filter((_, mi) => mi !== i));
+                        setInput(lastUserMsg.content);
+                      }
+                    }}
+                  >
+                    Retry
+                  </button>
+                </div>
               )}
             </div>
           ))}

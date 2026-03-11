@@ -125,8 +125,33 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     return children;
   }, [currentPage, orderedNodes, loading, rootNodes, thread.relationships]);
 
-  // Pinned nodes (Red Team / Steelman results) take precedence over children
-  const effectiveSecondaryNodes = secondaryPinnedNodes ?? currentRootChildren;
+  // Stack for navigating into supporting nodes' children
+  const [secondaryNavStack, setSecondaryNavStack] = useState<{ nodeId: number; nodeTitle: string }[]>([]);
+
+  // Get children of a specific node
+  const getNodeChildren = useCallback((nodeId: number): ThreadNode[] => {
+    const seen = new Set<number>();
+    const children: ThreadNode[] = [];
+    const addChild = (n: ThreadNode) => { if (!seen.has(n.id)) { seen.add(n.id); children.push(n); } };
+    orderedNodes.filter(n => n.parent_id === nodeId).forEach(addChild);
+    const relChildIds = new Set(
+      (thread.relationships || [])
+        .filter(r => r.target_id === nodeId)
+        .map(r => r.source_id)
+    );
+    orderedNodes.filter(n => relChildIds.has(n.id)).forEach(addChild);
+    return children;
+  }, [orderedNodes, thread.relationships]);
+
+  // If navigated into a supporting node, show its children
+  const drilledChildren = useMemo(() => {
+    if (secondaryNavStack.length === 0) return null;
+    const lastNode = secondaryNavStack[secondaryNavStack.length - 1];
+    return getNodeChildren(lastNode.nodeId);
+  }, [secondaryNavStack, getNodeChildren]);
+
+  // Pinned nodes (Red Team / Steelman results) take precedence, then drilled children, then current root children
+  const effectiveSecondaryNodes = secondaryPinnedNodes ?? drilledChildren ?? currentRootChildren;
 
   // Map of lowercase node titles → { id, pageIndex, title } for cross-node linking
   const nodeLinkMap = useMemo(() => {
@@ -174,20 +199,28 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     return result.join('');
   }, [nodeLinkMap]);
 
-  // Click delegation for node links in the article body
+  // Click delegation for node links and external links in the article body
   const bodyRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
     const handler = (e: MouseEvent) => {
-      const link = (e.target as HTMLElement).closest('.ar-node-link') as HTMLElement | null;
-      if (!link) return;
-      e.preventDefault();
-      const nodeId = link.dataset.nodeId;
-      if (!nodeId) return;
-      const numId = parseInt(nodeId);
-      const idx = rootNodes.findIndex(n => n.id === numId || String(n.id) === nodeId);
-      if (idx >= 0) setCurrentPage(idx + 1);
+      const nodeLink = (e.target as HTMLElement).closest('.ar-node-link') as HTMLElement | null;
+      if (nodeLink) {
+        e.preventDefault();
+        const nodeId = nodeLink.dataset.nodeId;
+        if (!nodeId) return;
+        const numId = parseInt(nodeId);
+        const idx = rootNodes.findIndex(n => n.id === numId || String(n.id) === nodeId);
+        if (idx >= 0) setCurrentPage(idx + 1);
+        return;
+      }
+      // Make all links in ar-content clickable (opens in new tab)
+      const anchor = (e.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+      if (anchor && anchor.href && !anchor.href.startsWith('#') && !anchor.classList.contains('ar-node-link')) {
+        e.preventDefault();
+        window.open(anchor.href, '_blank', 'noopener,noreferrer');
+      }
     };
     body.addEventListener('click', handler);
     return () => body.removeEventListener('click', handler);
@@ -371,6 +404,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   useEffect(() => {
     setSecondaryPinnedNodes(null);
     setSecondaryPanelLabel('Supporting Nodes');
+    setSecondaryNavStack([]);
     if (currentRootChildren.length > 0) {
       if (!isMobile) setSecondaryOpen(true);
       setSelectedSecondaryId((id: number | string | null) =>
@@ -436,6 +470,17 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             .filter(n => ordered.some(o => o.id === n.id)); // remove deleted nodes
           const newNodes = ordered.filter(n => !prevIds.has(n.id));
           const merged = [...preserved, ...newNodes];
+
+          // Navigate to the last new root node added (from chat node creation)
+          if (newNodes.length > 0) {
+            const relChildIds = new Set((thread.relationships || []).map(r => r.source_id));
+            const mergedRoots = merged.filter(n => !n.parent_id && !relChildIds.has(n.id));
+            const lastNewRoot = [...newNodes].reverse().find(n => !n.parent_id && !relChildIds.has(n.id));
+            if (lastNewRoot) {
+              const idx = mergedRoots.findIndex(n => n.id === lastNewRoot.id);
+              if (idx >= 0) queueMicrotask(() => setCurrentPage(idx + 1));
+            }
+          }
 
           // Check if enrich just completed — auto-open sidebar for the enriched node
           const enrichedId = enrichedNodeRef.current;
@@ -1012,11 +1057,39 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             nodes={effectiveSecondaryNodes}
             selectedId={selectedSecondaryId}
             onSelect={setSelectedSecondaryId}
-            onOpenNode={(node) => setFocusedSecondaryNode(node)}
-            label={secondaryPanelLabel}
+            onOpenNode={(node) => {
+              // Always show the double-clicked node in the article panel
+              setFocusedSecondaryNode(node);
+              // If it has children, show them in the sidebar
+              const children = getNodeChildren(node.id);
+              if (children.length > 0) {
+                setSecondaryNavStack(prev => [...prev, { nodeId: node.id, nodeTitle: node.title || `Node ${node.id}` }]);
+                setSelectedSecondaryId(children[0].id);
+              }
+            }}
+            label={secondaryNavStack.length > 0
+              ? `← ${secondaryNavStack[secondaryNavStack.length - 1].nodeTitle}`
+              : secondaryPanelLabel}
             onAccept={pendingProposals ? handleAcceptProposals : undefined}
             onDiscard={pendingProposals ? handleDiscardProposals : undefined}
-            onClose={() => setSecondaryOpen(false)}
+            onClose={() => {
+              if (secondaryNavStack.length > 0) {
+                // Go back one level
+                const prev = [...secondaryNavStack];
+                prev.pop();
+                setSecondaryNavStack(prev);
+                if (prev.length === 0) {
+                  // Back to root children
+                  setSelectedSecondaryId(currentRootChildren[0]?.id ?? null);
+                } else {
+                  const parentId = prev[prev.length - 1].nodeId;
+                  const parentChildren = getNodeChildren(parentId);
+                  setSelectedSecondaryId(parentChildren[0]?.id ?? null);
+                }
+              } else {
+                setSecondaryOpen(false);
+              }
+            }}
           />
         </div>
 

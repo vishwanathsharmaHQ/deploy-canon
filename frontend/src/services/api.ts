@@ -487,6 +487,7 @@ export const api = {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let receivedDone = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -502,12 +503,17 @@ export const api = {
           const event = JSON.parse(line.slice(6));
           if (event.type === 'token') onToken?.(event.content);
           else if (event.type === 'processing') onProcessing?.();
-          else if (event.type === 'done') setTimeout(() => onDone?.(event), 0);
+          else if (event.type === 'done') { receivedDone = true; setTimeout(() => onDone?.(event), 0); }
           else if (event.type === 'error') onError?.(new Error(event.error));
         } catch {
           // malformed line
         }
       }
+    }
+
+    // Stream ended without a done event — connection was cut mid-stream
+    if (!receivedDone) {
+      onError?.(new Error('Response was cut off. Please try again.'));
     }
   },
 
@@ -962,8 +968,9 @@ export const api = {
     }, 'Failed to save word');
   },
 
-  async vocabList(): Promise<VocabWord[]> {
-    return fetchWithAuth<VocabWord[]>(`${API_BASE_URL}/vocabulary/words`, {
+  async vocabList(threadId?: number | null): Promise<VocabWord[]> {
+    const qs = threadId ? `?threadId=${threadId}` : '';
+    return fetchWithAuth<VocabWord[]>(`${API_BASE_URL}/vocabulary/words${qs}`, {
       headers: authHeaders(),
     }, 'Failed to fetch vocabulary');
   },
@@ -975,8 +982,9 @@ export const api = {
     }, 'Failed to delete word');
   },
 
-  async vocabDue(): Promise<VocabWord[]> {
-    return fetchWithAuth<VocabWord[]>(`${API_BASE_URL}/vocabulary/due`, {
+  async vocabDue(threadId?: number | null): Promise<VocabWord[]> {
+    const qs = threadId ? `?threadId=${threadId}` : '';
+    return fetchWithAuth<VocabWord[]>(`${API_BASE_URL}/vocabulary/due${qs}`, {
       headers: authHeaders(),
     }, 'Failed to fetch due words');
   },
@@ -989,8 +997,9 @@ export const api = {
     }, 'Review submit failed');
   },
 
-  async vocabStats(): Promise<VocabStats> {
-    return fetchWithAuth<VocabStats>(`${API_BASE_URL}/vocabulary/stats`, {
+  async vocabStats(threadId?: number | null): Promise<VocabStats> {
+    const qs = threadId ? `?threadId=${threadId}` : '';
+    return fetchWithAuth<VocabStats>(`${API_BASE_URL}/vocabulary/stats${qs}`, {
       headers: authHeaders(),
     }, 'Failed to fetch vocab stats');
   },

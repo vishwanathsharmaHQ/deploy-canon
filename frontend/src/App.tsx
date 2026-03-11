@@ -236,7 +236,13 @@ function App() {
     { id: 'article', name: 'Article view', description: 'Switch to article tab', action: () => setView('article') },
     { id: 'chat', name: 'Chat', description: 'Switch to chat tab', action: () => setView('chat') },
     { id: 'global', name: 'Global graph', description: 'Switch to global view', action: () => setView('global') },
-    { id: 'fullscreen', name: 'Toggle fullscreen', description: 'Enter or exit fullscreen mode', action: toggleFullScreen },
+    { id: 'fullscreen', name: 'Toggle fullscreen', description: 'Enter or exit fullscreen mode', shortcut: 'f', action: toggleFullScreen },
+    { id: 'next-node', name: 'Next node', description: 'Select next node in graph', shortcut: 'j', action: () => {} },
+    { id: 'prev-node', name: 'Previous node', description: 'Select previous node in graph', shortcut: 'k', action: () => {} },
+    { id: 'edit-node', name: 'Edit node', description: 'Edit the selected node', shortcut: 'e', action: () => {} },
+    { id: 'add-node', name: 'Add child node', description: 'Add a child to the selected node', shortcut: 'a', action: () => {} },
+    { id: 'red-team', name: 'Red-team node', description: 'Challenge the selected node', shortcut: 'r', action: () => {} },
+    { id: 'expand', name: 'Expand/collapse', description: 'Toggle node details', shortcut: 'Space', action: () => {} },
     { id: 'signin', name: 'Sign in', description: 'Open the authentication modal', action: () => setShowAuthModal(true) },
   ], [toggleFullScreen, currentUser])
 
@@ -244,7 +250,50 @@ function App() {
     'Mod+k': { action: () => setShowCommandPalette(prev => !prev), description: 'Toggle command palette' },
     'Mod+n': { action: () => requireLogin(() => setShowCreateThreadModal(true)), description: 'Create new thread' },
     '/': { action: () => searchInputRef.current?.focus(), description: 'Focus search' },
-  }), [currentUser]))
+    'f': { action: toggleFullScreen, description: 'Toggle fullscreen' },
+    'j': { action: () => {
+      const nodes = threadToShow?.nodes || [];
+      if (!nodes.length) return;
+      const idx = nodes.findIndex(n => n.id === graphSelectedNodeId);
+      const next = idx < nodes.length - 1 ? idx + 1 : 0;
+      setGraphSelectedNodeId(nodes[next].id);
+    }, description: 'Next node' },
+    'k': { action: () => {
+      const nodes = threadToShow?.nodes || [];
+      if (!nodes.length) return;
+      const idx = nodes.findIndex(n => n.id === graphSelectedNodeId);
+      const prev = idx > 0 ? idx - 1 : nodes.length - 1;
+      setGraphSelectedNodeId(nodes[prev].id);
+    }, description: 'Previous node' },
+    'e': { action: () => {
+      if (!graphSelectedNodeId || !threadToShow) return;
+      const node = threadToShow.nodes?.find(n => n.id === graphSelectedNodeId);
+      if (node) requireLogin(() => { setEditorNode(node); setView('editor'); });
+    }, description: 'Edit selected node' },
+    'a': { action: () => {
+      if (!threadToShow) return;
+      const parentNode = graphSelectedNodeId ? threadToShow.nodes?.find(n => n.id === graphSelectedNodeId) : null;
+      requireLogin(() => {
+        setEditorNode(parentNode || { id: 0, thread_id: threadToShow.id, title: '', content: '', node_type: 'claim' } as unknown as ThreadNode);
+        setView('editor');
+      });
+    }, description: 'Add child node' },
+    'c': { action: () => { setView('chat'); }, description: 'Open chat' },
+    'r': { action: () => {
+      if (!graphSelectedNodeId || !threadToShow) return;
+      const node = threadToShow.nodes?.find(n => n.id === graphSelectedNodeId);
+      if (node) {
+        setView('chat');
+        // Dispatch a custom event so ChatPanel can pick up the red-team request
+        window.dispatchEvent(new CustomEvent('trigger-red-team', { detail: { nodeId: node.id, nodeTitle: node.title } }));
+      }
+    }, description: 'Red-team selected node' },
+    ' ': { action: () => {
+      if (!graphSelectedNodeId || !threadToShow) return;
+      const node = threadToShow.nodes?.find(n => n.id === graphSelectedNodeId);
+      if (node) setSelectedNode(selectedNode?.id === node.id ? null : node);
+    }, description: 'Expand/collapse node details' },
+  }), [currentUser, toggleFullScreen, threadToShow, graphSelectedNodeId, selectedNode]))
 
   // ── Click outside dropdown ──────────────────────────────────────────────────
   useEffect(() => {
@@ -335,7 +384,7 @@ function App() {
             <GlobalGraphView onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }} />
           </ReactFlowProvider>
         ) : view === 'review' ? (
-          <ReviewMode onClose={() => setView('graph')} />
+          <ReviewMode onClose={() => setView('graph')} threadId={selectedThreadId} />
         ) : view === 'ingest' ? (
           <div style={{ flex: 1, overflow: 'auto' }}>
             <IngestPanel
@@ -387,7 +436,7 @@ function App() {
           />
         ) : view === 'highlights' ? (
           <HighlightsView
-            threads={threads}
+            threads={threadToShow ? [threadToShow] : threads}
             onNavigate={(threadId, nodeId) => {
               setSelectedThreadId(threadId)
               setGraphSelectedNodeId(nodeId)

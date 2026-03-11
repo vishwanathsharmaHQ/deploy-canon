@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { api } from '../services/api';
+import { createMdComponents } from '../utils/markdown';
 import './DictionaryPopup.css';
+
+const askMdComponents = createMdComponents('dict-youtube');
 
 interface LookupResult {
   word: string;
@@ -11,6 +15,8 @@ interface LookupResult {
   etymology: string;
 }
 
+type PopupMode = 'buttons' | 'define' | 'ask' | 'custom';
+
 const DictionaryPopup: React.FC = () => {
   const [selectedText, setSelectedText] = useState('');
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
@@ -18,12 +24,21 @@ const DictionaryPopup: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [alreadyExists, setAlreadyExists] = useState(false);
-  const [showLookup, setShowLookup] = useState(false);
+  const [mode, setMode] = useState<PopupMode>('buttons');
+
+  // Ask mode state
+  const [askAnswer, setAskAnswer] = useState('');
+  const [askLoading, setAskLoading] = useState(false);
+  const [askQuestion, setAskQuestion] = useState('');
+  const [customInput, setCustomInput] = useState('');
+
   const popupRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
+  const customInputRef = useRef<HTMLInputElement>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const [inArticle, setInArticle] = useState(false);
+  const [inChat, setInChat] = useState(false);
 
   const showForSelection = useCallback(() => {
     const selection = window.getSelection();
@@ -33,7 +48,6 @@ const DictionaryPopup: React.FC = () => {
       try {
         const range = selection!.getRangeAt(0);
         const rect = range.getBoundingClientRect();
-        // Position above the selection on mobile (avoids OS handles), below on desktop
         const isMobile = 'ontouchstart' in window;
         const y = isMobile ? rect.top - 40 : rect.bottom + 8;
         setSelectedText(text);
@@ -41,10 +55,13 @@ const DictionaryPopup: React.FC = () => {
         setLookup(null);
         setSaved(false);
         setAlreadyExists(false);
-        setShowLookup(false);
-        // Check if selection is inside an article content area
+        setMode('buttons');
+        setAskAnswer('');
+        setAskQuestion('');
+        setCustomInput('');
         const anchor = selection!.anchorNode;
         setInArticle(!!anchor && !!(anchor as Element).closest?.('.ar-content') || !!anchor?.parentElement?.closest('.ar-content'));
+        setInChat(!!anchor && !!(anchor as Element).closest?.('.cp-bubble') || !!anchor?.parentElement?.closest('.cp-bubble'));
       } catch {
         // getRangeAt can throw if selection is gone
       }
@@ -55,7 +72,9 @@ const DictionaryPopup: React.FC = () => {
     if (popupRef.current?.contains(document.activeElement) || buttonRef.current?.contains(document.activeElement)) return;
     setSelectedText('');
     setPosition(null);
-    setShowLookup(false);
+    setMode('buttons');
+    setAskAnswer('');
+    setAskQuestion('');
   }, []);
 
   // Desktop: mouseup
@@ -74,22 +93,19 @@ const DictionaryPopup: React.FC = () => {
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [showForSelection, dismiss]);
 
-  // Mobile: selectionchange — fires after the OS selection UI settles
+  // Mobile: selectionchange
   useEffect(() => {
-    if (!('ontouchstart' in window)) return; // only on touch devices
-
+    if (!('ontouchstart' in window)) return;
     const handleSelectionChange = () => {
       clearTimeout(dismissTimer.current);
       const selection = window.getSelection();
       const text = selection?.toString().trim() || '';
       if (text && text.length > 0 && text.length < 5000) {
-        // Delay to let the OS selection handles settle
         dismissTimer.current = setTimeout(() => showForSelection(), 300);
       } else {
         dismissTimer.current = setTimeout(dismiss, 400);
       }
     };
-
     document.addEventListener('selectionchange', handleSelectionChange);
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
@@ -109,10 +125,10 @@ const DictionaryPopup: React.FC = () => {
     if (y < 8) y = 8;
     if (rect.bottom > vh - 16) y = position.y - rect.height - 50;
     if (x !== position.x || y !== position.y) setPosition({ x, y });
-  }, [lookup, showLookup]);
+  }, [lookup, mode, askAnswer]);
 
   const handleLookup = async () => {
-    setShowLookup(true);
+    setMode('define');
     setLoading(true);
     try {
       const result = await api.vocabLookup(selectedText, '');
@@ -147,16 +163,57 @@ const DictionaryPopup: React.FC = () => {
   };
 
   const handleHighlight = () => {
-    window.dispatchEvent(new CustomEvent('article-highlight', { detail: { text: selectedText } }));
+    if (inChat) {
+      window.dispatchEvent(new CustomEvent('chat-highlight', { detail: { text: selectedText } }));
+    } else {
+      window.dispatchEvent(new CustomEvent('article-highlight', { detail: { text: selectedText } }));
+    }
     setSelectedText('');
     setPosition(null);
+  };
+
+  const handleAsk = async (question: string) => {
+    setMode('ask');
+    setAskQuestion(question);
+    setAskAnswer('');
+    setAskLoading(true);
+
+    const fullQuestion = `${question}: "${selectedText}"`;
+
+    try {
+      await api.chatStream({
+        message: fullQuestion,
+        history: [],
+        onToken: (token: string) => {
+          setAskAnswer(prev => prev + token);
+        },
+        onDone: () => {
+          setAskLoading(false);
+        },
+        onError: (err: Error) => {
+          setAskAnswer(prev => prev || `Error: ${err.message}`);
+          setAskLoading(false);
+        },
+      });
+    } catch (err) {
+      setAskAnswer(`Error: ${(err as Error).message}`);
+      setAskLoading(false);
+    }
+  };
+
+  const handleCustomSubmit = () => {
+    const q = customInput.trim();
+    if (!q) return;
+    handleAsk(q);
   };
 
   const handleClose = () => {
     setSelectedText('');
     setPosition(null);
-    setShowLookup(false);
+    setMode('buttons');
     setLookup(null);
+    setAskAnswer('');
+    setAskQuestion('');
   };
 
   if (!selectedText || !position) return null;
@@ -164,7 +221,7 @@ const DictionaryPopup: React.FC = () => {
   return (
     <>
       {/* Small action buttons shown on text selection */}
-      {!showLookup && (
+      {mode === 'buttons' && (
         <div
           ref={buttonRef}
           className="dict-trigger"
@@ -173,12 +230,68 @@ const DictionaryPopup: React.FC = () => {
           onTouchStart={(e) => e.stopPropagation()}
         >
           {selectedText.length < 200 && <span className="dict-trigger-btn" onClick={handleLookup}>Define</span>}
-          {inArticle && <span className="dict-trigger-btn dict-trigger-highlight" onClick={handleHighlight}>Highlight</span>}
+          {(inArticle || inChat) && <span className="dict-trigger-btn dict-trigger-highlight" onClick={handleHighlight}>Highlight</span>}
+          <span className="dict-trigger-btn dict-trigger-ask" onClick={() => handleAsk('Explain why this is the case')}>Why?</span>
+          <span className="dict-trigger-btn dict-trigger-ask" onClick={() => handleAsk('Explain how this works')}>How?</span>
+          <span className="dict-trigger-btn dict-trigger-custom" onClick={() => setMode('custom')}>Ask...</span>
+        </div>
+      )}
+
+      {/* Custom question input */}
+      {mode === 'custom' && (
+        <div
+          ref={popupRef}
+          className="dict-popup dict-ask-popup"
+          style={{ left: position.x, top: position.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <button className="dict-close" onClick={handleClose}>&times;</button>
+          <div className="dict-ask-selected">"{selectedText.length > 100 ? selectedText.substring(0, 100) + '...' : selectedText}"</div>
+          <div className="dict-custom-input-row">
+            <input
+              ref={customInputRef}
+              className="dict-custom-input"
+              type="text"
+              placeholder="Ask anything about this text..."
+              value={customInput}
+              onChange={(e) => setCustomInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCustomSubmit(); if (e.key === 'Escape') handleClose(); }}
+              autoFocus
+            />
+            <button className="dict-custom-send" onClick={handleCustomSubmit} disabled={!customInput.trim()}>Ask</button>
+          </div>
+        </div>
+      )}
+
+      {/* Ask answer popup (streaming) */}
+      {mode === 'ask' && (
+        <div
+          ref={popupRef}
+          className="dict-popup dict-ask-popup"
+          style={{ left: position.x, top: position.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <button className="dict-close" onClick={handleClose}>&times;</button>
+          <div className="dict-ask-question">{askQuestion}</div>
+          <div className="dict-ask-selected">"{selectedText.length > 100 ? selectedText.substring(0, 100) + '...' : selectedText}"</div>
+          {askLoading && !askAnswer ? (
+            <div className="dict-loading">
+              <div className="dict-spinner" />
+              Thinking...
+            </div>
+          ) : (
+            <div className="dict-ask-answer">
+              <ReactMarkdown components={askMdComponents as Record<string, React.ComponentType>}>{askAnswer}</ReactMarkdown>
+              {askLoading && <span className="dict-ask-cursor" />}
+            </div>
+          )}
         </div>
       )}
 
       {/* Full dictionary popup */}
-      {showLookup && (
+      {mode === 'define' && (
         <div
           ref={popupRef}
           className="dict-popup"
