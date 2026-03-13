@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import config from '../config.js';
 import type { Record as Neo4jRecord } from 'neo4j-driver';
 import { getNeo4j, toNum } from '../db/driver.js';
 import { vectorQuery, formatThread, formatNode } from '../db/queries.js';
@@ -103,7 +104,7 @@ router.post('/answer', requireAuth, aiTimeout, withSession(async (req, res) => {
 
   const openai = getOpenAI();
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: config.gemini.chatModel,
     temperature: 0.3,
     messages: [
       { role: 'system', content: 'Answer the question using ONLY the provided knowledge base excerpts. Cite sources by thread name. If the knowledge base doesn\'t contain enough information, say so.' },

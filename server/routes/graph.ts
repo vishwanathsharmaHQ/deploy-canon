@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import config from '../config.js';
 import { getNeo4j, toNum } from '../db/driver.js';
 import { formatThread, formatNode } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -72,7 +73,7 @@ router.post('/concepts/extract', requireAuth, aiTimeout, withSession(async (req,
 
   const openai = getOpenAI();
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini', temperature: 0.2,
+    model: config.gemini.chatModel, temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: 'Extract 2-5 key concept tags from the given content. Return JSON: { "concepts": ["concept1", "concept2", ...] }. Concepts should be general academic/domain terms (e.g., "machine learning", "cognitive bias"), not specific claims.' },

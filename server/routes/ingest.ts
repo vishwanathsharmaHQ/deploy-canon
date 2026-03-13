@@ -49,7 +49,7 @@ router.post('/url', requireAuth, aiTimeout, async (req, res, next) => {
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: config.openai.chatModel, temperature: 0.3,
+      model: config.gemini.chatModel, temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -126,7 +126,7 @@ router.post('/pdf', requireAuth, aiTimeout, async (req, res, next) => {
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: config.openai.chatModel, temperature: 0.3,
+      model: config.gemini.chatModel, temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
         {

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import config from '../config.js';
 import { getNeo4j, toNum } from '../db/driver.js';
 import { formatNode } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -163,7 +164,7 @@ router.post('/quiz', requireAuth, aiTimeout, withSession(async (req, res) => {
     : `Create a recall quiz question about this knowledge node. Return JSON: { "question": "<question testing recall of key facts>", "hint": "<a helpful hint>", "idealAnswer": "<the correct detailed answer>" }`;
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini', temperature: 0.6,
+    model: config.gemini.chatModel, temperature: 0.6,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: prompt },

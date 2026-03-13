@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import config from '../config.js';
 import { getNeo4j, toNum } from '../db/driver.js';
 import { formatThread } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -144,7 +145,7 @@ router.post('/:threadId/sequence/suggest', requireAuth, withSession(async (req, 
   const { getOpenAI } = await import('../services/openai.js');
   const openai = getOpenAI();
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: config.gemini.chatModel,
     temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [

@@ -99,8 +99,8 @@
 .ar-resize-handle {
   position: absolute;
   top: 0;
-  left: -3px;
-  width: 6px;
+  left: 0;
+  width: 8px;
   height: 100%;
   cursor: col-resize;
   z-index: 20;

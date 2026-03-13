@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import OpenAI from 'openai';
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import { GeminiCompat } from '../services/openai.js';
 import config from '../config.js';
 import { getNeo4j, toNum, getSession } from '../db/driver.js';
 import { getNextId, formatThread, formatNode, ENTITY_TYPES } from '../db/queries.js';
@@ -40,12 +39,12 @@ router.post('/chat', requireAuth, async (req, res) => {
 
   try {
     // Fresh OpenAI client — user-supplied key or env fallback
-    const client = new OpenAI({
-      apiKey: apiKey || config.openai.apiKey,
-      timeout: config.openai.timeout,
+    const client = new GeminiCompat({
+      apiKey: apiKey || config.gemini.apiKey,
+      timeout: config.gemini.timeout,
     });
 
-    const model = config.openai.chatModel;
+    const model = config.gemini.chatModel;
 
     // Build messages array for the LLM
     // Detect context type: node-specific vs thread-level
@@ -69,7 +68,7 @@ router.post('/chat', requireAuth, async (req, res) => {
       systemPrompt += `\n\nThe user is currently viewing the node "${ctx.title}" (type: ${ctx.nodeType}). When they say "this" or "it", they are referring to this specific topic. Provide detailed information about this subject.`;
     }
 
-    const llmMessages: ChatCompletionMessageParam[] = [
+    const llmMessages: { role: string; content: string }[] = [
       { role: 'system', content: systemPrompt },
       ...history,
     ];
@@ -91,7 +90,6 @@ router.post('/chat', requireAuth, async (req, res) => {
     // ── Try Responses API with web_search_preview first ────────────────────
     let usedResponsesApi = false;
     try {
-      // @ts-expect-error — Responses API not yet in openai types
       const response = await client.responses.create({
         model,
         tools: [{ type: 'web_search_preview' }],
@@ -192,9 +190,9 @@ router.post(
 
     const session = req.neo4jSession!;
 
-    const client = new OpenAI({
-      apiKey: apiKey || config.openai.apiKey,
-      timeout: config.openai.timeout,
+    const client = new GeminiCompat({
+      apiKey: apiKey || config.gemini.apiKey,
+      timeout: config.gemini.timeout,
     });
 
     // ── Gather existing thread context for topic-shift detection ───────────
@@ -358,7 +356,7 @@ Additional rules:
     let extracted: ExtractionResult;
     try {
       const completion = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: config.gemini.chatModel,
         messages: extractionMessages,
         temperature: 0.1,
       });
@@ -537,7 +535,7 @@ Return ONLY valid JSON (no markdown fencing):
   "nodeFromAnswer": null or { "type": "EVIDENCE|CONTEXT|SYNTHESIS|EXAMPLE|COUNTERPOINT", "title": "short title", "content": "the insight" }
 }`;
 
-    const llmMessages: ChatCompletionMessageParam[] = [{ role: 'system', content: systemPrompt }];
+    const llmMessages: { role: string; content: string }[] = [{ role: 'system', content: systemPrompt }];
 
     // Replay history
     for (const h of history) {
@@ -553,7 +551,7 @@ Return ONLY valid JSON (no markdown fencing):
 
     try {
       const completion = await openai.chat.completions.create({
-        model: config.openai.chatModel,
+        model: config.gemini.chatModel,
         messages: llmMessages,
         temperature: 0.7,
       });
@@ -904,14 +902,14 @@ router.post(
       }
 
       // Fresh OpenAI client
-      const client = new OpenAI({
-        apiKey: config.openai.apiKey,
-        timeout: config.openai.timeout,
+      const client = new GeminiCompat({
+        apiKey: config.gemini.apiKey,
+        timeout: config.gemini.timeout,
       });
 
-      const model = config.openai.chatModel;
+      const model = config.gemini.chatModel;
 
-      const llmMessages: ChatCompletionMessageParam[] = [
+      const llmMessages: { role: string; content: string }[] = [
         { role: 'system', content: systemPrompt },
         ...history,
         { role: 'user', content: message },
@@ -922,7 +920,6 @@ router.post(
       // ── Try Responses API first, fallback to chat.completions ────────────────
       let usedResponsesApi = false;
       try {
-        // @ts-expect-error — Responses API not yet in openai types
         const response = await client.responses.create({
           model,
           input: llmMessages,
@@ -970,7 +967,7 @@ router.post(
       let weaknesses_found: { description: string; severity: 'high' | 'medium' | 'low' }[] = [];
 
       try {
-        const extractionMessages: ChatCompletionMessageParam[] = [
+        const extractionMessages: { role: string; content: string }[] = [
           {
             role: 'system',
             content: `You are analyzing a debate about the position: "${rootClaim}".
@@ -990,7 +987,7 @@ If no new weaknesses were revealed in this exchange, return {"weaknesses": []}.`
         ];
 
         const extraction = await client.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: config.gemini.chatModel,
           messages: extractionMessages,
           temperature: 0.1,
         });

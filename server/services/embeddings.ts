@@ -12,7 +12,7 @@ export async function ensureVectorIndexes(): Promise<void> {
       CREATE VECTOR INDEX thread_embedding IF NOT EXISTS
       FOR (t:Thread) ON (t.embedding)
       OPTIONS {indexConfig: {
-        \`vector.dimensions\`: ${config.openai.embeddingDimensions},
+        \`vector.dimensions\`: ${config.gemini.embeddingDimensions},
         \`vector.similarity_function\`: 'cosine'
       }}
     `);
@@ -20,7 +20,7 @@ export async function ensureVectorIndexes(): Promise<void> {
       CREATE VECTOR INDEX node_embedding IF NOT EXISTS
       FOR (n:Node) ON (n.embedding)
       OPTIONS {indexConfig: {
-        \`vector.dimensions\`: ${config.openai.embeddingDimensions},
+        \`vector.dimensions\`: ${config.gemini.embeddingDimensions},
         \`vector.similarity_function\`: 'cosine'
       }}
     `);

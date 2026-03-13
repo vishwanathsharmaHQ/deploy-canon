@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import config from '../config.js';
 import { getNeo4j, toNum } from '../db/driver.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
@@ -26,7 +27,7 @@ router.post('/lookup', requireAuth, aiTimeout, async (req, res) => {
   const contextHint = context ? `\nThe word/phrase appears in this context: "${context}"` : '';
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: config.gemini.chatModel,
     temperature: 0.3,
     response_format: { type: 'json_object' },
     messages: [

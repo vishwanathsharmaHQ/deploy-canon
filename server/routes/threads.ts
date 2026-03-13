@@ -478,7 +478,7 @@ Format as JSON:
     }
 
     const threadResponse = await getOpenAI().chat.completions.create({
-      model: config.openai.chatModel,
+      model: config.gemini.chatModel,
       messages: [
         { role: 'system', content: generationPrompt },
         { role: 'user', content: `Create a knowledge thread about: ${topic}` },
@@ -779,7 +779,7 @@ router.post(
         )).join('\n\n');
 
         const gptRes = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: config.gemini.chatModel,
           temperature: 0.2,
           messages: [{
             role: 'system',
@@ -1049,7 +1049,7 @@ router.post(
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.gemini.chatModel,
       temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
@@ -1285,7 +1285,7 @@ router.post(
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.gemini.chatModel,
       temperature: 0.85,
       response_format: { type: 'json_object' },
       messages: [
@@ -1344,7 +1344,7 @@ router.post(
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.gemini.chatModel,
       temperature: 0.7,
       response_format: { type: 'json_object' },
       messages: [
@@ -1484,7 +1484,7 @@ router.post(
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.gemini.chatModel,
       temperature: 0.2,
       response_format: { type: 'json_object' },
       messages: [
@@ -1581,7 +1581,7 @@ router.get(
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.gemini.chatModel,
       temperature: 0.2,
       response_format: { type: 'json_object' },
       messages: [
@@ -1666,7 +1666,7 @@ router.post(
 
     // Step 1: Generate perspective names
     const perspectiveCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.gemini.chatModel,
       temperature: 0.8,
       response_format: { type: 'json_object' },
       messages: [
@@ -1692,7 +1692,7 @@ Return JSON: { "perspectives": [{ "name": "Perspective Name", "description": "1-
 
     for (const pDef of perspectiveDefs as { name: string; description: string }[]) {
       const nodesCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: config.gemini.chatModel,
         temperature: 0.7,
         response_format: { type: 'json_object' },
         messages: [
@@ -1948,7 +1948,7 @@ router.post(
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.gemini.chatModel,
       temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
@@ -2084,7 +2084,7 @@ router.post(
         nodeContent = nodeContent.replace(/<[^>]+>/g, ' ').substring(0, 600);
 
         const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: config.gemini.chatModel,
           temperature: 0.85,
           response_format: { type: 'json_object' },
           messages: [
@@ -2186,7 +2186,7 @@ router.post(
     // 4. Call OpenAI with web_search_preview
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.gemini.chatModel,
       messages: [
         {
           role: 'system',

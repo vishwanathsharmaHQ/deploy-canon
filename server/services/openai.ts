@@ -1,20 +1,241 @@
-import OpenAI from 'openai';
+import { GoogleGenerativeAI, GenerativeModel, Content, Part } from '@google/generative-ai';
 import config from '../config.js';
 
-let _openai: OpenAI | null = null;
+// ── Gemini client singleton ─────────────────────────────────────────────────
+let _genAI: GoogleGenerativeAI | null = null;
 
-export function getOpenAI(): OpenAI {
-  if (_openai) return _openai;
-  _openai = new OpenAI({ apiKey: config.openai.apiKey, timeout: config.openai.timeout });
-  return _openai;
+function getGenAI(apiKey?: string): GoogleGenerativeAI {
+  if (!apiKey && _genAI) return _genAI;
+  const ai = new GoogleGenerativeAI(apiKey || config.gemini.apiKey);
+  if (!apiKey) _genAI = ai;
+  return ai;
 }
+
+// ── Message conversion helpers ──────────────────────────────────────────────
+interface ChatMessage {
+  role: string;
+  content: string;
+}
+
+function convertMessages(messages: ChatMessage[]): { systemInstruction?: string; contents: Content[] } {
+  let systemInstruction: string | undefined;
+  const contents: Content[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === 'system') {
+      // Gemini uses systemInstruction at model level; concatenate all system messages
+      systemInstruction = systemInstruction
+        ? `${systemInstruction}\n\n${msg.content}`
+        : msg.content;
+    } else {
+      const role = msg.role === 'assistant' ? 'model' : 'user';
+      contents.push({ role, parts: [{ text: msg.content }] });
+    }
+  }
+
+  // Gemini requires contents to start with a user message
+  if (contents.length > 0 && contents[0].role === 'model') {
+    contents.unshift({ role: 'user', parts: [{ text: '(context)' }] });
+  }
+
+  // Gemini doesn't allow consecutive messages of the same role — merge them
+  const merged: Content[] = [];
+  for (const c of contents) {
+    if (merged.length > 0 && merged[merged.length - 1].role === c.role) {
+      const prev = merged[merged.length - 1];
+      prev.parts = [...prev.parts, ...c.parts];
+    } else {
+      merged.push({ ...c });
+    }
+  }
+
+  return { systemInstruction, contents: merged };
+}
+
+// ── OpenAI-compatible wrapper ───────────────────────────────────────────────
+// Mimics the OpenAI SDK interface so all existing route code works unchanged.
+
+interface CompletionChoice {
+  message: { content: string; role: string };
+  index: number;
+  finish_reason: string;
+}
+
+interface CompletionResponse {
+  choices: CompletionChoice[];
+}
+
+interface StreamChunk {
+  choices: { delta: { content?: string }; index: number }[];
+}
+
+interface EmbeddingResponse {
+  data: { embedding: number[]; index: number }[];
+}
+
+class GeminiCompat {
+  private genAI: GoogleGenerativeAI;
+
+  constructor(opts?: { apiKey?: string; timeout?: number }) {
+    this.genAI = getGenAI(opts?.apiKey);
+  }
+
+  chat = {
+    completions: {
+      create: async (params: {
+        model?: string;
+        messages: ChatMessage[];
+        temperature?: number;
+        stream?: boolean;
+        response_format?: { type: string };
+        max_tokens?: number;
+      }): Promise<any> => {
+        const modelName = config.gemini.chatModel;
+        const { systemInstruction, contents } = convertMessages(params.messages);
+
+        const generationConfig: Record<string, unknown> = {};
+        if (params.temperature !== undefined) generationConfig.temperature = params.temperature;
+        if (params.response_format?.type === 'json_object') {
+          generationConfig.responseMimeType = 'application/json';
+        }
+
+        const model = this.genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: systemInstruction || undefined,
+          generationConfig,
+        });
+
+        if (params.stream) {
+          const result = await model.generateContentStream({ contents });
+          return this._wrapStream(result.stream);
+        }
+
+        const result = await model.generateContent({ contents });
+        const text = result.response.text();
+        return {
+          choices: [{ message: { content: text, role: 'assistant' }, index: 0, finish_reason: 'stop' }],
+        };
+      },
+    },
+  };
+
+  // Gemini grounding with Google Search — replacement for OpenAI Responses API
+  responses = {
+    create: async (params: {
+      model?: string;
+      tools?: { type: string }[];
+      input: ChatMessage[];
+      stream?: boolean;
+    }): Promise<AsyncIterable<Record<string, unknown>>> => {
+      const modelName = config.gemini.chatModel;
+      const { systemInstruction, contents } = convertMessages(params.input);
+
+      const model = this.genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: systemInstruction || undefined,
+        tools: [{ googleSearch: {} } as any],
+      });
+
+      if (params.stream) {
+        const result = await model.generateContentStream({ contents });
+        return this._wrapResponsesStream(result);
+      }
+
+      const result = await model.generateContent({ contents });
+      const text = result.response.text();
+      return (async function* () {
+        yield { type: 'response.output_text.delta', delta: text };
+        yield { type: 'response.completed', response: { output: [] } };
+      })();
+    },
+  };
+
+  embeddings = {
+    create: async (params: {
+      model?: string;
+      input: string;
+    }): Promise<EmbeddingResponse> => {
+      const model = this.genAI.getGenerativeModel({ model: config.gemini.embeddingModel });
+      const result = await model.embedContent(params.input);
+      return {
+        data: [{ embedding: result.embedding.values, index: 0 }],
+      };
+    },
+  };
+
+  private async *_wrapStream(
+    stream: AsyncIterable<{ text: () => string }>
+  ): AsyncIterable<StreamChunk> {
+    for await (const chunk of stream) {
+      const text = chunk.text();
+      if (text) {
+        yield { choices: [{ delta: { content: text }, index: 0 }] };
+      }
+    }
+  }
+
+  private async *_wrapResponsesStream(
+    result: { stream: AsyncIterable<{ text: () => string }>; response: Promise<any> }
+  ): AsyncIterable<Record<string, unknown>> {
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      if (text) {
+        yield { type: 'response.output_text.delta', delta: text };
+      }
+    }
+    // Extract grounding metadata (citations) from the final response
+    try {
+      const finalResponse = await result.response;
+      const groundingMetadata = finalResponse.candidates?.[0]?.groundingMetadata;
+      const citations: { url: string; title: string }[] = [];
+      if (groundingMetadata?.groundingChunks) {
+        for (const chunk of groundingMetadata.groundingChunks) {
+          if (chunk.web) {
+            citations.push({ url: chunk.web.uri, title: chunk.web.title || chunk.web.uri });
+          }
+        }
+      }
+      yield {
+        type: 'response.completed',
+        response: {
+          output: citations.length > 0
+            ? [{
+                type: 'message',
+                content: [{
+                  annotations: citations.map(c => ({
+                    type: 'url_citation',
+                    url: c.url,
+                    title: c.title,
+                  })),
+                }],
+              }]
+            : [],
+        },
+      };
+    } catch {
+      yield { type: 'response.completed', response: { output: [] } };
+    }
+  }
+}
+
+// ── Exports (same interface as before) ──────────────────────────────────────
+
+let _compat: GeminiCompat | null = null;
+
+export function getOpenAI(): GeminiCompat {
+  if (_compat) return _compat;
+  _compat = new GeminiCompat({ apiKey: config.gemini.apiKey });
+  return _compat;
+}
+
+export { GeminiCompat };
 
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   if (!text || !text.trim()) return null;
-  const openai = getOpenAI();
-  const response = await openai.embeddings.create({
-    model: config.openai.embeddingModel,
-    input: text.substring(0, config.openai.maxEmbeddingChars),
+  const client = getOpenAI();
+  const response = await client.embeddings.create({
+    model: config.gemini.embeddingModel,
+    input: text.substring(0, config.gemini.maxEmbeddingChars),
   });
   return response.data[0].embedding;
 }
@@ -24,7 +245,7 @@ export function getEmbeddingText(entity: Record<string, unknown>, type: 'thread'
     return [entity.title, entity.description, entity.content]
       .filter(Boolean)
       .join('\n')
-      .substring(0, config.openai.maxEmbeddingChars);
+      .substring(0, config.gemini.maxEmbeddingChars);
   }
   // type === 'node'
   let contentText = entity.content || '';
@@ -38,5 +259,5 @@ export function getEmbeddingText(entity: Record<string, unknown>, type: 'thread'
   return [entity.title, `[${entity.entity_type || entity.node_type || ''}]`, contentText]
     .filter(Boolean)
     .join('\n')
-    .substring(0, config.openai.maxEmbeddingChars);
+    .substring(0, config.gemini.maxEmbeddingChars);
 }

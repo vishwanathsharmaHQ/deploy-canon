@@ -417,7 +417,7 @@ router.post(
       }
 
       const response = await getOpenAI().chat.completions.create({
-        model: config.openai.chatModel,
+        model: config.gemini.chatModel,
         messages: [{
           role: 'system',
           content: `You are an expert at analyzing content and suggesting relevant nodes for a knowledge graph.
@@ -512,7 +512,7 @@ router.post(
 
     // Ask AI to enrich
     const response = await getOpenAI().chat.completions.create({
-      model: config.openai.chatModel,
+      model: config.gemini.chatModel,
       messages: [{
         role: 'system',
         content: `You are a research expert enriching a knowledge graph node.

@@ -21,12 +21,12 @@ const config = {
     database: process.env.NEO4J_DATABASE,
   },
 
-  openai: {
-    apiKey: process.env.OPENAI_API_KEY!,
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY!,
     timeout: 50_000,
-    chatModel: 'gpt-5.2',
-    embeddingModel: 'text-embedding-3-small',
-    embeddingDimensions: 1536,
+    chatModel: 'gemini-2.5-flash',
+    embeddingModel: 'text-embedding-004',
+    embeddingDimensions: 768,
     maxEmbeddingChars: 8_000,
   },
 

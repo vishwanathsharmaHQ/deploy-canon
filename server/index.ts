@@ -70,7 +70,7 @@ app.post('/api/verify-source', async (req, res, next) => {
     const { getOpenAI } = await import('./services/openai.js');
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: config.gemini.chatModel,
       temperature: 0.2,
       response_format: { type: 'json_object' },
       messages: [
