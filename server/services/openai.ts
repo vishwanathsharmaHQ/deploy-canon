@@ -80,6 +80,38 @@ class GeminiCompat {
     this.genAI = getGenAI(opts?.apiKey);
   }
 
+  /** Check if an error is a rate-limit (429) or resource-exhausted error */
+  private _isRateLimitError(err: unknown): boolean {
+    if (err instanceof Error) {
+      const msg = err.message.toLowerCase();
+      return msg.includes('429') || msg.includes('resource') && msg.includes('exhaust')
+        || msg.includes('rate') && msg.includes('limit') || msg.includes('quota');
+    }
+    return false;
+  }
+
+  /**
+   * Try calling `fn` with each model in the cascade until one succeeds.
+   * Only retries on rate-limit errors; other errors are thrown immediately.
+   */
+  private async _withFallback<T>(fn: (modelName: string) => Promise<T>): Promise<T> {
+    const cascade = config.gemini.modelCascade;
+    let lastError: unknown;
+    for (const modelName of cascade) {
+      try {
+        return await fn(modelName);
+      } catch (err) {
+        lastError = err;
+        if (this._isRateLimitError(err)) {
+          console.warn(`[gemini] ${modelName} rate-limited, falling back…`);
+          continue;
+        }
+        throw err; // non-rate-limit error — don't retry
+      }
+    }
+    throw lastError; // all models exhausted
+  }
+
   chat = {
     completions: {
       create: async (params: {
@@ -90,7 +122,6 @@ class GeminiCompat {
         response_format?: { type: string };
         max_tokens?: number;
       }): Promise<any> => {
-        const modelName = config.gemini.chatModel;
         const { systemInstruction, contents } = convertMessages(params.messages);
 
         const generationConfig: Record<string, unknown> = {};
@@ -99,22 +130,24 @@ class GeminiCompat {
           generationConfig.responseMimeType = 'application/json';
         }
 
-        const model = this.genAI.getGenerativeModel({
-          model: modelName,
-          systemInstruction: systemInstruction || undefined,
-          generationConfig,
+        return this._withFallback(async (modelName) => {
+          const model = this.genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: systemInstruction || undefined,
+            generationConfig,
+          });
+
+          if (params.stream) {
+            const result = await model.generateContentStream({ contents });
+            return this._wrapStream(result.stream);
+          }
+
+          const result = await model.generateContent({ contents });
+          const text = result.response.text();
+          return {
+            choices: [{ message: { content: text, role: 'assistant' }, index: 0, finish_reason: 'stop' }],
+          };
         });
-
-        if (params.stream) {
-          const result = await model.generateContentStream({ contents });
-          return this._wrapStream(result.stream);
-        }
-
-        const result = await model.generateContent({ contents });
-        const text = result.response.text();
-        return {
-          choices: [{ message: { content: text, role: 'assistant' }, index: 0, finish_reason: 'stop' }],
-        };
       },
     },
   };
@@ -127,26 +160,27 @@ class GeminiCompat {
       input: ChatMessage[];
       stream?: boolean;
     }): Promise<AsyncIterable<Record<string, unknown>>> => {
-      const modelName = config.gemini.chatModel;
       const { systemInstruction, contents } = convertMessages(params.input);
 
-      const model = this.genAI.getGenerativeModel({
-        model: modelName,
-        systemInstruction: systemInstruction || undefined,
-        tools: [{ googleSearch: {} } as any],
+      return this._withFallback(async (modelName) => {
+        const model = this.genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: systemInstruction || undefined,
+          tools: [{ googleSearch: {} } as any],
+        });
+
+        if (params.stream) {
+          const result = await model.generateContentStream({ contents });
+          return this._wrapResponsesStream(result);
+        }
+
+        const result = await model.generateContent({ contents });
+        const text = result.response.text();
+        return (async function* () {
+          yield { type: 'response.output_text.delta', delta: text };
+          yield { type: 'response.completed', response: { output: [] } };
+        })();
       });
-
-      if (params.stream) {
-        const result = await model.generateContentStream({ contents });
-        return this._wrapResponsesStream(result);
-      }
-
-      const result = await model.generateContent({ contents });
-      const text = result.response.text();
-      return (async function* () {
-        yield { type: 'response.output_text.delta', delta: text };
-        yield { type: 'response.completed', response: { output: [] } };
-      })();
     },
   };
 

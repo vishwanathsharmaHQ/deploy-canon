@@ -25,6 +25,13 @@ const config = {
     apiKey: process.env.GEMINI_API_KEY!,
     timeout: 50_000,
     chatModel: 'gemini-2.5-flash',
+    // Fallback cascade: best → cheapest. On 429 rate-limit, try the next model.
+    modelCascade: [
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-2.0-flash',
+    ] as readonly string[],
     embeddingModel: 'text-embedding-004',
     embeddingDimensions: 768,
     maxEmbeddingChars: 8_000,
