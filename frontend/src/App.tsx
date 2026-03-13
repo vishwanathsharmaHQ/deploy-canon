@@ -436,7 +436,7 @@ function App() {
           />
         ) : view === 'highlights' ? (
           <HighlightsView
-            threads={threadToShow ? [threadToShow] : threads}
+            threads={threads}
             onNavigate={(threadId, nodeId) => {
               setSelectedThreadId(threadId)
               setGraphSelectedNodeId(nodeId)
