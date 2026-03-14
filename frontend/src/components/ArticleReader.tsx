@@ -21,7 +21,7 @@ import {
   renderContent,
   formatNodeContent,
 } from '../utils/articleContent';
-import type { Thread, ThreadNode, NodeTypeName, User } from '../types';
+import type { Thread, ThreadNode, NodeTypeName, User, Annotation } from '../types';
 import './ArticleReader.css';
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -90,6 +90,10 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   // Highlights
   const [highlights, setHighlights] = useState<Record<number, string[]>>({});
   const highlightSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Annotations (footnotes)
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const annotationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [activeFootnote, setActiveFootnote] = useState<Annotation | null>(null);
 
   // Root nodes: top-level nodes that are not children of any other node
   const rootNodes = useMemo(() => {
@@ -581,13 +585,68 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     return () => window.removeEventListener('article-highlight', handler);
   }, [currentPage, rootNodes, orderedNodes, persistHighlights]);
 
-  // Click delegation on body ref for highlight removal
+  // ── Annotations (footnotes): load, save, apply ──────────────────────────────
+
+  // Load annotations when thread changes
+  useEffect(() => {
+    if (!thread?.id) return;
+    api.loadAnnotations(thread.id).then(a => setAnnotations(a || []));
+  }, [thread?.id]);
+
+  // Persist annotations (debounced)
+  const persistAnnotations = useCallback((updated: Annotation[]) => {
+    if (annotationSaveTimer.current) clearTimeout(annotationSaveTimer.current);
+    annotationSaveTimer.current = setTimeout(() => {
+      api.saveAnnotations(thread.id, updated).catch(e => console.error('Failed to save annotations:', e));
+    }, 800);
+  }, [thread.id]);
+
+  // Listen for annotation events from DictionaryPopup
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { text, action, response, question } = (e as CustomEvent).detail || {};
+      if (!text || !response) return;
+      setAnnotations(prev => {
+        const newAnnotation: Annotation = {
+          id: Date.now(),
+          text,
+          action,
+          question,
+          response,
+          nodeId: currentPage > 0 && rootNodes[currentPage - 1] ? rootNodes[currentPage - 1].id : 0,
+          createdAt: new Date().toISOString(),
+        };
+        const updated = [...prev, newAnnotation];
+        persistAnnotations(updated);
+        return updated;
+      });
+    };
+    window.addEventListener('article-annotation', handler);
+    return () => window.removeEventListener('article-annotation', handler);
+  }, [currentPage, rootNodes, persistAnnotations]);
+
+  // Click delegation for footnotes + highlight removal (single handler to avoid conflicts)
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
     const handler = (e: MouseEvent) => {
+      // ── Footnote click ──
+      const sup = (e.target as HTMLElement).closest('.ar-footnote') as HTMLElement | null;
+      if (sup) {
+        e.preventDefault();
+        e.stopPropagation();
+        const annotationId = Number(sup.dataset.annotationId);
+        const annotation = annotations.find(a => a.id === annotationId);
+        if (annotation) setActiveFootnote(prev => prev?.id === annotation.id ? null : annotation);
+        return;
+      }
+
+      // ── Highlight removal — only on plain click (no text selection) ──
       const mark = (e.target as HTMLElement).closest('mark.ar-highlight') as HTMLElement | null;
       if (!mark) return;
+      const selection = window.getSelection();
+      const selText = selection?.toString().trim() || '';
+      if (selText) return; // user is selecting text inside the highlight, don't remove
       e.preventDefault();
       e.stopPropagation();
       const text = mark.dataset.highlightText;
@@ -607,7 +666,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     };
     body.addEventListener('click', handler);
     return () => body.removeEventListener('click', handler);
-  }, [currentPage, rootNodes, persistHighlights]);
+  }, [annotations, currentPage, rootNodes, persistHighlights]);
 
   // Build an HTML transform that wraps highlighted text in <mark> tags.
   // Works across tag boundaries (e.g. text spanning <a>, <strong>, <p> tags).
@@ -709,6 +768,51 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
 
     return result;
   }, [highlights]);
+
+  // Inject footnote superscripts after annotated text (tag-aware — never matches inside HTML attributes)
+  const applyAnnotationsToHtml = useCallback((html: string, nodeId: number): string => {
+    const nodeAnnotations = annotations.filter(a => a.nodeId === nodeId);
+    if (nodeAnnotations.length === 0) return html;
+
+    // Split HTML into text segments and tag segments (same approach as highlights)
+    const parts = html.split(/(<[^>]*>)/);
+
+    for (let i = 0; i < nodeAnnotations.length; i++) {
+      const ann = nodeAnnotations[i];
+      const footnoteNum = i + 1;
+      const sup = `<sup class="ar-footnote" data-annotation-id="${ann.id}" title="${ann.action}: ${ann.text.substring(0, 50).replace(/"/g, '&quot;')}">${footnoteNum}</sup>`;
+      const needle = ann.text.toLowerCase();
+
+      // Build plain text from text-only parts to find the annotation position
+      let plainText = '';
+      const textPartIndices: number[] = [];
+      for (let pi = 0; pi < parts.length; pi++) {
+        if (!parts[pi].startsWith('<')) {
+          textPartIndices.push(pi);
+          plainText += parts[pi];
+        }
+      }
+
+      const matchIdx = plainText.toLowerCase().indexOf(needle);
+      if (matchIdx === -1) continue;
+
+      // Find which text part contains the end of the match, and insert <sup> after it
+      const matchEnd = matchIdx + ann.text.length;
+      let offset = 0;
+      for (const pi of textPartIndices) {
+        const partEnd = offset + parts[pi].length;
+        if (matchEnd <= partEnd) {
+          // Insert the superscript at the match end position within this text part
+          const localPos = matchEnd - offset;
+          parts[pi] = parts[pi].slice(0, localPos) + sup + parts[pi].slice(localPos);
+          break;
+        }
+        offset = partEnd;
+      }
+    }
+
+    return parts.join('');
+  }, [annotations]);
 
   if (!thread) return null;
 
@@ -823,7 +927,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     const nodeType = getNodeType(node);
     const color = NODE_TYPE_COLORS[nodeType as NodeTypeName] || '#888';
     const nodeTitle = node.title || `Node ${node.id}`;
-    const nodeLinkify = (html: string) => applyHighlightsToHtml(linkifyNodeMentions(html, node.id), node.id);
+    const nodeLinkify = (html: string) => applyAnnotationsToHtml(applyHighlightsToHtml(linkifyNodeMentions(html, node.id), node.id), node.id);
     const nodeRendered = formatNodeContent(node, SourceVerifyBadge, nodeLinkify);
     const isReactElement = React.isValidElement(nodeRendered);
 
@@ -977,7 +1081,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             <h1 className="ar-title">{nodeTitle}</h1>
             <hr className="ar-divider" />
             <div className="ar-content">
-              {isReactElement ? nodeRendered : renderContent(nodeRendered, (html) => applyHighlightsToHtml(linkifyNodeMentions(html, node.id), node.id))}
+              {isReactElement ? nodeRendered : renderContent(nodeRendered, (html) => applyAnnotationsToHtml(applyHighlightsToHtml(linkifyNodeMentions(html, node.id), node.id), node.id))}
             </div>
             {nodeType === 'claim' && <ConfidenceMeter threadId={thread.id} />}
             {nodeType === 'claim' && (
@@ -1212,6 +1316,18 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
       >
         {chatOpen ? '✕' : '✦'}
       </button>
+
+      {/* ── Footnote popup ── */}
+      {activeFootnote && (
+        <div className="ar-footnote-overlay" onClick={() => setActiveFootnote(null)}>
+          <div className="ar-footnote-popup" onClick={(e) => e.stopPropagation()}>
+            <button className="ar-footnote-close" onClick={() => setActiveFootnote(null)}>&times;</button>
+            <div className="ar-footnote-action">{activeFootnote.action}{activeFootnote.question ? `: ${activeFootnote.question}` : ''}</div>
+            <div className="ar-footnote-text">"{activeFootnote.text.length > 150 ? activeFootnote.text.substring(0, 150) + '...' : activeFootnote.text}"</div>
+            <div className="ar-footnote-response">{activeFootnote.response}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

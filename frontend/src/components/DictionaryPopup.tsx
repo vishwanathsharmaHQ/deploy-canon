@@ -127,12 +127,19 @@ const DictionaryPopup: React.FC = () => {
     if (x !== position.x || y !== position.y) setPosition({ x, y });
   }, [lookup, mode, askAnswer]);
 
+  const dispatchAnnotation = useCallback((action: string, response: string, question?: string) => {
+    window.dispatchEvent(new CustomEvent('article-annotation', {
+      detail: { text: selectedText, action, response, question },
+    }));
+  }, [selectedText]);
+
   const handleLookup = async () => {
     setMode('define');
     setLoading(true);
     try {
       const result = await api.vocabLookup(selectedText, '');
       setLookup(result);
+      dispatchAnnotation('define', result.definition);
     } catch (err) {
       console.error('Dictionary lookup error:', err);
     } finally {
@@ -179,16 +186,20 @@ const DictionaryPopup: React.FC = () => {
     setAskLoading(true);
 
     const fullQuestion = `${question}: "${selectedText}"`;
+    let fullAnswer = '';
+    const actionType = question.toLowerCase().includes('why') ? 'why' : question.toLowerCase().includes('how') ? 'how' : 'ask';
 
     try {
       await api.chatStream({
         message: fullQuestion,
         history: [],
         onToken: (token: string) => {
+          fullAnswer += token;
           setAskAnswer(prev => prev + token);
         },
         onDone: () => {
           setAskLoading(false);
+          if (fullAnswer) dispatchAnnotation(actionType, fullAnswer, question);
         },
         onError: (err: Error) => {
           setAskAnswer(prev => prev || `Error: ${err.message}`);

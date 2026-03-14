@@ -53,6 +53,7 @@ import type {
   RelationType,
   RelationshipProps,
   EntityType,
+  Annotation,
 } from '../types';
 import { ENTITY_TYPES } from '../constants';
 
@@ -410,6 +411,25 @@ export const api = {
       headers: authHeaders(),
       body: JSON.stringify({ highlights }),
     }, 'Failed to save highlights');
+  },
+
+  async loadAnnotations(threadId: number): Promise<Annotation[]> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/threads/${threadId}/annotations`);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async saveAnnotations(threadId: number, annotations: Annotation[]): Promise<void> {
+    await fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/annotations`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ annotations }),
+    }, 'Failed to save annotations');
   },
 
   async deleteArticleSequence(threadId: number): Promise<{ success: boolean }> {

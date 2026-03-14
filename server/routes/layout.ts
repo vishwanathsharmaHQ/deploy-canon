@@ -128,6 +128,28 @@ router.put('/:threadId/highlights', requireAuth, withSession(async (req, res) =>
   res.json({ highlights });
 }));
 
+// ── Annotations (footnotes) ──────────────────────────────────────────────────
+
+router.get('/:threadId/annotations', withSession(async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const result = await req.neo4jSession!.run(
+    'MATCH (t:Thread {id: $threadId}) RETURN t.annotations AS annotations',
+    { threadId: getNeo4j().int(threadId) }
+  );
+  const str = result.records[0]?.get('annotations');
+  res.json(str ? JSON.parse(str) : []);
+}));
+
+router.put('/:threadId/annotations', requireAuth, withSession(async (req, res) => {
+  const threadId = parseInt(req.params.threadId);
+  const { annotations } = req.body;
+  await req.neo4jSession!.run(
+    'MATCH (t:Thread {id: $threadId}) SET t.annotations = $annotations',
+    { threadId: getNeo4j().int(threadId), annotations: JSON.stringify(annotations) }
+  );
+  res.json({ annotations });
+}));
+
 // ── Suggest sequence (AI) ────────────────────────────────────────────────────
 
 router.post('/:threadId/sequence/suggest', requireAuth, withSession(async (req, res) => {

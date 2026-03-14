@@ -1572,3 +1572,84 @@
     font-size: 0.82rem;
   }
 }
+
+/* ── Footnote superscripts ─────────────────────────────── */
+
+.ar-footnote {
+  color: #00ff9d;
+  cursor: pointer;
+  font-size: 0.7em;
+  vertical-align: super;
+  margin-left: 1px;
+  font-weight: 600;
+  transition: color 0.15s;
+}
+.ar-footnote:hover {
+  color: #fff;
+}
+
+/* ── Footnote popup ────────────────────────────────────── */
+
+.ar-footnote-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ar-footnote-popup {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 20px 24px;
+  max-width: 520px;
+  width: 90%;
+  max-height: 70vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+.ar-footnote-close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.4rem;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+.ar-footnote-close:hover {
+  color: #fff;
+}
+
+.ar-footnote-action {
+  color: #00ff9d;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.ar-footnote-text {
+  color: #999;
+  font-size: 0.85rem;
+  font-style: italic;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.ar-footnote-response {
+  color: #e0e0e0;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}

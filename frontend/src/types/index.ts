@@ -476,6 +476,16 @@ export interface ConceptNode {
   threadTitle: string;
 }
 
+export interface Annotation {
+  id: number;
+  text: string;
+  action: 'define' | 'why' | 'how' | 'ask';
+  question?: string;
+  response: string;
+  nodeId: number;
+  createdAt: string;
+}
+
 export interface VocabWord {
   id: number | null;
   word: string;
