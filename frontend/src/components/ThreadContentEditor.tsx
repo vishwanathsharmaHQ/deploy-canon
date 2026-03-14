@@ -18,9 +18,14 @@ interface ThreadContentEditorProps {
   onAuthRequired?: () => void;
 }
 
-const ThreadContentEditor: React.FC<ThreadContentEditorProps> = ({ thread, onContentChange, currentUser, onAuthRequired }) => {
+const ThreadContentEditor: React.FC<ThreadContentEditorProps & { onTitleChanged?: (title: string) => void; onDelete?: () => void }> = ({ thread, onContentChange, currentUser, onAuthRequired, onTitleChanged, onDelete }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [titleSaving, setTitleSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const effectiveContent = thread.content && thread.content !== '<p></p>'
     ? thread.content
@@ -84,6 +89,41 @@ const ThreadContentEditor: React.FC<ThreadContentEditorProps> = ({ thread, onCon
   const description = thread.metadata?.description || thread.description || '';
   const hasContent = thread.content && thread.content !== '<p></p>';
 
+  const handleTitleEdit = () => {
+    if (!currentUser) { onAuthRequired?.(); return; }
+    setTitleDraft(title);
+    setEditingTitle(true);
+  };
+
+  const handleTitleSave = async () => {
+    const trimmed = titleDraft.trim();
+    if (!trimmed || trimmed === title) { setEditingTitle(false); return; }
+    setTitleSaving(true);
+    try {
+      await api.updateThread(thread.id, { title: trimmed });
+      onTitleChanged?.(trimmed);
+      setEditingTitle(false);
+    } catch (err) {
+      console.error('Failed to rename thread:', err);
+    } finally {
+      setTitleSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!currentUser) { onAuthRequired?.(); return; }
+    setDeleting(true);
+    try {
+      await api.deleteThread(thread.id);
+      onDelete?.();
+    } catch (err) {
+      console.error('Failed to delete thread:', err);
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   const renderThreadContent = (raw: string): React.ReactNode => {
     if (!raw) return null;
     if (raw.trim().startsWith('<')) {
@@ -111,7 +151,23 @@ const ThreadContentEditor: React.FC<ThreadContentEditorProps> = ({ thread, onCon
         )}
       </div>
 
-      <h1 className="ar-title">{title}</h1>
+      {editingTitle ? (
+        <div className="ar-title-edit-row">
+          <input
+            className="ar-title-edit-input"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleTitleSave(); if (e.key === 'Escape') setEditingTitle(false); }}
+            autoFocus
+          />
+          <button className="ar-save-btn" onClick={handleTitleSave} disabled={titleSaving}>
+            {titleSaving ? '...' : 'Save'}
+          </button>
+          <button className="ar-cancel-btn" onClick={() => setEditingTitle(false)}>Cancel</button>
+        </div>
+      ) : (
+        <h1 className="ar-title ar-title-editable" onClick={handleTitleEdit} title="Click to rename">{title}</h1>
+      )}
       <hr className="ar-divider" />
 
       {isEditing ? (
@@ -130,6 +186,33 @@ const ThreadContentEditor: React.FC<ThreadContentEditorProps> = ({ thread, onCon
           ) : (
             <p className="ar-empty">No notes yet. Click Edit to add content.</p>
           )}
+        </div>
+      )}
+
+      {onDelete && !isEditing && (
+        <div className="ar-thread-delete-row">
+          <button className="ar-delete-thread-btn" onClick={() => { if (!currentUser) { onAuthRequired?.(); return; } setShowDeleteConfirm(true); }}>
+            Delete Thread
+          </button>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div className="ar-modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="ar-modal ar-delete-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="ar-modal-title" style={{ color: '#ef5350' }}>Delete Thread</h3>
+            <p className="ar-modal-desc">
+              This will permanently delete <strong style={{ color: '#fff' }}>{title}</strong> and all its nodes. This cannot be undone.
+            </p>
+            <div className="ar-modal-actions">
+              <button className="ar-delete-confirm-btn" onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+              <button className="ar-modal-cancel" onClick={() => setShowDeleteConfirm(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </article>

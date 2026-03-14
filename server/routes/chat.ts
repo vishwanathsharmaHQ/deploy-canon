@@ -440,12 +440,13 @@ Additional rules:
       for (const cit of citations) {
         const title = (cit.title || cit.url).substring(0, 120);
         if (!existingRefTitles.has(title.toLowerCase())) {
-          const isYouTube = /(?:youtube\.com\/watch\?v=|youtu\.be\/)/.test(cit.url);
-          if (isYouTube) {
+          const ytCitMatch = cit.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+          if (ytCitMatch) {
+            const embedHtml = `<div data-youtube-video><iframe src="https://www.youtube.com/embed/${ytCitMatch[1]}" allowfullscreen></iframe></div>`;
             proposedNodes.push({
               type: 'source',
               title,
-              content: `[${cit.title || 'Watch Video'}](${cit.url})\n\n${cit.url}`,
+              content: embedHtml,
             });
           } else {
             proposedNodes.push({

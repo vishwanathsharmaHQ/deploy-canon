@@ -289,6 +289,25 @@ router.patch(
   })
 );
 
+// ── DELETE /:threadId — delete thread and all its nodes/relationships ─────────
+router.delete(
+  '/:threadId',
+  requireAuth,
+  withSession(async (req, res) => {
+    const session = req.neo4jSession!;
+    const threadId = parseInt(req.params.threadId);
+
+    // Delete all nodes included in the thread, their relationships, and the thread itself
+    await session.run(
+      `MATCH (t:Thread {id: $id})
+       OPTIONAL MATCH (t)-[:INCLUDES]->(n:Node)
+       DETACH DELETE n, t`,
+      { id: getNeo4j().int(threadId) }
+    );
+    res.json({ ok: true });
+  })
+);
+
 // ── GET /random — random thread ───────────────────────────────────────────────
 router.get(
   '/random',

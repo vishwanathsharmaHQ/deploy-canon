@@ -433,6 +433,16 @@ function App() {
             onNodesCreated={onNodesCreated}
             onThreadCreated={onThreadCreated}
             onViewInGraph={(nodeId: number) => { setGraphSelectedNodeId(nodeId); setView('graph') }}
+            onTitleChanged={(threadId: number, title: string) => {
+              setThreads(threads.map(t =>
+                t.id === threadId ? { ...t, title, metadata: { ...t.metadata, title } } : t
+              ))
+            }}
+            onThreadDeleted={(threadId: number) => {
+              setThreads(threads.filter(t => t.id !== threadId));
+              setSelectedThreadId(null);
+              setView('graph');
+            }}
           />
         ) : view === 'highlights' ? (
           <HighlightsView

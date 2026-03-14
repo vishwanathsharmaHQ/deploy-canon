@@ -44,9 +44,11 @@ interface ArticleReaderProps {
   onAuthRequired?: () => void;
   savedPage?: number;
   onPageChange?: (page: number) => void;
+  onTitleChanged?: (threadId: number, title: string) => void;
+  onThreadDeleted?: (threadId: number) => void;
 }
 
-const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired, savedPage, onPageChange }) => {
+const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired, savedPage, onPageChange, onTitleChanged, onThreadDeleted }) => {
   const [currentPage, setCurrentPageRaw] = useState(savedPage ?? 0);
   const [focusedSecondaryNode, setFocusedSecondaryNode] = useState<ThreadNode | null>(null);
   const setCurrentPage = useCallback((v: number | ((prev: number) => number)) => {
@@ -918,7 +920,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
 
   const renderPage = (): React.ReactNode => {
     if (currentPage === 0 && !focusedSecondaryNode) {
-      return <ThreadContentEditor thread={thread} onContentChange={onContentChange} currentUser={currentUser} onAuthRequired={onAuthRequired} />;
+      return <ThreadContentEditor thread={thread} onContentChange={onContentChange} currentUser={currentUser} onAuthRequired={onAuthRequired} onTitleChanged={(title) => onTitleChanged?.(thread.id, title)} onDelete={() => onThreadDeleted?.(thread.id)} />;
     }
 
     const node = focusedSecondaryNode || rootNodes[currentPage - 1];

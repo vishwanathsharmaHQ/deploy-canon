@@ -363,6 +363,13 @@ export const api = {
     }, 'Failed to update thread');
   },
 
+  async deleteThread(threadId: number): Promise<{ ok: boolean }> {
+    return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }, 'Failed to delete thread');
+  },
+
   async updateThreadContent(threadId: number, content: string): Promise<{ success: boolean }> {
     return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/content`, {
       method: 'PUT',

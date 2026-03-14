@@ -17,6 +17,28 @@ router.post('/url', requireAuth, aiTimeout, async (req, res, next) => {
   if (!url) return res.status(400).json({ error: 'URL required' });
 
   try {
+    // ── YouTube URL shortcut — embed video directly ──────────────────────
+    const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    if (ytMatch) {
+      const videoId = ytMatch[1];
+      // Fetch page title from YouTube oEmbed API
+      let videoTitle = `YouTube Video (${videoId})`;
+      try {
+        const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+        if (oembedRes.ok) {
+          const oembed = await oembedRes.json() as { title?: string };
+          if (oembed.title) videoTitle = oembed.title;
+        }
+      } catch { /* ignore oEmbed failures */ }
+
+      const embedHtml = `<div data-youtube-video><iframe src="https://www.youtube.com/embed/${videoId}" allowfullscreen></iframe></div>`;
+      const proposedNodes = [
+        { title: videoTitle, type: 'claim', content: JSON.stringify({ title: videoTitle, description: embedHtml }) },
+        { title: `Source: ${videoTitle}`, type: 'source', content: embedHtml + `\n\n${url}` },
+      ];
+      return res.json({ title: videoTitle, summary: `YouTube video: ${videoTitle}`, sourceUrl: url, proposedNodes, threadId: threadId || null });
+    }
+
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), 10000);
     const pageRes = await fetch(url, {
