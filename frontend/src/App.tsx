@@ -91,7 +91,7 @@ function App() {
   useEffect(() => { loadThreads() }, [])
 
   // ── Load templates on mount ────────────────────────────────────────────────
-  useEffect(() => { api.getTemplates().then(setTemplates).catch(() => {}) }, [])
+  useEffect(() => { api.getTemplates().then(setTemplates).catch(err => console.error('Failed to load templates:', err)) }, [])
 
   // ── Require login helper ────────────────────────────────────────────────────
   function requireLogin(action: () => void) {
@@ -384,7 +384,7 @@ function App() {
             <GlobalGraphView onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }} />
           </ReactFlowProvider>
         ) : view === 'review' ? (
-          <ReviewMode onClose={() => setView('graph')} threadId={selectedThreadId} />
+          <ReviewMode onClose={() => setView('graph')} />
         ) : view === 'ingest' ? (
           <div style={{ flex: 1, overflow: 'auto' }}>
             <IngestPanel

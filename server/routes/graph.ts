@@ -5,7 +5,7 @@ import { formatThread, formatNode } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
 import { aiTimeout } from '../middleware/aiTimeout.js';
-import { getOpenAI } from '../services/openai.js';
+import { getGemini } from '../services/gemini.js';
 
 const router = Router();
 
@@ -71,8 +71,8 @@ router.post('/concepts/extract', requireAuth, aiTimeout, withSession(async (req,
   try { const p = JSON.parse(contentText); contentText = p.description || p.point || p.explanation || contentText; } catch {}
   contentText = contentText.replace(/<[^>]+>/g, ' ').substring(0, 2000);
 
-  const openai = getOpenAI();
-  const completion = await openai.chat.completions.create({
+  const gemini = getGemini();
+  const completion = await gemini.chat.completions.create({
     model: config.gemini.chatModel, temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [

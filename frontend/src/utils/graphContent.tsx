@@ -20,7 +20,7 @@ export const formatContent = (content: unknown, nodeType: string): React.ReactNo
   if (!content) return 'No content available';
 
   try {
-    let actualContent: any = (content as any).content || content;
+    let actualContent: unknown = (content as Record<string, unknown>)?.content || content;
 
     if (typeof actualContent === 'string' && (actualContent.startsWith('{') || actualContent.startsWith('['))) {
       try { actualContent = JSON.parse(actualContent); } catch (e) { /* ignore */ }
@@ -95,7 +95,8 @@ export const formatContent = (content: unknown, nodeType: string): React.ReactNo
       return <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(textContent) }} />;
     }
     return <ReactMarkdown components={mdComponents as Record<string, React.ComponentType>}>{textContent}</ReactMarkdown>;
-  } catch (e) {
+  } catch (err) {
+    console.error('Error rendering content:', err);
     return 'Error displaying content';
   }
 };

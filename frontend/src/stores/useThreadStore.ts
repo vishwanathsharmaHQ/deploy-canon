@@ -46,6 +46,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             const { nodes, edges, relationships } = await api.getThreadNodes(thread.id);
             return {
               ...thread,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               nodes: nodes.map((node: any) => ({
                 ...node,
                 // entity_type is already lowercase from API; node_type is uppercase compat
@@ -57,7 +58,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
               edges,
               relationships,
             };
-          } catch {
+          } catch (err) {
+            console.error(`Failed to load thread ${thread.id} nodes:`, err);
             return { ...thread, nodes: [] };
           }
         })

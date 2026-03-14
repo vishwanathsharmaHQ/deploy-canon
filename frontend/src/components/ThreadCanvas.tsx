@@ -82,6 +82,7 @@ const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
       <Excalidraw
         initialData={initialData || undefined}
         theme="dark"
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Excalidraw onChange type mismatch
         onChange={handleChange as any}
         UIOptions={{
           canvasActions: {

@@ -79,11 +79,11 @@ router.get('/node/:nodeId', withSession(async (req, res) => {
     }
   );
 
-  const rels = result.records[0]?.get('rels') || [];
+  const rels = (result.records[0]?.get('rels') || []) as { r: { properties: Record<string, unknown> } | null; relType: string; src: unknown; tgt: unknown }[];
   const relationships = rels
-    .filter((entry: any) => entry.r != null)
-    .map((entry: any) =>
-      formatRelationship(entry.r.properties, entry.relType, entry.src, entry.tgt)
+    .filter(entry => entry.r != null)
+    .map(entry =>
+      formatRelationship(entry.r!.properties, entry.relType, entry.src, entry.tgt)
     );
 
   res.json(relationships);
@@ -177,7 +177,7 @@ router.delete('/:relationshipId', requireAuth, withSession(async (req, res) => {
     return res.status(404).json({ error: 'Relationship not found' });
   }
 
-  res.json({ deleted: true });
+  res.json({ ok: true });
 }));
 
 export default router;

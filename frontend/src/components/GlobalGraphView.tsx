@@ -46,7 +46,9 @@ interface GlobalGraphViewProps {
 }
 
 const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @xyflow/react generics require explicit any for initial state
   const [nodes, setNodes, onNodesChange] = useNodesState([] as any[]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as any[]);
   const [loading, setLoading] = useState(true);
 
@@ -56,7 +58,7 @@ const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => 
       const threads = await api.getGlobalGraphSummary();
 
       // Build nodes in a circle layout
-      const rfNodes: any[] = [];
+      const rfNodes: { id: string; type: string; position: { x: number; y: number }; data: ThreadNodeData; draggable: boolean }[] = [];
       const centerX = 400, centerY = 300;
       const radius = 150 + threads.length * 15;
 
@@ -74,7 +76,7 @@ const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => 
       });
 
       // Build edges for cross-thread links
-      const rfEdges: any[] = [];
+      const rfEdges: { id: string; source: string; target: string; style: Record<string, unknown>; animated: boolean }[] = [];
       const edgeSet = new Set<string>();
       threads.forEach((t: GlobalGraphThread) => {
         (t.linkedThreadIds || []).forEach((otherId) => {
@@ -104,7 +106,7 @@ const GlobalGraphView: React.FC<GlobalGraphViewProps> = ({ onSelectThread }) => 
 
   useEffect(() => { loadGraph(); }, [loadGraph]);
 
-  const onNodeDoubleClick = useCallback((_: React.MouseEvent, rfNode: any) => {
+  const onNodeDoubleClick = useCallback((_: React.MouseEvent, rfNode: { data: ThreadNodeData }) => {
     onSelectThread?.(rfNode.data.threadId);
   }, [onSelectThread]);
 

@@ -1,19 +1,18 @@
 import { Router } from 'express';
-import { GeminiCompat } from '../services/openai.js';
+import { GeminiCompat, getGemini } from '../services/gemini.js';
 import config from '../config.js';
 import { getNeo4j, toNum, getSession } from '../db/driver.js';
 import { getNextId, formatThread, formatNode, ENTITY_TYPES } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
 import { aiTimeout } from '../middleware/aiTimeout.js';
-import { getOpenAI } from '../services/openai.js';
 import { extractContentText } from '../services/contentParser.js';
 import type { ExtractionResult, ProposedNode, ChatMessage } from '../types/domain.js';
 
 const router = Router();
 
 /* ──────────────────────────────────────────────────────────────────────────────
-   POST /chat — SSE streaming chat with OpenAI (Responses API with web_search
+   POST /chat — SSE streaming chat with Gemini (Responses API with web_search
    fallback to chat.completions)
    ────────────────────────────────────────────────────────────────────────────── */
 router.post('/chat', requireAuth, async (req, res) => {
@@ -481,7 +480,7 @@ router.post(
     if (!threadId) return res.status(400).json({ error: 'threadId is required' });
 
     const session = req.neo4jSession!;
-    const openai = getOpenAI();
+    const gemini = getGemini();
 
     // Fetch thread summary from Neo4j
     let threadSummary = '';
@@ -550,7 +549,7 @@ Return ONLY valid JSON (no markdown fencing):
     }
 
     try {
-      const completion = await openai.chat.completions.create({
+      const completion = await gemini.chat.completions.create({
         model: config.gemini.chatModel,
         messages: llmMessages,
         temperature: 0.7,

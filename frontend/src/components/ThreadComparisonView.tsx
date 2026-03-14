@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
+import { NODE_TYPE_COLORS } from '../constants';
 import type { ThreadComparison, ComparisonNode } from '../types';
 
 interface ThreadComparisonViewProps {
@@ -7,16 +8,6 @@ interface ThreadComparisonViewProps {
   currentThreadId?: number;
   onSelectThread: (threadId: number) => void;
 }
-
-const NODE_TYPE_COLORS: Record<string, string> = {
-  ROOT: '#00ff9d',
-  EVIDENCE: '#4fc3f7',
-  REFERENCE: '#ce93d8',
-  CONTEXT: '#ffb74d',
-  EXAMPLE: '#81c784',
-  COUNTERPOINT: '#ef5350',
-  SYNTHESIS: '#ffd54f',
-};
 
 function NodeCard({ node, borderColor }: { node: ComparisonNode; borderColor?: string }) {
   const typeColor = NODE_TYPE_COLORS[node.node_type] || '#888';

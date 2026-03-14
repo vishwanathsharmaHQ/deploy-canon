@@ -5,10 +5,21 @@ import type { Neo4jProps, NeoRecord, NodeData, SourceData, RelationshipData, Thr
 // ── Entity Types ──────────────────────────────────────────────────────────
 export const ENTITY_TYPES: EntityType[] = ['claim', 'evidence', 'source', 'context', 'example', 'counterpoint', 'synthesis', 'question', 'note'];
 
-// Legacy mapping for backward compatibility during migration
-export const NODE_TYPES = ['ROOT', 'EVIDENCE', 'REFERENCE', 'CONTEXT', 'EXAMPLE', 'COUNTERPOINT', 'SYNTHESIS'] as const;
-
 export const RELATIONSHIP_TYPES: RelationType[] = ['SUPPORTS', 'CONTRADICTS', 'QUALIFIES', 'DERIVES_FROM', 'ILLUSTRATES', 'CITES', 'ADDRESSES', 'REFERENCES'];
+
+// ── Legacy Type Normalization ────────────────────────────────────────────
+const LEGACY_TYPE_MAP: Record<string, string> = {
+  ROOT: 'claim', EVIDENCE: 'evidence', EXAMPLE: 'example',
+  COUNTERPOINT: 'counterpoint', REFERENCE: 'source', CONTEXT: 'context',
+  SYNTHESIS: 'synthesis', QUESTION: 'question', NOTE: 'note',
+};
+
+/** Normalize legacy uppercase or mixed-case entity types to lowercase EntityType. */
+export function normalizeEntityType(raw?: string): EntityType {
+  if (!raw) return 'note';
+  const mapped = LEGACY_TYPE_MAP[raw] ?? LEGACY_TYPE_MAP[raw.toUpperCase()];
+  return (mapped ?? raw.toLowerCase()) as EntityType;
+}
 
 // ── ID Generation ─────────────────────────────────────────────────────────
 export async function getNextId(label: string, runner: Session | Transaction): Promise<number> {

@@ -1,16 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { NODE_TYPE_COLORS } from '../constants';
 import type { DashboardStats } from '../types';
-
-const NODE_TYPE_COLORS: Record<string, string> = {
-  ROOT: '#ff6b6b',
-  EVIDENCE: '#00ff9d',
-  REFERENCE: '#4ecdc4',
-  CONTEXT: '#45b7d1',
-  EXAMPLE: '#f9ca24',
-  COUNTERPOINT: '#ff9f43',
-  SYNTHESIS: '#a55eea',
-};
 
 interface Props {
   onSelectThread: (threadId: number) => void;

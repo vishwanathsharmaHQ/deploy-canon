@@ -31,12 +31,6 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
 };
 export type NodeTypeName = EntityType;
 
-/** All entity types can have relationships (no more leaf restriction). */
-export const EXPANDABLE_NODE_TYPES = ENTITY_TYPES;
-
-/** No restrictions in the graph model. */
-export const LEAF_NODE_TYPES: EntityType[] = [];
-
 // ── Relationship Types ────────────────────────────────────────────────────
 
 export const RELATIONSHIP_TYPES: readonly RelationType[] = [

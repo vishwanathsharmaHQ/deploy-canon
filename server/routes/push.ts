@@ -25,7 +25,7 @@ router.get('/vapid-key', (_req, res) => {
 
 // POST /subscribe — save a push subscription for the authenticated user
 router.post('/subscribe', requireAuth, withSession(async (req, res) => {
-  const userId = (req as any).user.id;
+  const userId = req.user!.id;
   const { subscription } = req.body;
   if (!subscription?.endpoint) {
     return res.status(400).json({ error: 'Invalid subscription' });
@@ -48,12 +48,12 @@ router.post('/subscribe', requireAuth, withSession(async (req, res) => {
     }
   );
 
-  res.json({ success: true });
+  res.json({ ok: true });
 }));
 
 // DELETE /subscribe — remove a push subscription
 router.delete('/subscribe', requireAuth, withSession(async (req, res) => {
-  const userId = (req as any).user.id;
+  const userId = req.user!.id;
   const { endpoint } = req.body;
   if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
 
@@ -63,12 +63,12 @@ router.delete('/subscribe', requireAuth, withSession(async (req, res) => {
     { userId: getNeo4j().int(userId), endpoint }
   );
 
-  res.json({ success: true });
+  res.json({ ok: true });
 }));
 
 // POST /send-test — send a test notification (for debugging)
 router.post('/send-test', requireAuth, withSession(async (req, res) => {
-  const userId = (req as any).user.id;
+  const userId = req.user!.id;
   const session = req.neo4jSession!;
 
   const result = await session.run(
@@ -87,8 +87,8 @@ router.post('/send-test', requireAuth, withSession(async (req, res) => {
         url: '/',
       }));
       sent++;
-    } catch (err: any) {
-      if (err.statusCode === 410) {
+    } catch (err: unknown) {
+      if ((err as { statusCode?: number }).statusCode === 410) {
         // Subscription expired — clean up
         await session.run(
           'MATCH (s:PushSubscription {endpoint: $endpoint}) DETACH DELETE s',
@@ -111,7 +111,7 @@ export async function sendVocabReminders() {
     const now = new Date().toISOString();
     const result = await session.run(
       `MATCH (u:User)-[:CREATED]->(w:VocabWord)
-       WHERE w.review_next_date <= $now
+       WHERE w.review_due_date <= $now
        WITH u, count(w) AS dueCount
        WHERE dueCount > 0
        MATCH (u)-[:HAS_PUSH]->(s:PushSubscription)
@@ -134,8 +134,8 @@ export async function sendVocabReminders() {
         const sub = JSON.parse(subStr);
         try {
           await webpush.sendNotification(sub, payload);
-        } catch (err: any) {
-          if (err.statusCode === 410) {
+        } catch (err: unknown) {
+          if ((err as { statusCode?: number }).statusCode === 410) {
             await session.run(
               'MATCH (s:PushSubscription {endpoint: $endpoint}) DETACH DELETE s',
               { endpoint: sub.endpoint }
@@ -151,7 +151,7 @@ export async function sendVocabReminders() {
 router.post('/check-reminders', requireAuth, async (_req, res) => {
   try {
     await sendVocabReminders();
-    res.json({ success: true });
+    res.json({ ok: true });
   } catch (err) {
     console.error('Failed to send reminders:', err);
     res.status(500).json({ error: 'Failed to send reminders' });

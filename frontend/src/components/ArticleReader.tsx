@@ -12,7 +12,7 @@ import ConfidenceMeter from './ConfidenceMeter';
 import SecondaryNodePanel from './SecondaryNodePanel';
 import ThreadContentEditor from './ThreadContentEditor';
 import { api } from '../services/api';
-import { NODE_TYPE_COLORS, EXPANDABLE_NODE_TYPES, ENTITY_TYPE_LABELS } from '../constants';
+import { NODE_TYPE_COLORS, ENTITY_TYPE_LABELS } from '../constants';
 import {
   embedYouTubeLinks,
   getNodeType,
@@ -911,16 +911,14 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
                       ⑂ Fork
                     </button>
                 )}
-                {EXPANDABLE_NODE_TYPES.includes(nodeType.toLowerCase() as any) && (
-                    <button
-                      className="ar-action-btn ar-action-btn--enrich"
-                      onClick={() => handleEnrich(node.id)}
-                      disabled={enrichLoading}
-                      title="Generate child nodes and enrich this node with more detail"
-                    >
-                      {enrichLoading ? 'Enriching...' : '✦ Enrich'}
-                    </button>
-                )}
+                <button
+                  className="ar-action-btn ar-action-btn--enrich"
+                  onClick={() => handleEnrich(node.id)}
+                  disabled={enrichLoading}
+                  title="Generate child nodes and enrich this node with more detail"
+                >
+                  {enrichLoading ? 'Enriching...' : '✦ Enrich'}
+                </button>
               </>
             )}
             {!isEditing && nodeType.toLowerCase() === 'counterpoint' && (
@@ -967,6 +965,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             )}
             <hr className="ar-divider" />
             <div className="ar-editor-section">
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- TipTap Editor type mismatch */}
               <EditorToolbar editor={nodeEditEditor as any} classPrefix="ar" />
               <div className="ar-editor-wrapper">
                 <EditorContent editor={nodeEditEditor} />

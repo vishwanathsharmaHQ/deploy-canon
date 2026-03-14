@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import { sanitizeHtml } from './sanitize';
-import { NODE_TYPES, NODE_TYPE_COLORS } from '../constants';
+import { NODE_TYPES, NODE_TYPE_COLORS, YT_REGEX } from '../constants';
 import type { NodeTypeName } from '../types';
 
 // Lazily imported by formatNodeContent — avoid circular dep by importing at call site
@@ -16,7 +16,7 @@ export interface EditableContent {
 // Convert YouTube <a> links and bare markdown-style URLs into TipTap YouTube embed markup
 export function embedYouTubeLinks(html: string): string {
   if (!html) return html;
-  const ytPattern = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/;
+  const ytPattern = YT_REGEX;
   // Replace <a> tags wrapping YouTube URLs
   let result = html.replace(/<a[^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/gi, (match, href) => {
     const yt = href.match(ytPattern);
@@ -42,6 +42,7 @@ export function getEditableContent(node: { content: unknown; title?: string; nod
   const nodeType = getNodeType(node);
   let raw: unknown = node.content;
   if (raw && typeof raw === 'object' && (raw as Record<string, unknown>).content !== undefined) raw = (raw as Record<string, unknown>).content;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let parsed: any = raw;
   if (typeof raw === 'string' && (raw.startsWith('{') || raw.startsWith('['))) {
     try { parsed = JSON.parse(raw); } catch (e) { /* keep as string */ }

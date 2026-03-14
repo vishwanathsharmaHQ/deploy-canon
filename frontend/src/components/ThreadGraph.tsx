@@ -6,6 +6,7 @@ import {
   Handle,
   Position,
   Background,
+  BackgroundVariant,
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -541,6 +542,7 @@ interface ThreadGraphProps {
 }
 
 const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNodeClick, onAddNode, onOpenEditor, onSelectedNodeChange, onOpenInArticle, onNavigateToThread, onRefresh, loading: parentLoading }) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @xyflow/react generics require explicit any for initial state
   const [nodes, setNodes, onNodesChange] = useNodesState([] as any[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as RFEdge[]);
   const [selectedNode, setSelectedNode] = useState<{ id: number; type: string | number; title?: string; content?: unknown; parent_id?: number | null; metadata?: Record<string, unknown>; originalData?: Record<string, unknown>; [key: string]: unknown } | null>(null);
@@ -715,7 +717,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
       const nodeCount = thread.nodes?.length || 0;
       thread.nodes?.forEach((node, idx) => {
         const nodeType = typeof node.type === 'number' ? node.type :
-          NODE_TYPES.indexOf(node.node_type?.toLowerCase() as any);
+          NODE_TYPES.indexOf((node.node_type?.toLowerCase() || '') as NodeTypeName);
         const typeLabel = NODE_TYPES[nodeType] || '';
         const color = NODE_TYPE_COLORS[typeLabel] || '#666';
 
@@ -917,7 +919,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
               parsedContent = JSON.parse(freshNode.content);
             }
           } catch (e) { /* keep as string */ }
-          const nodeType = typeof freshNode.type === 'number' ? freshNode.type : NODE_TYPES.indexOf(freshNode.node_type?.toLowerCase() as any);
+          const nodeType = typeof freshNode.type === 'number' ? freshNode.type : NODE_TYPES.indexOf((freshNode.node_type?.toLowerCase() || '') as NodeTypeName);
           return { ...n, data: { ...n.data, originalData: { ...freshNode, type: nodeType, content: parsedContent } } };
         });
       }
@@ -935,7 +937,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
       // Create RF nodes for new thread nodes, positioned near their parent
       const addedNodes: RFNode[] = [];
       newThreadNodes.forEach((node, ni) => {
-        const nodeType = typeof node.type === 'number' ? node.type : NODE_TYPES.indexOf(node.node_type?.toLowerCase() as any);
+        const nodeType = typeof node.type === 'number' ? node.type : NODE_TYPES.indexOf((node.node_type?.toLowerCase() || '') as NodeTypeName);
         const typeLabel = NODE_TYPES[nodeType] || '';
         const color = NODE_TYPE_COLORS[typeLabel as NodeTypeName] || '#666';
         const displayType = ENTITY_TYPE_LABELS[typeLabel] || typeLabel;
@@ -1337,9 +1339,12 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           edges={visibleEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @xyflow/react handler generics
           onNodeClick={onNodeClickHandler as any}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onNodeDoubleClick={onNodeDoubleClickHandler as any}
           onNodeDragStop={handleNodeDragStop}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onNodeMouseEnter={((_: React.MouseEvent, node: { id: string; data: GraphNodeData }) => {
             if (!showAllSecondary && node.data.isRoot) setHoveredRootId(node.id);
           }) as any}
@@ -1353,7 +1358,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           style={{ background: '#1d1d1d' }}
         >
           <Background
-            variant={isDottedBackground ? 'dots' as any : 'lines' as any}
+            variant={isDottedBackground ? BackgroundVariant.Dots : BackgroundVariant.Lines}
             gap={isDottedBackground ? 40 : 0}
             size={isDottedBackground ? 1 : 0}
             color={isDottedBackground ? 'rgba(255, 255, 255, 0.08)' : 'transparent'}
@@ -1455,6 +1460,7 @@ const ThreadGraph: React.FC<ThreadGraphProps> = ({ threads, onNodeClick: _onNode
           threads={threads}
           onClose={closeContentSidebar}
           onNodeClick={handleNodeClick}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onOpenEditor={onOpenEditor as any}
           onOpenInArticle={onOpenInArticle}
           onNavigateToThread={onNavigateToThread}

@@ -4,29 +4,20 @@ import { getNeo4j, toNum } from '../db/driver.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
 import { aiTimeout } from '../middleware/aiTimeout.js';
-import { getOpenAI } from '../services/openai.js';
+import { getGemini } from '../services/gemini.js';
+import { sm2, calculateDueDate, todayISO } from '../services/sm2.js';
 
 const router = Router();
-
-// ── SM-2 algorithm ───────────────────────────────────────────────────────────
-function sm2(quality: number, repetitions: number, easiness: number, interval: number) {
-  let newEF = easiness + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-  if (newEF < 1.3) newEF = 1.3;
-  if (quality < 3) return { easiness: newEF, interval: 1, repetitions: 0 };
-  const newReps = repetitions + 1;
-  const newInterval = newReps === 1 ? 1 : newReps === 2 ? 6 : Math.round(interval * newEF);
-  return { easiness: newEF, interval: newInterval, repetitions: newReps };
-}
 
 // ── Look up a word/phrase definition ─────────────────────────────────────────
 router.post('/lookup', requireAuth, aiTimeout, async (req, res) => {
   const { word, context } = req.body;
   if (!word?.trim()) return res.status(400).json({ error: 'word is required' });
 
-  const openai = getOpenAI();
+  const gemini = getGemini();
   const contextHint = context ? `\nThe word/phrase appears in this context: "${context}"` : '';
 
-  const completion = await openai.chat.completions.create({
+  const completion = await gemini.chat.completions.create({
     model: config.gemini.chatModel,
     temperature: 0.3,
     response_format: { type: 'json_object' },
@@ -63,56 +54,40 @@ router.post('/words', requireAuth, withSession(async (req, res) => {
   }
 
   const session = req.neo4jSession!;
-  const userId = (req.user as { id: number }).id;
+  const userId = req.user!.id;
   const now = new Date().toISOString().split('T')[0];
+  const wordLower = word.trim().toLowerCase();
 
-  // Check if word already exists for this user
-  const existing = await session.run(
-    `MATCH (v:VocabWord {word_lower: $wordLower, created_by: $userId}) RETURN v`,
-    { wordLower: word.trim().toLowerCase(), userId: getNeo4j().int(userId) }
-  );
-
-  if (existing.records.length > 0) {
-    const props = existing.records[0].get('v').properties;
-    return res.json({
-      id: toNum(props.id),
-      word: props.word,
-      definition: props.definition,
-      alreadyExists: true,
-    });
-  }
-
-  // Get next ID
+  // Atomic upsert — avoids race condition from separate check-then-create
   const idResult = await session.run(
     `MATCH (v:VocabWord) RETURN COALESCE(MAX(v.id), 0) + 1 AS nextId`
   );
   const nextId = toNum(idResult.records[0].get('nextId')) || 1;
 
-  await session.run(
-    `CREATE (v:VocabWord {
-      id: $id,
-      word: $word,
-      word_lower: $wordLower,
-      definition: $definition,
-      part_of_speech: $partOfSpeech,
-      pronunciation: $pronunciation,
-      example_sentence: $example,
-      etymology: $etymology,
-      context: $context,
-      source_thread_id: $threadId,
-      created_by: $userId,
-      created_at: $now,
-      review_easiness: 2.5,
-      review_interval: 0,
-      review_repetitions: 0,
-      review_due_date: $now,
-      review_last_date: null,
-      review_quality: null
-    })`,
+  const result = await session.run(
+    `MERGE (v:VocabWord {word_lower: $wordLower, created_by: $userId})
+     ON CREATE SET
+       v.id = $id,
+       v.word = $word,
+       v.definition = $definition,
+       v.part_of_speech = $partOfSpeech,
+       v.pronunciation = $pronunciation,
+       v.example_sentence = $example,
+       v.etymology = $etymology,
+       v.context = $context,
+       v.source_thread_id = $threadId,
+       v.created_at = $now,
+       v.review_easiness = 2.5,
+       v.review_interval = 0,
+       v.review_repetitions = 0,
+       v.review_due_date = $now,
+       v.review_last_date = null,
+       v.review_quality = null
+     RETURN v, v.created_at = $now AS isNew`,
     {
       id: getNeo4j().int(nextId),
+      wordLower,
       word: word.trim(),
-      wordLower: word.trim().toLowerCase(),
       definition: definition.trim(),
       partOfSpeech: partOfSpeech || '',
       pronunciation: pronunciation || '',
@@ -125,13 +100,20 @@ router.post('/words', requireAuth, withSession(async (req, res) => {
     }
   );
 
-  res.json({ id: nextId, word: word.trim(), definition: definition.trim(), created: true });
+  const props = result.records[0].get('v').properties;
+  const isNew = result.records[0].get('isNew');
+  res.json({
+    id: toNum(props.id),
+    word: props.word,
+    definition: props.definition,
+    ...(isNew ? { created: true } : { alreadyExists: true }),
+  });
 }));
 
 // ── Get all vocabulary words for the current user ────────────────────────────
 router.get('/words', requireAuth, withSession(async (req, res) => {
   const session = req.neo4jSession!;
-  const userId = (req.user as { id: number }).id;
+  const userId = req.user!.id;
   const threadId = req.query.threadId ? Number(req.query.threadId) : null;
 
   const threadFilter = threadId ? ' AND v.source_thread_id = $threadId' : '';
@@ -171,7 +153,7 @@ router.get('/words', requireAuth, withSession(async (req, res) => {
 // ── Delete a vocabulary word ─────────────────────────────────────────────────
 router.delete('/words/:id', requireAuth, withSession(async (req, res) => {
   const session = req.neo4jSession!;
-  const userId = (req.user as { id: number }).id;
+  const userId = req.user!.id;
   const wordId = parseInt(req.params.id);
 
   await session.run(
@@ -185,7 +167,7 @@ router.delete('/words/:id', requireAuth, withSession(async (req, res) => {
 // ── Get words due for review ─────────────────────────────────────────────────
 router.get('/due', requireAuth, withSession(async (req, res) => {
   const session = req.neo4jSession!;
-  const userId = (req.user as { id: number }).id;
+  const userId = req.user!.id;
   const today = new Date().toISOString().split('T')[0];
   const threadId = req.query.threadId ? Number(req.query.threadId) : null;
 
@@ -227,7 +209,7 @@ router.post('/review', requireAuth, withSession(async (req, res) => {
   if (quality < 0 || quality > 5) return res.status(400).json({ error: 'Quality must be 0-5' });
 
   const session = req.neo4jSession!;
-  const userId = (req.user as { id: number }).id;
+  const userId = req.user!.id;
 
   const wordResult = await session.run(
     'MATCH (v:VocabWord {id: $id, created_by: $userId}) RETURN v',
@@ -270,7 +252,7 @@ router.post('/review', requireAuth, withSession(async (req, res) => {
 // ── Get review stats ─────────────────────────────────────────────────────────
 router.get('/stats', requireAuth, withSession(async (req, res) => {
   const session = req.neo4jSession!;
-  const userId = (req.user as { id: number }).id;
+  const userId = req.user!.id;
   const today = new Date().toISOString().split('T')[0];
   const threadId = req.query.threadId ? Number(req.query.threadId) : null;
 

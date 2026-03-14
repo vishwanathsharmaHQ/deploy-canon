@@ -9,7 +9,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return;
   }
   try {
-    req.user = jwt.verify(auth.slice(7), config.jwt.secret) as { id: number; username: string };
+    req.user = jwt.verify(auth.slice(7), config.jwt.secret) as { id: number; email: string; name: string };
     next();
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });

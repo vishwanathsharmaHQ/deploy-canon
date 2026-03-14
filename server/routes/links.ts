@@ -5,7 +5,7 @@ import { getNextId, vectorQuery } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
 import { aiTimeout } from '../middleware/aiTimeout.js';
-import { generateEmbedding, getEmbeddingText } from '../services/openai.js';
+import { generateEmbedding, getEmbeddingText } from '../services/gemini.js';
 import { ensureVectorIndexes } from '../services/embeddings.js';
 import type { LinkSuggestion } from '../types/domain.js';
 

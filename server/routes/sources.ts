@@ -145,7 +145,7 @@ router.delete('/:sourceId', requireAuth, withSession(async (req, res) => {
     return res.status(404).json({ error: 'Source not found' });
   }
 
-  res.json({ deleted: true });
+  res.json({ ok: true });
 }));
 
 // GET /:sourceId/impact -- which claims depend on this source (for "what if retracted?" analysis)

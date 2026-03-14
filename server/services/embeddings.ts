@@ -1,6 +1,6 @@
 import config from '../config.js';
 import { getDriver, getNeo4j } from '../db/driver.js';
-import { generateEmbedding, getEmbeddingText } from './openai.js';
+import { generateEmbedding, getEmbeddingText } from './gemini.js';
 
 let _indexesEnsured = false;
 

@@ -642,7 +642,7 @@ export const api = {
     );
   },
 
-  async saveSocraticHistory(threadId: number, history: SocraticHistoryEntry[]): Promise<{ success: boolean }> {
+  async saveSocraticHistory(threadId: number, history: SocraticHistoryEntry[]): Promise<{ ok: boolean }> {
     return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/socratic-history`, {
       method: 'PUT',
       headers: authHeaders(),

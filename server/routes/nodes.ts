@@ -1,25 +1,13 @@
 import { Router } from 'express';
 import { getNeo4j, toNum, getSession } from '../db/driver.js';
-import { getNextId, formatNode, formatRelationship, formatSource, ENTITY_TYPES, RELATIONSHIP_TYPES } from '../db/queries.js';
+import { getNextId, formatNode, formatRelationship, formatSource, normalizeEntityType, ENTITY_TYPES, RELATIONSHIP_TYPES } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession, withTransaction } from '../middleware/session.js';
-import { getOpenAI, generateEmbedding, getEmbeddingText } from '../services/openai.js';
+import { getGemini, generateEmbedding, getEmbeddingText } from '../services/gemini.js';
 import config from '../config.js';
 import type { NodeData, RelationshipData, SourceData, EntityType, RelationType } from '../types/domain.js';
 
 const router = Router();
-
-/** Map legacy uppercase node types to new entity types */
-const LEGACY_TYPE_MAP: Record<string, string> = {
-  ROOT: 'claim', EVIDENCE: 'evidence', EXAMPLE: 'example',
-  COUNTERPOINT: 'counterpoint', REFERENCE: 'source', CONTEXT: 'context',
-  SYNTHESIS: 'synthesis', QUESTION: 'question', NOTE: 'note',
-};
-function normalizeEntityType(raw?: string): EntityType {
-  if (!raw) return 'note';
-  const mapped = LEGACY_TYPE_MAP[raw] ?? LEGACY_TYPE_MAP[raw.toUpperCase()];
-  return (mapped ?? raw.toLowerCase()) as EntityType;
-}
 
 // GET /threads/:threadId/nodes - get thread nodes, relationships, and sources
 router.get(
@@ -348,7 +336,7 @@ router.delete(
     }
 
     await session.run('MATCH (n:Node {id: $nid}) DETACH DELETE n', { nid: getNeo4j().int(nodeId) });
-    res.json({ deleted: true });
+    res.json({ ok: true });
   })
 );
 
@@ -395,9 +383,7 @@ router.post(
       if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
         try {
           nodeContent = JSON.parse(content);
-        } catch (e) {
-          console.log('Failed to parse content as JSON:', e);
-        }
+        } catch { /* content is not JSON, use as-is */ }
       }
 
       let contentForGPT = '';
@@ -416,7 +402,7 @@ router.post(
         contentForGPT = String(nodeContent);
       }
 
-      const response = await getOpenAI().chat.completions.create({
+      const response = await getGemini().chat.completions.create({
         model: config.gemini.chatModel,
         messages: [{
           role: 'system',
@@ -511,7 +497,7 @@ router.post(
     let nextPosition = (toNum(posResult.records[0]?.get('maxPos')) ?? -1) + 1;
 
     // Ask AI to enrich
-    const response = await getOpenAI().chat.completions.create({
+    const response = await getGemini().chat.completions.create({
       model: config.gemini.chatModel,
       messages: [{
         role: 'system',

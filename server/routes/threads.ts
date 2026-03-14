@@ -4,7 +4,7 @@ import { getNextId, formatThread, formatNode, vectorQuery, ENTITY_TYPES, RELATIO
 import { requireAuth } from '../middleware/auth.js';
 import { withSession, withTransaction } from '../middleware/session.js';
 import { aiTimeout } from '../middleware/aiTimeout.js';
-import { getOpenAI, generateEmbedding, getEmbeddingText } from '../services/openai.js';
+import { getGemini, generateEmbedding, getEmbeddingText } from '../services/gemini.js';
 import { extractContentText, stripHtml } from '../services/contentParser.js';
 import config from '../config.js';
 import type { ClonedNode } from '../types/domain.js';
@@ -285,7 +285,7 @@ router.patch(
       `MATCH (t:Thread {id: $id}) SET ${sets.join(', ')} RETURN t`,
       params
     );
-    res.json({ success: true });
+    res.json({ ok: true });
   })
 );
 
@@ -477,7 +477,7 @@ Format as JSON:
       };
     }
 
-    const threadResponse = await getOpenAI().chat.completions.create({
+    const threadResponse = await getGemini().chat.completions.create({
       model: config.gemini.chatModel,
       messages: [
         { role: 'system', content: generationPrompt },
@@ -773,12 +773,12 @@ router.post(
     if (shared.length > 0) {
       const topShared = shared.slice(0, 10);
       try {
-        const openai = getOpenAI();
+        const gemini = getGemini();
         const pairsDescription = topShared.map((p, i) => (
           `Pair ${i + 1}:\n  A: "${p.nodeA.title}" — ${stripHtml(p.nodeA.content).substring(0, 200)}\n  B: "${p.nodeB.title}" — ${stripHtml(p.nodeB.content).substring(0, 200)}`
         )).join('\n\n');
 
-        const gptRes = await openai.chat.completions.create({
+        const gptRes = await gemini.chat.completions.create({
           model: config.gemini.chatModel,
           temperature: 0.2,
           messages: [{
@@ -1047,8 +1047,8 @@ router.post(
       })
       .join('\n\n');
 
-    const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
+    const gemini = getGemini();
+    const completion = await gemini.chat.completions.create({
       model: config.gemini.chatModel,
       temperature: 0.3,
       response_format: { type: 'json_object' },
@@ -1283,8 +1283,8 @@ router.post(
     }
     targetContent = targetContent.replace(/<[^>]+>/g, ' ').substring(0, 600);
 
-    const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
+    const gemini = getGemini();
+    const completion = await gemini.chat.completions.create({
       model: config.gemini.chatModel,
       temperature: 0.85,
       response_format: { type: 'json_object' },
@@ -1342,8 +1342,8 @@ router.post(
       explanation = String(nodeProps.content || '');
     }
 
-    const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
+    const gemini = getGemini();
+    const completion = await gemini.chat.completions.create({
       model: config.gemini.chatModel,
       temperature: 0.7,
       response_format: { type: 'json_object' },
@@ -1482,8 +1482,8 @@ router.post(
       };
     });
 
-    const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
+    const gemini = getGemini();
+    const completion = await gemini.chat.completions.create({
       model: config.gemini.chatModel,
       temperature: 0.2,
       response_format: { type: 'json_object' },
@@ -1579,8 +1579,8 @@ router.get(
       };
     });
 
-    const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
+    const gemini = getGemini();
+    const completion = await gemini.chat.completions.create({
       model: config.gemini.chatModel,
       temperature: 0.2,
       response_format: { type: 'json_object' },
@@ -1662,10 +1662,10 @@ router.post(
       }
     }
 
-    const openai = getOpenAI();
+    const gemini = getGemini();
 
     // Step 1: Generate perspective names
-    const perspectiveCompletion = await openai.chat.completions.create({
+    const perspectiveCompletion = await gemini.chat.completions.create({
       model: config.gemini.chatModel,
       temperature: 0.8,
       response_format: { type: 'json_object' },
@@ -1691,7 +1691,7 @@ Return JSON: { "perspectives": [{ "name": "Perspective Name", "description": "1-
     const createdThreads: ReturnType<typeof formatThread>[] = [];
 
     for (const pDef of perspectiveDefs as { name: string; description: string }[]) {
-      const nodesCompletion = await openai.chat.completions.create({
+      const nodesCompletion = await gemini.chat.completions.create({
         model: config.gemini.chatModel,
         temperature: 0.7,
         response_format: { type: 'json_object' },
@@ -1946,8 +1946,8 @@ router.post(
     const threadTitle = threadProps.title || '';
     const threadDescription = threadProps.description || '';
 
-    const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
+    const gemini = getGemini();
+    const completion = await gemini.chat.completions.create({
       model: config.gemini.chatModel,
       temperature: 0.3,
       response_format: { type: 'json_object' },
@@ -2073,7 +2073,7 @@ router.post(
     const selected = unchallenged.slice(0, 3);
 
     // 4. For each, call GPT-4o-mini to generate a challenge
-    const openai = getOpenAI();
+    const gemini = getGemini();
     const challenges = await Promise.all(
       selected.map(async (node) => {
         let nodeContent = String(node.content || '');
@@ -2083,7 +2083,7 @@ router.post(
         } catch { /* raw */ }
         nodeContent = nodeContent.replace(/<[^>]+>/g, ' ').substring(0, 600);
 
-        const completion = await openai.chat.completions.create({
+        const completion = await gemini.chat.completions.create({
           model: config.gemini.chatModel,
           temperature: 0.85,
           response_format: { type: 'json_object' },
@@ -2184,8 +2184,8 @@ router.post(
       .join('\n');
 
     // 4. Call OpenAI with web_search_preview
-    const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
+    const gemini = getGemini();
+    const completion = await gemini.chat.completions.create({
       model: config.gemini.chatModel,
       messages: [
         {

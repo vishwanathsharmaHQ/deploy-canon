@@ -23,7 +23,7 @@ const SourceVerifyBadge: React.FC<SourceVerifyBadgeProps> = ({ url, claim }) => 
         setData(result);
         setLoading(false);
       })
-      .catch(() => { if (!cancelled) setLoading(false); });
+      .catch((err) => { console.error('Source verify failed:', err); if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [url]);
 

@@ -142,9 +142,9 @@ router.post('/:threadId/sequence/suggest', requireAuth, withSession(async (req, 
   });
   if (!nodes.length) return res.json({ sequence: [] });
 
-  const { getOpenAI } = await import('../services/openai.js');
-  const openai = getOpenAI();
-  const completion = await openai.chat.completions.create({
+  const { getGemini } = await import('../services/gemini.js');
+  const gemini = getGemini();
+  const completion = await gemini.chat.completions.create({
     model: config.gemini.chatModel,
     temperature: 0.2,
     response_format: { type: 'json_object' },

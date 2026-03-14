@@ -5,18 +5,10 @@ import { formatNode } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
 import { aiTimeout } from '../middleware/aiTimeout.js';
-import { getOpenAI } from '../services/openai.js';
+import { getGemini } from '../services/gemini.js';
+import { sm2, calculateDueDate, todayISO } from '../services/sm2.js';
 
 const router = Router();
-
-function sm2(quality: number, repetitions: number, easiness: number, interval: number) {
-  let newEF = easiness + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-  if (newEF < 1.3) newEF = 1.3;
-  if (quality < 3) return { easiness: newEF, interval: 1, repetitions: 0 };
-  const newReps = repetitions + 1;
-  const newInterval = newReps === 1 ? 1 : newReps === 2 ? 6 : Math.round(interval * newEF);
-  return { easiness: newEF, interval: newInterval, repetitions: newReps };
-}
 
 router.post('/init', requireAuth, withSession(async (req, res) => {
   const { threadId } = req.body;
@@ -158,12 +150,12 @@ router.post('/quiz', requireAuth, aiTimeout, withSession(async (req, res) => {
   try { const p = JSON.parse(contentText); contentText = p.description || p.point || p.explanation || p.argument || contentText; } catch {}
   contentText = contentText.replace(/<[^>]+>/g, ' ').substring(0, 1000);
 
-  const openai = getOpenAI();
+  const gemini = getGemini();
   const prompt = quizType === 'steelman'
     ? `Create a steelman challenge for this COUNTERPOINT. Ask the user to rewrite it in its strongest form. Return JSON: { "question": "<challenge text>", "hint": "<what a strong version should include>", "idealAnswer": "<a model steelmanned version>" }`
     : `Create a recall quiz question about this knowledge node. Return JSON: { "question": "<question testing recall of key facts>", "hint": "<a helpful hint>", "idealAnswer": "<the correct detailed answer>" }`;
 
-  const completion = await openai.chat.completions.create({
+  const completion = await gemini.chat.completions.create({
     model: config.gemini.chatModel, temperature: 0.6,
     response_format: { type: 'json_object' },
     messages: [

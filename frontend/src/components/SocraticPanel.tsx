@@ -1,11 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
-import type { Thread, ThreadNode, User } from '../types';
+import type { Thread, ThreadNode, User, SocraticHistoryEntry } from '../types';
 import './SocraticPanel.css';
 
 interface SocraticExchange {
   question: string;
   answer: string;
+}
+
+function exchangesToHistory(exchanges: SocraticExchange[]): SocraticHistoryEntry[] {
+  return exchanges.flatMap(e => [
+    { role: 'assistant', content: e.question },
+    { role: 'user', content: e.answer },
+  ]);
+}
+
+function historyToExchanges(entries: SocraticHistoryEntry[]): SocraticExchange[] {
+  const exchanges: SocraticExchange[] = [];
+  for (let i = 0; i < entries.length - 1; i += 2) {
+    if (entries[i].role === 'assistant' && entries[i + 1]?.role === 'user') {
+      exchanges.push({ question: entries[i].content, answer: entries[i + 1].content });
+    }
+  }
+  return exchanges;
 }
 
 interface CapturedNode {
@@ -36,8 +53,8 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
   useEffect(() => {
     const init = async () => {
       try {
-        const stored = await api.getSocraticHistory(thread.id) as any;
-        const histEntries: SocraticExchange[] = stored?.history || stored || [];
+        const stored = await api.getSocraticHistory(thread.id);
+        const histEntries = historyToExchanges(stored || []);
         if (histEntries.length > 0) {
           setHistory(histEntries);
           fetchNextQuestion('', histEntries);
@@ -61,7 +78,7 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
     try {
       const result = await api.socraticQuestion({
         threadId: thread.id,
-        history: currentHistory as any,
+        history: exchangesToHistory(currentHistory),
         currentAnswer: answer,
         nodeContext,
       });
@@ -85,7 +102,7 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
     setHistory(newHistory);
     setCurrentAnswer('');
     // Persist history after each exchange (fire-and-forget)
-    api.saveSocraticHistory(thread.id, newHistory as any).catch(console.error);
+    api.saveSocraticHistory(thread.id, exchangesToHistory(newHistory)).catch(console.error);
     await fetchNextQuestion(answer, newHistory);
   };
 
@@ -114,7 +131,7 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
     setHistory([]);
     setCaptures([]);
     setCurrentAnswer('');
-    api.saveSocraticHistory(thread.id, [] as any).catch(console.error);
+    api.saveSocraticHistory(thread.id, []).catch(console.error);
     fetchNextQuestion('', []);
   };
 

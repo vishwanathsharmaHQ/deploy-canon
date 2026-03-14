@@ -67,9 +67,9 @@ app.post('/api/verify-source', async (req, res, next) => {
     const { url, claim } = req.body;
     if (!url || !claim) return res.status(400).json({ error: 'url and claim are required' });
 
-    const { getOpenAI } = await import('./services/openai.js');
-    const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
+    const { getGemini } = await import('./services/gemini.js');
+    const gemini = getGemini();
+    const completion = await gemini.chat.completions.create({
       model: config.gemini.chatModel,
       temperature: 0.2,
       response_format: { type: 'json_object' },

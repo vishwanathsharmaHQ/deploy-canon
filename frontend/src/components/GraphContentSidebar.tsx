@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NODE_TYPES, NODE_TYPE_COLORS, EXPANDABLE_NODE_TYPES, ENTITY_TYPE_LABELS } from '../constants';
+import { NODE_TYPES, NODE_TYPE_COLORS, ENTITY_TYPE_LABELS } from '../constants';
 import type { Thread, NodeTypeName, ThreadType, Relationship } from '../types';
 import CrossThreadLinkPanel from './CrossThreadLinkPanel';
 import ReasoningValidator from './ReasoningValidator';
@@ -131,14 +131,12 @@ const GraphContentSidebar: React.FC<GraphContentSidebarProps> = ({
               Debate
             </button>
           )}
-          {(selectedNode.type === 'thread' || EXPANDABLE_NODE_TYPES.includes(NODE_TYPES[selectedNode.type as number] as NodeTypeName)) && (
-            <button
-              className="add-node-button"
-              onClick={() => onOpenEditor && onOpenEditor(selectedNode)}
-            >
-              Add Node
-            </button>
-          )}
+          <button
+            className="add-node-button"
+            onClick={() => onOpenEditor && onOpenEditor(selectedNode)}
+          >
+            Add Node
+          </button>
           <button className="content-sidebar-close" onClick={onClose}>&times;</button>
         </div>
       </div>

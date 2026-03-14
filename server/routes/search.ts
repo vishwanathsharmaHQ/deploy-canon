@@ -6,7 +6,7 @@ import { vectorQuery, formatThread, formatNode } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
 import { withSession } from '../middleware/session.js';
 import { aiTimeout } from '../middleware/aiTimeout.js';
-import { getOpenAI, generateEmbedding } from '../services/openai.js';
+import { getGemini, generateEmbedding } from '../services/gemini.js';
 import type { ContradictionMatch } from '../types/domain.js';
 
 const router = Router();
@@ -102,8 +102,8 @@ router.post('/answer', requireAuth, aiTimeout, withSession(async (req, res) => {
     return `[${p.entity_type}] "${p.title}" (Thread: ${r.get('threadTitle')}): ${c}`;
   }).join('\n\n');
 
-  const openai = getOpenAI();
-  const completion = await openai.chat.completions.create({
+  const gemini = getGemini();
+  const completion = await gemini.chat.completions.create({
     model: config.gemini.chatModel,
     temperature: 0.3,
     messages: [
