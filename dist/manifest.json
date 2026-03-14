@@ -1,6 +1,6 @@
 {
-  "name": "Canon Thread",
-  "short_name": "Canon",
+  "name": "canonthread",
+  "short_name": "canonthread",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#111111",

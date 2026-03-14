@@ -82,7 +82,7 @@ router.post('/send-test', requireAuth, withSession(async (req, res) => {
     const sub = JSON.parse(record.get('sub'));
     try {
       await webpush.sendNotification(sub, JSON.stringify({
-        title: 'Canon Thread',
+        title: 'canonthread',
         body: 'Notifications are working!',
         url: '/',
       }));
