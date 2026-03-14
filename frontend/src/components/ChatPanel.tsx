@@ -11,6 +11,19 @@ import './ChatPanel.css';
 
 const mdComponents = createMdComponents('cp-youtube');
 
+/** Convert bare [1], [2] citation refs in chat text into markdown links using the citations array */
+function linkifyCitations(text: string, citations?: Array<{ url: string; title?: string }>): string {
+  if (!citations || citations.length === 0) return text;
+  return text.replace(/\[(\d+)\]/g, (match, numStr) => {
+    const idx = parseInt(numStr, 10) - 1;
+    if (idx >= 0 && idx < citations.length) {
+      const c = citations[idx];
+      return `[\\[${idx + 1}\\]](${c.url})`;
+    }
+    return match;
+  });
+}
+
 /** Infer a Neo4j relationship type from the entity type */
 function inferRelationType(entityType: string): string {
   switch (entityType) {
@@ -308,7 +321,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                           }
                         }
                       }}>
-                        <ReactMarkdown components={mdComponents as Record<string, React.ComponentType>}>{msg.content}</ReactMarkdown>
+                        <ReactMarkdown components={mdComponents as Record<string, React.ComponentType>}>{linkifyCitations(msg.content, msg.citations)}</ReactMarkdown>
                       </div>
 
                       {msg.processing && (
