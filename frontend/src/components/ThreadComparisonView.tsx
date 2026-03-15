@@ -198,7 +198,7 @@ const ThreadComparisonView: React.FC<ThreadComparisonViewProps> = ({
               { label: 'Shared', value: String(comparison.shared.length), color: '#00ff9d' },
               { label: 'Contradictions', value: String(comparison.contradictions.length), color: '#ef5350' },
               { label: 'Unique to A', value: String(comparison.uniqueToA.length), color: '#ffb74d' },
-              { label: 'Unique to B', value: String(comparison.uniqueToB.length), color: '#ce93d8' },
+              { label: 'Unique to B', value: String(comparison.uniqueToB.length), color: '#00ff9d' },
             ].map((stat, i) => (
               <div key={i} style={{
                 background: '#242424',
@@ -312,14 +312,14 @@ const ThreadComparisonView: React.FC<ThreadComparisonViewProps> = ({
 
               {/* Unique to B */}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <h3 style={{ color: '#ce93d8', fontSize: '15px', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ce93d8', display: 'inline-block' }} />
+                <h3 style={{ color: '#00ff9d', fontSize: '15px', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#00ff9d', display: 'inline-block' }} />
                   Unique to {comparison.threadB.title} ({comparison.uniqueToB.length})
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {comparison.uniqueToB.length > 0 ? (
                     comparison.uniqueToB.map((node, i) => (
-                      <NodeCard key={i} node={node} borderColor="#ce93d833" />
+                      <NodeCard key={i} node={node} borderColor="#00ff9d33" />
                     ))
                   ) : (
                     <div style={{ color: '#666', fontSize: '13px', padding: '16px', textAlign: 'center' }}>

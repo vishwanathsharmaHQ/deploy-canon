@@ -62,7 +62,7 @@ const PerspectivesPanel: React.FC<PerspectivesPanelProps> = ({ threadId, onSelec
     return p.content?.replace(/<[^>]+>/g, ' ').substring(0, 200) || p.description || '';
   };
 
-  const PERSPECTIVE_COLORS = ['#4fc3f7', '#ab47bc', '#ff7043', '#66bb6a', '#fdd835'];
+  const PERSPECTIVE_COLORS = ['#4fc3f7', '#00ff9d', '#ff7043', '#66bb6a', '#fdd835'];
 
   return (
     <div style={{

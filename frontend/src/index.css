@@ -49,8 +49,8 @@
   --color-info: #4fc3f7;
 
   /* ── Legacy button default ── */
-  --color-btn-default: #646cff;
-  --color-btn-default-hover: #535bf2;
+  --color-btn-default: #00ff9d;
+  --color-btn-default-hover: #00cc7d;
 }
 
 /* ── Base Resets ── */

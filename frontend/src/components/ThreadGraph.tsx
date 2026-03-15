@@ -64,7 +64,7 @@ const REL_TYPE_COLORS: Record<string, string> = {
   CONTRADICTS: 'rgba(239, 83, 80, 0.7)',
   QUALIFIES: 'rgba(253, 216, 53, 0.6)',
   DERIVES_FROM: 'rgba(79, 195, 247, 0.6)',
-  ILLUSTRATES: 'rgba(171, 71, 188, 0.6)',
+  ILLUSTRATES: 'rgba(0, 255, 157, 0.6)',
   CITES: 'rgba(255, 167, 38, 0.6)',
   ADDRESSES: 'rgba(102, 187, 106, 0.6)',
   REFERENCES: 'rgba(144, 164, 174, 0.5)',

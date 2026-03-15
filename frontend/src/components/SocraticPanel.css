@@ -1,4 +1,4 @@
-/* ── Socratic panel — styled like ChatPanel with purple accent ── */
+/* ── Socratic panel — styled like ChatPanel with green accent ── */
 
 .sp-panel {
   width: 100%;
@@ -83,7 +83,7 @@
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 0.9rem;
-  color: rgba(171, 71, 188, 0.85);
+  color: rgba(0, 255, 157, 0.85);
   line-height: 1.65;
   font-style: italic;
   word-break: break-word;
@@ -95,10 +95,10 @@
   padding: 12px 16px;
   border-radius: 12px;
   border-bottom-right-radius: 4px;
-  background: rgba(171, 71, 188, 0.1);
-  border: 1px solid rgba(171, 71, 188, 0.22);
+  background: rgba(0, 255, 157, 0.1);
+  border: 1px solid rgba(0, 255, 157, 0.22);
   font-size: 0.9rem;
-  color: #e8d0f0;
+  color: #c8f7e0;
   line-height: 1.65;
   word-break: break-word;
   align-self: flex-end;
@@ -142,7 +142,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(171, 71, 188, 0.5);
+  background: rgba(0, 255, 157, 0.5);
   margin: 0 2px;
   animation: sp-bounce 1.2s ease-in-out infinite;
 }
@@ -186,7 +186,7 @@
 
 .sp-textarea:focus {
   outline: none;
-  border-color: rgba(171, 71, 188, 0.45);
+  border-color: rgba(0, 255, 157, 0.45);
 }
 
 .sp-textarea:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -194,8 +194,8 @@
 .sp-textarea::placeholder { color: rgba(255, 255, 255, 0.22); }
 
 .sp-send {
-  background: #ab47bc;
-  color: #fff;
+  background: #00ff9d;
+  color: #111;
   border: none;
   border-radius: 8px;
   width: 42px;
@@ -209,7 +209,7 @@
   transition: background 0.15s, opacity 0.15s;
 }
 .sp-send:hover:not(:disabled) {
-  background: #9c27b0;
+  background: #00cc7d;
 }
 .sp-send:disabled { opacity: 0.28; cursor: not-allowed; }
 
@@ -244,8 +244,8 @@
 }
 
 .sp-capture--saved {
-  border-color: rgba(171, 71, 188, 0.3);
-  background: rgba(171, 71, 188, 0.05);
+  border-color: rgba(0, 255, 157, 0.3);
+  background: rgba(0, 255, 157, 0.05);
 }
 
 .sp-capture-type {
@@ -253,7 +253,7 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(171, 71, 188, 0.7);
+  color: rgba(0, 255, 157, 0.7);
   flex-shrink: 0;
 }
 
@@ -268,23 +268,23 @@
 
 .sp-capture-add {
   flex-shrink: 0;
-  background: rgba(171, 71, 188, 0.08);
-  border: 1px solid rgba(171, 71, 188, 0.25);
+  background: rgba(0, 255, 157, 0.08);
+  border: 1px solid rgba(0, 255, 157, 0.25);
   border-radius: 4px;
-  color: rgba(171, 71, 188, 0.7);
+  color: rgba(0, 255, 157, 0.7);
   font-size: 0.75rem;
   padding: 2px 8px;
   cursor: pointer;
   transition: all 0.15s;
 }
 .sp-capture-add:hover {
-  background: rgba(171, 71, 188, 0.15);
-  border-color: rgba(171, 71, 188, 0.45);
-  color: #ce93d8;
+  background: rgba(0, 255, 157, 0.15);
+  border-color: rgba(0, 255, 157, 0.45);
+  color: #00ff9d;
 }
 
 .sp-capture-done {
   flex-shrink: 0;
   font-size: 0.8rem;
-  color: rgba(171, 71, 188, 0.65);
+  color: rgba(0, 255, 157, 0.65);
 }

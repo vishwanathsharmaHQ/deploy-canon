@@ -47,7 +47,7 @@ function getChildNodes(threads: Thread[], nodeId: string) {
 
 const REL_COLORS: Record<string, string> = {
   SUPPORTS: '#00ff9d', CONTRADICTS: '#ef5350', QUALIFIES: '#fdd835',
-  DERIVES_FROM: '#4fc3f7', ILLUSTRATES: '#ab47bc', CITES: '#ffa726',
+  DERIVES_FROM: '#4fc3f7', ILLUSTRATES: '#00ff9d', CITES: '#ffa726',
   ADDRESSES: '#66bb6a', REFERENCES: '#90a4ae',
 };
 

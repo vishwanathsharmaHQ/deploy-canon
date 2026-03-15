@@ -37,11 +37,11 @@
   background: #64b5f622;
 }
 .dict-trigger-custom {
-  color: #ce93d8;
+  color: #00ff9d;
   border-left: 1px solid #00ff9d33;
 }
 .dict-trigger-custom:hover {
-  background: #ce93d822;
+  background: #00ff9d22;
 }
 
 .dict-popup {
@@ -277,16 +277,16 @@
   transition: border-color 0.15s;
 }
 .dict-custom-input:focus {
-  border-color: #ce93d8;
+  border-color: #00ff9d;
 }
 .dict-custom-input::placeholder {
   color: rgba(255, 255, 255, 0.3);
 }
 
 .dict-custom-send {
-  background: #ce93d820;
-  border: 1px solid #ce93d844;
-  color: #ce93d8;
+  background: #00ff9d20;
+  border: 1px solid #00ff9d44;
+  color: #00ff9d;
   border-radius: 6px;
   padding: 8px 14px;
   font-size: 13px;
@@ -296,7 +296,7 @@
   white-space: nowrap;
 }
 .dict-custom-send:hover:not(:disabled) {
-  background: #ce93d835;
+  background: #00ff9d35;
 }
 .dict-custom-send:disabled {
   opacity: 0.4;

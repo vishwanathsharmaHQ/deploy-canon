@@ -11,6 +11,7 @@ import SourceVerifyBadge from './SourceVerifyBadge';
 import ConfidenceMeter from './ConfidenceMeter';
 import SecondaryNodePanel from './SecondaryNodePanel';
 import ThreadContentEditor from './ThreadContentEditor';
+import ReactMarkdown from 'react-markdown';
 import { api } from '../services/api';
 import { NODE_TYPE_COLORS, ENTITY_TYPE_LABELS } from '../constants';
 import {
@@ -21,8 +22,11 @@ import {
   renderContent,
   formatNodeContent,
 } from '../utils/articleContent';
+import { createMdComponents } from '../utils/markdown';
 import type { Thread, ThreadNode, NodeTypeName, User, Annotation } from '../types';
 import './ArticleReader.css';
+
+const footnoteMdComponents = createMdComponents('ar-footnote-youtube');
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -68,6 +72,7 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   const [secondaryOpen, setSecondaryOpen] = useState(false);
   const [selectedSecondaryId, setSelectedSecondaryId] = useState<number | string | null>(null);
   const [socraticOpen, setSocraticOpen] = useState(false);
+  const [tocOpen, setTocOpen] = useState(false);
   const [secondaryWidth, setSecondaryWidth] = useState(400);
   const [chatWidth, setChatWidth] = useState(0); // 0 means use CSS default (50%)
   const resizingRef = useRef(false);
@@ -476,17 +481,6 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             .filter(n => ordered.some(o => o.id === n.id)); // remove deleted nodes
           const newNodes = ordered.filter(n => !prevIds.has(n.id));
           const merged = [...preserved, ...newNodes];
-
-          // Navigate to the last new root node added (from chat node creation)
-          if (newNodes.length > 0) {
-            const relChildIds = new Set((thread.relationships || []).map(r => r.source_id));
-            const mergedRoots = merged.filter(n => !n.parent_id && !relChildIds.has(n.id));
-            const lastNewRoot = [...newNodes].reverse().find(n => !n.parent_id && !relChildIds.has(n.id));
-            if (lastNewRoot) {
-              const idx = mergedRoots.findIndex(n => n.id === lastNewRoot.id);
-              if (idx >= 0) queueMicrotask(() => setCurrentPage(idx + 1));
-            }
-          }
 
           // Check if enrich just completed — auto-open sidebar for the enriched node
           const enrichedId = enrichedNodeRef.current;
@@ -1117,6 +1111,35 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   return (
     <div className="ar-page">
       <div className="ar-content-row">
+        {/* ── TOC sidebar ── */}
+        <div className={`ar-toc-sidebar${tocOpen ? ' ar-toc-sidebar--open' : ''}`}>
+          {tocOpen && (
+            <nav className="ar-toc-nav">
+              <div className="ar-toc-heading">Contents</div>
+              <button
+                className={`ar-toc-item${currentPage === 0 ? ' ar-toc-item--active' : ''}`}
+                onClick={() => setCurrentPage(0)}
+              >
+                Overview
+              </button>
+              {rootNodes.map((node, idx) => (
+                <button
+                  key={node.id}
+                  className={`ar-toc-item${currentPage === idx + 1 ? ' ar-toc-item--active' : ''}`}
+                  onClick={() => setCurrentPage(idx + 1)}
+                  title={node.title || `Node ${node.id}`}
+                >
+                  <span className="ar-toc-num">{idx + 1}</span>
+                  <span className="ar-toc-title">{node.title || `Node ${node.id}`}</span>
+                </button>
+              ))}
+            </nav>
+          )}
+          <button className="ar-toc-toggle" onClick={() => setTocOpen(o => !o)} title={tocOpen ? 'Hide contents' : 'Show contents'}>
+            {tocOpen ? '‹' : '›'}
+          </button>
+        </div>
+
         {/* ── Main reading area ── */}
         <div className="ar-content-area">
           <main className="ar-body" ref={bodyRef}>
@@ -1326,7 +1349,9 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
             <button className="ar-footnote-close" onClick={() => setActiveFootnote(null)}>&times;</button>
             <div className="ar-footnote-action">{activeFootnote.action}{activeFootnote.question ? `: ${activeFootnote.question}` : ''}</div>
             <div className="ar-footnote-text">"{activeFootnote.text.length > 150 ? activeFootnote.text.substring(0, 150) + '...' : activeFootnote.text}"</div>
-            <div className="ar-footnote-response">{activeFootnote.response}</div>
+            <div className="ar-footnote-response">
+              <ReactMarkdown components={footnoteMdComponents}>{activeFootnote.response}</ReactMarkdown>
+            </div>
           </div>
         </div>
       )}
