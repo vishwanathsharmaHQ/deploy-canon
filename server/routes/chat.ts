@@ -537,18 +537,36 @@ Return ONLY valid JSON (no markdown fencing):
 
     const llmMessages: { role: string; content: string }[] = [{ role: 'system', content: systemPrompt }];
 
-    // Replay history (entries are { role, content } pairs from the frontend)
+    // Gemini requires: first non-system message must be 'user', roles must alternate.
+    // History comes as [{role:'assistant', content:q}, {role:'user', content:a}, ...].
+    // We prepend a user starter message, then replay history, then add currentAnswer.
+    llmMessages.push({
+      role: 'user',
+      content: '(Starting a new Socratic dialogue. Please ask the first question.)',
+    });
+
+    // Replay history — merge consecutive same-role messages to keep alternation valid
     for (const h of history) {
-      llmMessages.push({ role: h.role, content: h.content });
+      const last = llmMessages[llmMessages.length - 1];
+      if (last && last.role === h.role) {
+        last.content += '\n\n' + h.content;
+      } else {
+        llmMessages.push({ role: h.role, content: h.content });
+      }
     }
 
+    // Add the new answer (if provided)
     if (currentAnswer) {
-      llmMessages.push({ role: 'user', content: currentAnswer });
-    } else {
-      llmMessages.push({ role: 'user', content: '(Starting a new Socratic dialogue. Please ask the first question.)' });
+      const last = llmMessages[llmMessages.length - 1];
+      if (last && last.role === 'user') {
+        last.content += '\n\n' + currentAnswer;
+      } else {
+        llmMessages.push({ role: 'user', content: currentAnswer });
+      }
     }
 
     try {
+      console.log('Socratic messages:', llmMessages.map(m => ({ role: m.role, len: m.content.length })));
       const completion = await gemini.chat.completions.create({
         model: config.gemini.chatModel,
         messages: llmMessages,
@@ -557,14 +575,25 @@ Return ONLY valid JSON (no markdown fencing):
 
       const raw = completion.choices?.[0]?.message?.content || '{}';
       const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
-      const result = JSON.parse(cleaned);
 
-      res.json({
-        question: result.question || 'Can you elaborate on that?',
-        nodeFromAnswer: result.nodeFromAnswer || null,
-      });
-    } catch (err) {
-      console.error('Socratic GPT error:', err);
+      let question: string;
+      let nodeFromAnswer = null;
+      try {
+        const result = JSON.parse(cleaned);
+        question = result.question || 'Can you elaborate on that?';
+        nodeFromAnswer = result.nodeFromAnswer || null;
+      } catch {
+        // Model returned plain text instead of JSON — use it as the question directly
+        question = cleaned.trim() || 'Can you elaborate on that?';
+      }
+
+      res.json({ question, nodeFromAnswer });
+    } catch (err: any) {
+      console.error('Socratic error detail:', err?.message || err);
+      console.error('Socratic error status:', err?.status, 'code:', err?.code);
+      if (err?.response) {
+        console.error('Socratic error response:', JSON.stringify(err.response?.data || err.response).substring(0, 500));
+      }
       res.status(500).json({ error: 'Failed to generate Socratic question' });
     }
   })
