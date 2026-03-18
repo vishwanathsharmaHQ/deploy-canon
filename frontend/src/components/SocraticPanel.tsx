@@ -49,11 +49,17 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
   const historyEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load persisted history on mount, then fetch next question
+  // Load persisted history when node changes, then fetch next question
+  const nodeId = nodeContext?.nodeId;
   useEffect(() => {
+    if (!nodeId) { fetchNextQuestion('', []); return; }
+    setHistory([]);
+    setCaptures([]);
+    setCurrentAnswer('');
+    setCurrentQuestion('');
     const init = async () => {
       try {
-        const stored = await api.getSocraticHistory(thread.id);
+        const stored = await api.getSocraticHistory(nodeId);
         const histEntries = historyToExchanges(stored || []);
         if (histEntries.length > 0) {
           setHistory(histEntries);
@@ -66,7 +72,7 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
       }
     };
     init();
-  }, [thread.id]);
+  }, [nodeId]);
 
   // Scroll history to bottom when it grows
   useEffect(() => {
@@ -102,7 +108,7 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
     setHistory(newHistory);
     setCurrentAnswer('');
     // Persist history after each exchange (fire-and-forget)
-    api.saveSocraticHistory(thread.id, exchangesToHistory(newHistory)).catch(console.error);
+    if (nodeId) api.saveSocraticHistory(nodeId, exchangesToHistory(newHistory)).catch(console.error);
     await fetchNextQuestion(answer, newHistory);
   };
 
@@ -131,7 +137,7 @@ const SocraticPanel: React.FC<SocraticPanelProps> = ({ thread, currentUser, onAu
     setHistory([]);
     setCaptures([]);
     setCurrentAnswer('');
-    api.saveSocraticHistory(thread.id, []).catch(console.error);
+    if (nodeId) api.saveSocraticHistory(nodeId, []).catch(console.error);
     fetchNextQuestion('', []);
   };
 

@@ -496,19 +496,21 @@ router.post(
         if (props.description) threadSummary += `\nDescription: ${props.description}`;
       }
 
-      // Also grab a few node summaries for richer context
-      const nResult = await session.run(
-        `MATCH (t:Thread {id: $id})-[:INCLUDES]->(n:Node)
-         RETURN n ORDER BY n.id LIMIT 10`,
-        { id: getNeo4j().int(threadId) }
-      );
-      if (nResult.records.length) {
-        const nodeSummaries = nResult.records.map((r) => {
-          const p = r.get('n').properties;
-          const txt = extractContentText(p.content);
-          return `- [${p.entity_type}] ${p.title}: ${txt.substring(0, 150)}`;
-        });
-        threadSummary += `\n\nKey nodes:\n${nodeSummaries.join('\n')}`;
+      // Grab child nodes of the current node for richer context
+      if (nodeContext?.nodeId) {
+        const childResult = await session.run(
+          `MATCH (parent:Node {id: $nodeId})<-[:SUPPORTS|CONTRADICTS|QUALIFIES|DERIVES_FROM|ILLUSTRATES|CITES|ADDRESSES|REFERENCES]-(child:Node)
+           RETURN child ORDER BY child.id`,
+          { nodeId: getNeo4j().int(nodeContext.nodeId) }
+        );
+        if (childResult.records.length) {
+          const childSummaries = childResult.records.map((r) => {
+            const p = r.get('child').properties;
+            const txt = extractContentText(p.content);
+            return `- [${p.entity_type}] ${p.title}: ${txt.substring(0, 300)}`;
+          });
+          threadSummary += `\n\nChild nodes of current node:\n${childSummaries.join('\n')}`;
+        }
       }
     } catch (e) {
       console.error('Socratic thread fetch error:', e);
@@ -535,34 +537,23 @@ Return ONLY valid JSON (no markdown fencing):
   "nodeFromAnswer": null or { "type": "EVIDENCE|CONTEXT|SYNTHESIS|EXAMPLE|COUNTERPOINT", "title": "short title", "content": "the insight" }
 }`;
 
+    // Build message list: system prompt + history + current answer
+    // Note: gemini.ts convertMessages() handles role alternation & user-first requirements
     const llmMessages: { role: string; content: string }[] = [{ role: 'system', content: systemPrompt }];
 
-    // Gemini requires: first non-system message must be 'user', roles must alternate.
-    // History comes as [{role:'assistant', content:q}, {role:'user', content:a}, ...].
-    // We prepend a user starter message, then replay history, then add currentAnswer.
-    llmMessages.push({
-      role: 'user',
-      content: '(Starting a new Socratic dialogue. Please ask the first question.)',
-    });
-
-    // Replay history — merge consecutive same-role messages to keep alternation valid
+    // Replay history (entries are { role, content } pairs from the frontend)
     for (const h of history) {
-      const last = llmMessages[llmMessages.length - 1];
-      if (last && last.role === h.role) {
-        last.content += '\n\n' + h.content;
-      } else {
-        llmMessages.push({ role: h.role, content: h.content });
-      }
+      llmMessages.push({ role: h.role, content: h.content });
     }
 
-    // Add the new answer (if provided)
+    // Add currentAnswer only if it's not already the last message in history
     if (currentAnswer) {
-      const last = llmMessages[llmMessages.length - 1];
-      if (last && last.role === 'user') {
-        last.content += '\n\n' + currentAnswer;
-      } else {
+      const last = history[history.length - 1];
+      if (!last || last.role !== 'user' || last.content !== currentAnswer) {
         llmMessages.push({ role: 'user', content: currentAnswer });
       }
+    } else if (history.length === 0) {
+      llmMessages.push({ role: 'user', content: '(Starting a new Socratic dialogue. Please ask the first question.)' });
     }
 
     try {
@@ -600,20 +591,20 @@ Return ONLY valid JSON (no markdown fencing):
 );
 
 /* ──────────────────────────────────────────────────────────────────────────────
-   GET /threads/:threadId/socratic-history — Retrieve persisted Socratic history
+   GET /nodes/:nodeId/socratic-history — Retrieve persisted Socratic history for a node
    ────────────────────────────────────────────────────────────────────────────── */
 router.get(
-  '/threads/:threadId/socratic-history',
+  '/nodes/:nodeId/socratic-history',
   requireAuth,
   withSession(async (req, res) => {
-    const { threadId } = req.params;
+    const { nodeId } = req.params;
     const session = req.neo4jSession!;
 
     try {
       const result = await session.run(
-        `MATCH (t:Thread {id: $id})
-         RETURN t.socratic_history AS history`,
-        { id: getNeo4j().int(Number(threadId)) }
+        `MATCH (n:Node {id: $id})
+         RETURN n.socratic_history AS history`,
+        { id: getNeo4j().int(Number(nodeId)) }
       );
 
       let history: ChatMessage[] = [];
@@ -637,22 +628,22 @@ router.get(
 );
 
 /* ──────────────────────────────────────────────────────────────────────────────
-   PUT /threads/:threadId/socratic-history — Save Socratic history
+   PUT /nodes/:nodeId/socratic-history — Save Socratic history for a node
    ────────────────────────────────────────────────────────────────────────────── */
 router.put(
-  '/threads/:threadId/socratic-history',
+  '/nodes/:nodeId/socratic-history',
   requireAuth,
   withSession(async (req, res) => {
-    const { threadId } = req.params;
+    const { nodeId } = req.params;
     const { history = [] } = req.body;
     const session = req.neo4jSession!;
 
     try {
       await session.run(
-        `MATCH (t:Thread {id: $id})
-         SET t.socratic_history = $history`,
+        `MATCH (n:Node {id: $id})
+         SET n.socratic_history = $history`,
         {
-          id: getNeo4j().int(Number(threadId)),
+          id: getNeo4j().int(Number(nodeId)),
           history: JSON.stringify(history),
         }
       );

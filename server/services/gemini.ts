@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, type Content, type GenerateContentStreamResult } from '@google/generative-ai';
+import OpenAI from 'openai';
 import config from '../config.js';
 
 // ── Gemini client singleton ─────────────────────────────────────────────────
@@ -75,9 +76,13 @@ interface EmbeddingResponse {
 
 class GeminiCompat {
   private genAI: GoogleGenerativeAI;
+  private openai: OpenAI | null = null;
 
   constructor(opts?: { apiKey?: string; timeout?: number }) {
     this.genAI = getGenAI(opts?.apiKey);
+    if (config.openai.apiKey) {
+      this.openai = new OpenAI({ apiKey: config.openai.apiKey });
+    }
   }
 
   /** Check if an error is a rate-limit (429) or resource-exhausted error */
@@ -93,8 +98,12 @@ class GeminiCompat {
   /**
    * Try calling `fn` with each model in the cascade until one succeeds.
    * Only retries on rate-limit errors; other errors are thrown immediately.
+   * If all Gemini models are exhausted and openAiFallback is provided, calls it.
    */
-  private async _withFallback<T>(fn: (modelName: string) => Promise<T>): Promise<T> {
+  private async _withFallback<T>(
+    fn: (modelName: string) => Promise<T>,
+    openAiFallback?: () => Promise<T>,
+  ): Promise<T> {
     const cascade = config.gemini.modelCascade;
     let lastError: unknown;
     for (const modelName of cascade) {
@@ -109,7 +118,17 @@ class GeminiCompat {
         throw err; // non-rate-limit error — don't retry
       }
     }
-    throw lastError; // all models exhausted
+    // All Gemini models exhausted — try OpenAI if available
+    if (openAiFallback) {
+      try {
+        console.warn('[gemini] All models exhausted, falling back to OpenAI…');
+        return await openAiFallback();
+      } catch (err) {
+        console.error('[openai] Fallback also failed:', err);
+        throw err;
+      }
+    }
+    throw lastError; // all models exhausted, no fallback
   }
 
   chat = {
@@ -131,6 +150,27 @@ class GeminiCompat {
           generationConfig.responseMimeType = 'application/json';
         }
 
+        // OpenAI fallback: use raw messages (OpenAI handles system/user/assistant natively)
+        const openAiFallback = this.openai ? async () => {
+          const oaiParams: Record<string, unknown> = {
+            model: config.openai.fallbackModel,
+            messages: params.messages,
+            temperature: params.temperature,
+          };
+          if (params.max_tokens) oaiParams.max_tokens = params.max_tokens;
+          if (params.response_format) oaiParams.response_format = params.response_format;
+
+          if (params.stream) {
+            const stream = await this.openai!.chat.completions.create({ ...oaiParams, stream: true } as any);
+            return this._wrapOpenAIStream(stream);
+          }
+
+          const result = await this.openai!.chat.completions.create(oaiParams as any);
+          return {
+            choices: [{ message: { content: result.choices[0]?.message?.content || '', role: 'assistant' }, index: 0, finish_reason: 'stop' }],
+          };
+        } : undefined;
+
         return this._withFallback(async (modelName) => {
           const model = this.genAI.getGenerativeModel({
             model: modelName,
@@ -148,7 +188,7 @@ class GeminiCompat {
           return {
             choices: [{ message: { content: text, role: 'assistant' }, index: 0, finish_reason: 'stop' }],
           };
-        });
+        }, openAiFallback);
       },
     },
   };
@@ -198,6 +238,17 @@ class GeminiCompat {
       };
     },
   };
+
+  private async *_wrapOpenAIStream(
+    stream: AsyncIterable<any>
+  ): AsyncIterable<StreamChunk> {
+    for await (const chunk of stream) {
+      const content = chunk.choices?.[0]?.delta?.content;
+      if (content) {
+        yield { choices: [{ delta: { content }, index: 0 }] };
+      }
+    }
+  }
 
   private async *_wrapStream(
     stream: AsyncIterable<{ text: () => string }>

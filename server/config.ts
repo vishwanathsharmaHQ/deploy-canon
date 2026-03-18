@@ -37,6 +37,11 @@ const config = {
     maxEmbeddingChars: 8_000,
   },
 
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY || '',
+    fallbackModel: 'gpt-4o-mini',
+  },
+
   vapid: {
     publicKey: process.env.VAPID_PUBLIC_KEY!,
     privateKey: process.env.VAPID_PRIVATE_KEY!,

@@ -661,16 +661,17 @@ export const api = {
     }, 'Socratic request failed');
   },
 
-  async getSocraticHistory(threadId: number): Promise<SocraticHistoryEntry[]> {
-    return fetchWithAuth<SocraticHistoryEntry[]>(
-      `${API_BASE_URL}/threads/${threadId}/socratic-history`,
+  async getSocraticHistory(nodeId: number): Promise<SocraticHistoryEntry[]> {
+    const res = await fetchWithAuth<{ history: SocraticHistoryEntry[] }>(
+      `${API_BASE_URL}/nodes/${nodeId}/socratic-history`,
       { headers: authHeaders() },
       'Failed to load socratic history',
     );
+    return res.history || [];
   },
 
-  async saveSocraticHistory(threadId: number, history: SocraticHistoryEntry[]): Promise<{ ok: boolean }> {
-    return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/socratic-history`, {
+  async saveSocraticHistory(nodeId: number, history: SocraticHistoryEntry[]): Promise<{ ok: boolean }> {
+    return fetchWithAuth(`${API_BASE_URL}/nodes/${nodeId}/socratic-history`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify({ history }),
