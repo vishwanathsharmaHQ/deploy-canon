@@ -537,10 +537,9 @@ Return ONLY valid JSON (no markdown fencing):
 
     const llmMessages: { role: string; content: string }[] = [{ role: 'system', content: systemPrompt }];
 
-    // Replay history
+    // Replay history (entries are { role, content } pairs from the frontend)
     for (const h of history) {
-      llmMessages.push({ role: 'assistant', content: h.question });
-      llmMessages.push({ role: 'user', content: h.answer });
+      llmMessages.push({ role: h.role, content: h.content });
     }
 
     if (currentAnswer) {
