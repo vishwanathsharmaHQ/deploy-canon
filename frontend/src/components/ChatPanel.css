@@ -163,7 +163,6 @@
 .cp-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 0 24px;
   height: 52px;
   flex-shrink: 0;
@@ -171,11 +170,73 @@
   background: #1a1a1a;
 }
 
+.cp-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .cp-title {
   font-size: 0.9rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.8);
   letter-spacing: 0.02em;
+}
+
+/* ── Chat-only toggle ── */
+.cp-chat-only-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+.cp-chat-only-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cp-chat-only-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.cp-toggle-slider {
+  width: 32px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.cp-toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transition: transform 0.2s, background 0.2s;
+}
+
+.cp-chat-only-toggle input:checked + .cp-toggle-slider {
+  background: #00ff9d33;
+}
+
+.cp-chat-only-toggle input:checked + .cp-toggle-slider::after {
+  transform: translateX(14px);
+  background: #00ff9d;
 }
 
 /* API key controls */

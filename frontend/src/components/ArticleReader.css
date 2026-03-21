@@ -429,6 +429,20 @@
   margin: 0 auto;
 }
 
+.ar-canvas-container {
+  margin-top: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  overflow: hidden;
+  height: 500px;
+}
+
+.ar-action-btn--active {
+  background: rgba(0, 255, 157, 0.12) !important;
+  border-color: #00ff9d !important;
+  color: #00ff9d !important;
+}
+
 .ar-title {
   font-size: clamp(1.8rem, 4vw, 2.6rem);
   font-weight: 700;

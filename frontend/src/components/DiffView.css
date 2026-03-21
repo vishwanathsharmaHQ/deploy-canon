@@ -1,0 +1,68 @@
+.dv-container {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 300px;
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+
+.dv-line {
+  display: flex;
+  padding: 1px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dv-prefix {
+  flex-shrink: 0;
+  width: 16px;
+  color: rgba(255, 255, 255, 0.3);
+  user-select: none;
+}
+
+.dv-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.dv-added {
+  background: rgba(0, 255, 157, 0.08);
+  border-left: 3px solid #00ff9d;
+}
+.dv-added .dv-prefix { color: #00ff9d; }
+.dv-added .dv-text { color: #c8ffe6; }
+
+.dv-removed {
+  background: rgba(239, 83, 80, 0.08);
+  border-left: 3px solid #ef5350;
+}
+.dv-removed .dv-prefix { color: #ef5350; }
+.dv-removed .dv-text { color: #ffc8c7; text-decoration: line-through; opacity: 0.7; }
+
+.dv-unchanged {
+  border-left: 3px solid transparent;
+}
+.dv-unchanged .dv-text { color: rgba(255, 255, 255, 0.4); }
+
+.dv-no-changes {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.8rem;
+  font-style: italic;
+  padding: 8px 0;
+}
+
+.dv-container::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.dv-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dv-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}

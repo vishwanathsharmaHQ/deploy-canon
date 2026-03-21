@@ -311,7 +311,7 @@ Return ONLY valid JSON (no markdown fencing) in this exact format:
   "topicShift": true/false,
   "newThreadTitle": "short title if topic shift, else empty string",
   "newThreadDescription": "1-2 sentence description if topic shift, else empty string",
-  "proposedUpdate": null or { "nodeId": <number>, "title": "...", "description": "...", "content": "..." },
+  "proposedUpdate": null or { "nodeId": <number>, "title": "updated title", "description": "brief summary of what changed", "content": "THE FULL UPDATED CONTENT that should replace the current node body — include ALL content, not just the changed parts" },
   "nodes": [
     {
       "type": "claim|evidence|source|context|example|counterpoint|synthesis|question|note",
@@ -344,7 +344,12 @@ Additional rules:
 - Each node's content should be self-contained and meaningful.
 - Only include nodes that add real knowledge value — skip trivial/filler.
 - If the reply is a simple acknowledgment or clarification, return an empty nodes array.
-- If the question is about an existing node (nodeContext provided), and the reply suggests updating that node, set proposedUpdate with the updated fields.
+- If the question is about an existing node (nodeContext provided), PREFER proposedUpdate over creating new child nodes when:
+  * The user is discussing, refining, or iterating on the node's content (e.g. "can you expand on this", "add X to this", "rewrite this section", "update this with...")
+  * The reply refines, expands, restructures, or improves the existing node content
+  * The conversation is clearly about evolving THIS node rather than adding separate supporting evidence
+  Set proposedUpdate with the nodeId from nodeContext. The "content" field MUST contain the COMPLETE updated text for the node (not a summary or diff — the full replacement content that incorporates both the existing content and new additions). The "description" field should briefly explain what was changed.
+  Only create child nodes INSTEAD of proposedUpdate when the reply introduces genuinely separate supporting facts, sources, or counterpoints that belong as their own nodes.
 - If the conversation mentions YouTube videos or video URLs, include them as "source" nodes. Put the full YouTube URL in the content field as a markdown link so it can be embedded.`;
 
     const extractionMessages = [

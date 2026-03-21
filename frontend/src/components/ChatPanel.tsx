@@ -5,6 +5,8 @@ import { NODE_TYPE_COLORS, ENTITY_TYPE_LABELS, THREAD_TYPES } from '../constants
 import { relativeDate } from '../utils/dates';
 import { createMdComponents } from '../utils/markdown';
 import { useChatStream } from '../hooks/useChatStream';
+import DiffView from './DiffView';
+import { contentToPlainText } from '../utils/textExtract';
 import type { ChatMessage } from '../hooks/useChatStream';
 import type { User, NodeTypeName, ProposedNode } from '../types';
 import './ChatPanel.css';
@@ -42,6 +44,7 @@ interface ProposedUpdate {
   nodeId: number;
   title: string;
   description: string;
+  content: string;
 }
 
 interface ChatPanelProps {
@@ -57,6 +60,9 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCreated, onThreadCreated, articleContext, onProposedUpdate, defaultSidebarCollapsed = false, currentUser, onAuthRequired }: ChatPanelProps) {
+  const [input, setInput] = useState('');
+  const [chatOnly, setChatOnly] = useState(false);
+
   const {
     messages,
     setMessages,
@@ -72,9 +78,8 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
     selectedThreadId,
     articleContext,
     onThreadCreated,
+    chatOnly,
   });
-
-  const [input, setInput] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => defaultSidebarCollapsed || window.innerWidth <= 768);
   const [excludedNodes, setExcludedNodes] = useState<Record<number, Set<number>>>({}); // { [msgIndex]: Set<nodeIndex> }
   const [acceptingIndex, setAcceptingIndex] = useState<number | null>(null);
@@ -264,7 +269,18 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
       {/* ── Main chat area ── */}
       <div className="cp-main">
         <div className="cp-header">
-          <span className="cp-title">Research Chat</span>
+          <div className="cp-header-left">
+            <span className="cp-title">Research Chat</span>
+            <label className="cp-chat-only-toggle" title={chatOnly ? 'Chat only — no knowledge extraction' : 'Knowledge extraction enabled'}>
+              <span className="cp-chat-only-label">{chatOnly ? 'Chat' : 'Extract'}</span>
+              <input
+                type="checkbox"
+                checked={!chatOnly}
+                onChange={() => setChatOnly(v => !v)}
+              />
+              <span className="cp-toggle-slider" />
+            </label>
+          </div>
         </div>
 
         <div className="cp-messages" ref={messagesContainerRef}>
@@ -329,7 +345,7 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                           <span className="cp-dot" />
                           <span className="cp-dot" />
                           <span className="cp-dot" />
-                          <span className="cp-processing-label">Extracting knowledge…</span>
+                          <span className="cp-processing-label">{chatOnly ? 'Processing…' : 'Extracting knowledge…'}</span>
                         </div>
                       )}
 
@@ -372,41 +388,49 @@ export default function ChatPanel({ selectedThreadId, initialThreadId, onNodesCr
                         <div className="cp-update-applied">✓ Update applied</div>
                       )}
 
-                      {msg.proposedUpdate && onProposedUpdate && !msg.updateApplied && (
-                        <div className="cp-proposed-update">
-                          <div className="cp-proposed-update-label">
-                            ✦ Proposed update to <em>{msg.proposedUpdate.title}</em>
+                      {msg.proposedUpdate && onProposedUpdate && !msg.updateApplied && (() => {
+                        const oldText = articleContext?.content
+                          ? contentToPlainText(articleContext.content)
+                          : '';
+                        const newText = contentToPlainText(msg.proposedUpdate.content || msg.proposedUpdate.description);
+                        return (
+                          <div className="cp-proposed-update">
+                            <div className="cp-proposed-update-label">
+                              Proposed update to <em>{msg.proposedUpdate.title}</em>
+                            </div>
+                            {oldText ? (
+                              <DiffView oldText={oldText} newText={newText} />
+                            ) : (
+                              <div className="cp-proposed-update-preview">{msg.proposedUpdate.description}</div>
+                            )}
+                            <div className="cp-proposed-update-actions">
+                              <button
+                                className="cp-accept-btn"
+                                onClick={async () => {
+                                  try {
+                                    await onProposedUpdate(msg.proposedUpdate!);
+                                    setMessages(prev => prev.map((m, mi) =>
+                                      mi === i ? { ...m, proposedUpdate: null, updateApplied: true } : m
+                                    ));
+                                  } catch (e) {
+                                    console.error('Failed to apply update:', e);
+                                  }
+                                }}
+                              >
+                                Accept
+                              </button>
+                              <button
+                                className="cp-dismiss-btn"
+                                onClick={() => setMessages(prev => prev.map((m, mi) =>
+                                  mi === i ? { ...m, proposedUpdate: null } : m
+                                ))}
+                              >
+                                Dismiss
+                              </button>
+                            </div>
                           </div>
-                          <div className="cp-proposed-update-preview">
-                            {msg.proposedUpdate.description}
-                          </div>
-                          <div className="cp-proposed-update-actions">
-                            <button
-                              className="cp-accept-btn"
-                              onClick={async () => {
-                                try {
-                                  await onProposedUpdate(msg.proposedUpdate!);
-                                  setMessages(prev => prev.map((m, mi) =>
-                                    mi === i ? { ...m, proposedUpdate: null, updateApplied: true } : m
-                                  ));
-                                } catch (e) {
-                                  console.error('Failed to apply update:', e);
-                                }
-                              }}
-                            >
-                              Accept
-                            </button>
-                            <button
-                              className="cp-dismiss-btn"
-                              onClick={() => setMessages(prev => prev.map((m, mi) =>
-                                mi === i ? { ...m, proposedUpdate: null } : m
-                              ))}
-                            >
-                              Dismiss
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {msg.proposedNodes && !msg.nodesAccepted && (() => {
                         const excluded = excludedNodes[i] || new Set();

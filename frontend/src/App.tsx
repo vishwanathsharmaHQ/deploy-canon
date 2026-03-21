@@ -46,6 +46,7 @@ function App() {
     showThreadDropdown, setShowThreadDropdown,
     searchQuery, setSearchQuery, isSearchLoading, setIsSearchLoading,
     articlePage, setArticlePage,
+    articleNodeId, setArticleNodeId,
   } = useUIStore()
   const {
     threads, selectedThreadId, setSelectedThreadId,
@@ -378,7 +379,7 @@ function App() {
         ) : view === 'sequence' && threadToShow ? (
           <SequenceEditor thread={threadToShow} onDone={() => setView('article')} />
         ) : view === 'canvas' && threadToShow ? (
-          <ThreadCanvas key={threadToShow.id} thread={threadToShow} />
+          <ThreadCanvas key={`${threadToShow.id}-${articleNodeId ?? 'thread'}`} thread={threadToShow} nodeId={articleNodeId} />
         ) : view === 'global' ? (
           <ReactFlowProvider>
             <GlobalGraphView onSelectThread={(tid: number) => { setSelectedThreadId(tid); setView('graph') }} />
@@ -424,6 +425,7 @@ function App() {
             onAuthRequired={() => setShowAuthModal(true)}
             savedPage={articlePage[threadToShow.id]}
             onPageChange={(page) => setArticlePage(threadToShow.id, page)}
+            onNodeChange={setArticleNodeId}
             onContentChange={(html: string) => {
               setThreads(threads.map(t =>
                 t.id === threadToShow.id ? { ...t, content: html } : t

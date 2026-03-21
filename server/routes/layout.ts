@@ -69,6 +69,37 @@ router.delete('/:threadId/canvas', requireAuth, withSession(async (req, res) => 
   res.json({});
 }));
 
+// ── Node canvas ───────────────────────────────────────────────────────────────
+
+router.put('/:threadId/nodes/:nodeId/canvas', requireAuth, withSession(async (req, res) => {
+  const nodeId = parseInt(req.params.nodeId);
+  const { canvas } = req.body;
+  await req.neo4jSession!.run(
+    `MATCH (n:Node {id: $nodeId}) SET n.canvas = $canvas`,
+    { nodeId: getNeo4j().int(nodeId), canvas: JSON.stringify(canvas) }
+  );
+  res.json({ canvas });
+}));
+
+router.get('/:threadId/nodes/:nodeId/canvas', withSession(async (req, res) => {
+  const nodeId = parseInt(req.params.nodeId);
+  const result = await req.neo4jSession!.run(
+    'MATCH (n:Node {id: $nodeId}) RETURN n.canvas AS canvas',
+    { nodeId: getNeo4j().int(nodeId) }
+  );
+  const canvasStr = result.records[0]?.get('canvas');
+  res.json(canvasStr ? JSON.parse(canvasStr) : null);
+}));
+
+router.delete('/:threadId/nodes/:nodeId/canvas', requireAuth, withSession(async (req, res) => {
+  const nodeId = parseInt(req.params.nodeId);
+  await req.neo4jSession!.run(
+    'MATCH (n:Node {id: $nodeId}) REMOVE n.canvas',
+    { nodeId: getNeo4j().int(nodeId) }
+  );
+  res.json({});
+}));
+
 // ── Thread content ────────────────────────────────────────────────────────────
 
 router.put('/:threadId/content', requireAuth, withSession(async (req, res) => {

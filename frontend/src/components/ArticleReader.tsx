@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import Link from '@tiptap/extension-link';
 import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
+import lowlight from '../utils/lowlight';
 import ChatPanel from './ChatPanel';
 import SocraticPanel from './SocraticPanel';
 import EditorToolbar from './EditorToolbar';
@@ -25,6 +27,7 @@ import {
 import { createMdComponents } from '../utils/markdown';
 import type { Thread, ThreadNode, NodeTypeName, User, Annotation } from '../types';
 import './ArticleReader.css';
+import './EditorHighlight.css';
 
 const footnoteMdComponents = createMdComponents('ar-footnote-youtube');
 
@@ -34,6 +37,7 @@ interface ProposedUpdate {
   nodeId: number;
   title: string;
   description: string;
+  content: string;
 }
 
 interface ArticleReaderProps {
@@ -50,9 +54,10 @@ interface ArticleReaderProps {
   onPageChange?: (page: number) => void;
   onTitleChanged?: (threadId: number, title: string) => void;
   onThreadDeleted?: (threadId: number) => void;
+  onNodeChange?: (nodeId: number | null) => void;
 }
 
-const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired, savedPage, onPageChange, onTitleChanged, onThreadDeleted }) => {
+const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, onContentChange, onUpdateNode, onNodesCreated, onThreadCreated, onViewInGraph, currentUser, onAuthRequired, savedPage, onPageChange, onTitleChanged, onThreadDeleted, onNodeChange }) => {
   const [currentPage, setCurrentPageRaw] = useState(savedPage ?? 0);
   const [focusedSecondaryNode, setFocusedSecondaryNode] = useState<ThreadNode | null>(null);
   const setCurrentPage = useCallback((v: number | ((prev: number) => number)) => {
@@ -153,6 +158,17 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
     orderedNodes.filter(n => relChildIds.has(n.id)).forEach(addChild);
     return children;
   }, [orderedNodes, thread.relationships]);
+
+  // Emit current node ID when page or focused node changes
+  useEffect(() => {
+    if (focusedSecondaryNode) {
+      onNodeChange?.(focusedSecondaryNode.id);
+    } else if (currentPage > 0 && rootNodes[currentPage - 1]) {
+      onNodeChange?.(rootNodes[currentPage - 1].id);
+    } else {
+      onNodeChange?.(null);
+    }
+  }, [currentPage, focusedSecondaryNode, rootNodes, onNodeChange]);
 
   // If navigated into a supporting node, show its children
   const drilledChildren = useMemo(() => {
@@ -396,7 +412,8 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
 
   const nodeEditEditor = useEditor({
     extensions: [
-      StarterKit.configure({ link: false }),
+      StarterKit.configure({ link: false, codeBlock: false }),
+      CodeBlockLowlight.configure({ lowlight }),
       Link.configure({ openOnClick: false }),
       Youtube.configure({ width: 640, height: 360 }),
       Placeholder.configure({ placeholder: 'Edit content...' }),
@@ -817,6 +834,15 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
   // Context passed to chat so it knows what article the user is viewing
   const currentArticleContext = (() => {
     if (loading) return null;
+    // If a child node is focused, use that as context
+    if (focusedSecondaryNode) {
+      return {
+        nodeId: focusedSecondaryNode.id,
+        nodeType: getNodeType(focusedSecondaryNode),
+        title: focusedSecondaryNode.title || `Node ${focusedSecondaryNode.id}`,
+        content: focusedSecondaryNode.content || '',
+      };
+    }
     if (currentPage === 0) {
       // Thread overview — provide thread-level context
       const nodeSummary = orderedNodes.slice(0, 15).map(n => `[${getNodeType(n)}] ${n.title || 'Untitled'}`).join('; ');
@@ -849,22 +875,24 @@ const ArticleReader: React.FC<ArticleReaderProps> = ({ thread, initialNodeId, on
       try { existingParsed = JSON.parse(node.content); } catch (e) { /* ignore */ }
     }
 
+    const body = update.content || update.description;
+
     let newContent: string;
     const ntLower = nodeType.toLowerCase();
     if (ntLower === 'claim') {
       newContent = JSON.stringify({
         title: update.title,
-        description: update.description,
+        description: body,
         keywords: existingParsed.keywords || [],
       });
     } else if (ntLower === 'example') {
-      newContent = JSON.stringify({ title: update.title, description: update.description });
+      newContent = JSON.stringify({ title: update.title, description: body });
     } else if (ntLower === 'counterpoint') {
-      newContent = JSON.stringify({ argument: update.title, explanation: update.description });
+      newContent = JSON.stringify({ argument: update.title, explanation: body });
     } else if (ntLower === 'evidence') {
-      newContent = JSON.stringify({ point: update.description, source: existingParsed.source || '' });
+      newContent = JSON.stringify({ point: body, source: existingParsed.source || '' });
     } else {
-      newContent = update.description;
+      newContent = body;
     }
 
     try {

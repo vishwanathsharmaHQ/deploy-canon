@@ -355,6 +355,18 @@ export const api = {
     }, 'Failed to delete thread canvas');
   },
 
+  async saveNodeCanvas(threadId: number, nodeId: number, canvas: Record<string, unknown>): Promise<{ success: boolean }> {
+    return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}/canvas`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ canvas }),
+    }, 'Failed to save node canvas');
+  },
+
+  async loadNodeCanvas(threadId: number, nodeId: number): Promise<Record<string, unknown> | null> {
+    return fetchWithAuthNullable(`${API_BASE_URL}/threads/${threadId}/nodes/${nodeId}/canvas`);
+  },
+
   async updateThread(threadId: number, updates: { thread_type?: string; title?: string; description?: string }): Promise<{ success: boolean }> {
     return fetchWithAuth(`${API_BASE_URL}/threads/${threadId}`, {
       method: 'PATCH',

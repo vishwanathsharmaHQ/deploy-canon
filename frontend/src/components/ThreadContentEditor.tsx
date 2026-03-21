@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import Link from '@tiptap/extension-link';
 import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
+import lowlight from '../utils/lowlight';
 import ReactMarkdown from 'react-markdown';
 import { sanitizeHtml } from '../utils/sanitize';
 import { embedYouTubeLinks } from '../utils/articleContent';
@@ -33,7 +35,8 @@ const ThreadContentEditor: React.FC<ThreadContentEditorProps & { onTitleChanged?
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ link: false }),
+      StarterKit.configure({ link: false, codeBlock: false }),
+      CodeBlockLowlight.configure({ lowlight }),
       Link.configure({ openOnClick: false }),
       Youtube.configure({ width: 640, height: 360 }),
       Placeholder.configure({ placeholder: 'Write your thread notes here...' }),

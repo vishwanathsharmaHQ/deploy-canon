@@ -1,13 +1,16 @@
 import React, { useState, useCallback } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import Link from '@tiptap/extension-link';
 import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
+import lowlight from '../utils/lowlight';
 import EditorToolbar from './EditorToolbar';
 import { NODE_TYPES, RELATIONSHIP_TYPES, ENTITY_TYPE_LABELS } from '../constants';
 import type { Thread, NodeTypeName } from '../types';
 import './NodeEditor.css';
+import './EditorHighlight.css';
 
 const NODE_TYPE_OPTIONS = NODE_TYPES.map((label, value) => ({ value, label, displayLabel: ENTITY_TYPE_LABELS[label] || label }));
 
@@ -95,7 +98,8 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ thread, selectedNode, onSubmit,
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ link: false }),
+      StarterKit.configure({ link: false, codeBlock: false }),
+      CodeBlockLowlight.configure({ lowlight }),
       Link.configure({ openOnClick: false }),
       Youtube.configure({ width: 640, height: 360 }),
       Placeholder.configure({

@@ -1,8 +1,71 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
+import hljs from 'highlight.js/lib/core';
 import { sanitizeHtml } from './sanitize';
 import { NODE_TYPES, NODE_TYPE_COLORS, YT_REGEX } from '../constants';
+import { createMdComponents } from './markdown';
 import type { NodeTypeName } from '../types';
+
+// Register languages (mirrors CodeBlock.tsx registrations)
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+import css from 'highlight.js/lib/languages/css';
+import json from 'highlight.js/lib/languages/json';
+import bash from 'highlight.js/lib/languages/bash';
+import xml from 'highlight.js/lib/languages/xml';
+import sql from 'highlight.js/lib/languages/sql';
+import java from 'highlight.js/lib/languages/java';
+import go from 'highlight.js/lib/languages/go';
+import rust from 'highlight.js/lib/languages/rust';
+import cpp from 'highlight.js/lib/languages/cpp';
+import yaml from 'highlight.js/lib/languages/yaml';
+
+if (!hljs.getLanguage('javascript')) {
+  hljs.registerLanguage('javascript', javascript);
+  hljs.registerLanguage('js', javascript);
+  hljs.registerLanguage('typescript', typescript);
+  hljs.registerLanguage('ts', typescript);
+  hljs.registerLanguage('python', python);
+  hljs.registerLanguage('py', python);
+  hljs.registerLanguage('css', css);
+  hljs.registerLanguage('json', json);
+  hljs.registerLanguage('bash', bash);
+  hljs.registerLanguage('sh', bash);
+  hljs.registerLanguage('html', xml);
+  hljs.registerLanguage('xml', xml);
+  hljs.registerLanguage('sql', sql);
+  hljs.registerLanguage('java', java);
+  hljs.registerLanguage('go', go);
+  hljs.registerLanguage('rust', rust);
+  hljs.registerLanguage('cpp', cpp);
+  hljs.registerLanguage('c', cpp);
+  hljs.registerLanguage('yaml', yaml);
+  hljs.registerLanguage('yml', yaml);
+}
+
+const mdComponents = createMdComponents('ar-content-youtube');
+
+/** Apply highlight.js to <pre><code> blocks in HTML strings */
+function highlightCodeInHtml(html: string): string {
+  return html.replace(
+    /<pre><code(?:\s+class="language-(\w+)")?>([\s\S]*?)<\/code><\/pre>/gi,
+    (_match, lang, code) => {
+      // Decode HTML entities so hljs sees real code
+      const decoded = code
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      let highlighted: string;
+      if (lang && hljs.getLanguage(lang)) {
+        highlighted = hljs.highlight(decoded, { language: lang }).value;
+      } else {
+        highlighted = hljs.highlightAuto(decoded).value;
+      }
+      const langLabel = lang ? `<div class="code-block-header"><span class="code-block-lang">${lang}</span></div>` : '';
+      return `<div class="code-block-wrapper">${langLabel}<pre class="code-block-pre"><code class="hljs${lang ? ` language-${lang}` : ''}">${highlighted}</code></pre></div>`;
+    }
+  );
+}
 
 // Lazily imported by formatNodeContent — avoid circular dep by importing at call site
 // SourceVerifyBadge is imported dynamically below
@@ -118,16 +181,42 @@ export function buildSavedContent(nodeType: string, title: string, html: string,
   }
 }
 
+// Strip HTML tags to get plain text, preserving line breaks
+const htmlToText = (html: string): string =>
+  html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?(p|div|h[1-6]|li|tr|blockquote)[\s>]/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
 // Render a string that may contain HTML or markdown.
 // TipTap / saved HTML always starts with a tag; AI content is markdown.
 export const renderHtmlOrText = (str: unknown, linkify?: (html: string) => string): React.ReactNode => {
   if (!str) return null;
   const s = String(str);
   if (s.trim().startsWith('<')) {
-    const html = linkify ? linkify(s) : s;
+    // If the HTML contains markdown code fences, strip tags and render as markdown
+    // so code blocks get syntax highlighting via CodeBlock component
+    if (s.includes('```')) {
+      const plainText = htmlToText(s);
+      return <div className="ar-markdown"><ReactMarkdown components={mdComponents as Record<string, React.ComponentType>}>{plainText}</ReactMarkdown></div>;
+    }
+    // Convert literal \n inside <p> tags to <br> so they render as line breaks
+    let fixed = s.replace(/(<p[^>]*>)([\s\S]*?)(<\/p>)/gi, (_match, open, inner, close) => {
+      if (inner.includes('\n')) {
+        return open + inner.replace(/\n/g, '<br>') + close;
+      }
+      return _match;
+    });
+    // Apply syntax highlighting to <pre><code> blocks
+    fixed = highlightCodeInHtml(fixed);
+    const html = linkify ? linkify(fixed) : fixed;
     return <div className="ar-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }} />;
   }
-  return <div className="ar-markdown"><ReactMarkdown>{s}</ReactMarkdown></div>;
+  return <div className="ar-markdown"><ReactMarkdown components={mdComponents as Record<string, React.ComponentType>}>{s}</ReactMarkdown></div>;
 };
 
 // Content renderer (for read-only node pages)
@@ -141,9 +230,10 @@ export const renderContent = (rawContent: unknown, linkify?: (html: string) => s
   }
   if (typeof text !== 'string') return <p className="ar-empty">No content available.</p>;
 
-  // Raw HTML — render directly
+  // Raw HTML — render directly (with syntax highlighting for code blocks)
   if (text.trim().startsWith('<')) {
-    const html = linkify ? linkify(text) : text;
+    const highlighted = highlightCodeInHtml(text);
+    const html = linkify ? linkify(highlighted) : highlighted;
     return <div className="ar-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }} />;
   }
 

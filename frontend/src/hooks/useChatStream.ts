@@ -27,6 +27,7 @@ interface UseChatStreamOptions {
   selectedThreadId: number | null;
   articleContext?: Record<string, unknown> | null;
   onThreadCreated?: (threadId: number) => void;
+  chatOnly?: boolean;
 }
 
 export interface UseChatStreamReturn {
@@ -49,6 +50,7 @@ export function useChatStream({
   selectedThreadId,
   articleContext,
   onThreadCreated,
+  chatOnly,
 }: UseChatStreamOptions): UseChatStreamReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -143,8 +145,10 @@ export function useChatStream({
           const streamedReply = data.reply || accReplyRef.current;
           const streamedCitations = data.citations || [];
 
-          // Phase 2: extraction — returns proposed nodes (not yet saved)
           let extractData: ChatExtractResult = { citations: streamedCitations, proposedNodes: [], threadId: activeThreadIdRef.current, newThread: null, proposedUpdate: null };
+
+          // Phase 2: extraction — always run to get proposed updates;
+          // in chat-only mode, suppress new nodes but still surface article updates
           try {
             extractData = await api.chatExtract({
               message: userMsg,
@@ -157,7 +161,7 @@ export function useChatStream({
             console.error('Extraction failed:', extractErr);
           }
 
-          // Finalize the assistant message with proposed nodes (not yet saved)
+          // Finalize the assistant message — in chat-only mode, hide proposed nodes but keep proposed updates
           setMessages(prev => {
             const updated = [...prev];
             const msg = updated[assistantIndex];
@@ -167,9 +171,9 @@ export function useChatStream({
                 streaming: false,
                 processing: false,
                 citations: extractData.citations || streamedCitations,
-                proposedNodes: extractData.proposedNodes?.length > 0 ? extractData.proposedNodes : null,
+                proposedNodes: chatOnly ? null : (extractData.proposedNodes?.length > 0 ? extractData.proposedNodes : null),
                 proposedThreadId: extractData.threadId ?? undefined,
-                newThread: extractData.newThread || null,
+                newThread: chatOnly ? null : (extractData.newThread || null),
                 proposedUpdate: extractData.proposedUpdate || null,
               };
             }
@@ -230,7 +234,7 @@ export function useChatStream({
       });
       setLoading(false);
     }
-  }, [loading, messages, loadChatHistory, onThreadCreated, articleContext]);
+  }, [loading, messages, loadChatHistory, onThreadCreated, articleContext, chatOnly]);
 
   return {
     messages,

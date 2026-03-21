@@ -1,0 +1,44 @@
+/* ── highlight.js syntax theme for TipTap editors ── */
+.ProseMirror pre code .hljs-comment,
+.ProseMirror pre code .hljs-quote { color: #8b949e; font-style: italic; }
+
+.ProseMirror pre code .hljs-keyword,
+.ProseMirror pre code .hljs-selector-tag,
+.ProseMirror pre code .hljs-type { color: #ff7b72; }
+
+.ProseMirror pre code .hljs-string,
+.ProseMirror pre code .hljs-addition { color: #a5d6ff; }
+
+.ProseMirror pre code .hljs-number,
+.ProseMirror pre code .hljs-literal { color: #79c0ff; }
+
+.ProseMirror pre code .hljs-built_in,
+.ProseMirror pre code .hljs-builtin-name { color: #ffa657; }
+
+.ProseMirror pre code .hljs-function .hljs-title,
+.ProseMirror pre code .hljs-title.function_ { color: #d2a8ff; }
+
+.ProseMirror pre code .hljs-variable,
+.ProseMirror pre code .hljs-template-variable,
+.ProseMirror pre code .hljs-attr { color: #79c0ff; }
+
+.ProseMirror pre code .hljs-attribute { color: #7ee787; }
+
+.ProseMirror pre code .hljs-tag { color: #7ee787; }
+.ProseMirror pre code .hljs-name { color: #7ee787; }
+
+.ProseMirror pre code .hljs-selector-class,
+.ProseMirror pre code .hljs-selector-id { color: #d2a8ff; }
+
+.ProseMirror pre code .hljs-deletion { color: #ffa198; background: rgba(255, 129, 130, 0.1); }
+.ProseMirror pre code .hljs-addition { background: rgba(63, 185, 80, 0.1); }
+
+.ProseMirror pre code .hljs-emphasis { font-style: italic; }
+.ProseMirror pre code .hljs-strong { font-weight: 700; }
+
+.ProseMirror pre code .hljs-meta { color: #79c0ff; }
+.ProseMirror pre code .hljs-regexp { color: #a5d6ff; }
+.ProseMirror pre code .hljs-symbol { color: #ffa657; }
+
+.ProseMirror pre code .hljs-params { color: #e6edf3; }
+.ProseMirror pre code .hljs-property { color: #79c0ff; }

@@ -7,20 +7,28 @@ import './ThreadCanvas.css';
 
 interface ThreadCanvasProps {
   thread: Thread;
+  nodeId?: number | null;
 }
 
-const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
+const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread, nodeId }) => {
   const [initialData, setInitialData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingSaveRef = useRef<{ threadId: number; scene: Record<string, unknown> } | null>(null);
+  const pendingSaveRef = useRef<{ threadId: number; nodeId?: number | null; scene: Record<string, unknown> } | null>(null);
+
+  // Stable key for re-mounting when scope changes
+  const scopeKey = nodeId ? `node-${nodeId}` : `thread-${thread.id}`;
 
   // Load saved canvas data on mount
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setInitialData(null);
     (async () => {
       try {
-        const saved = await api.loadThreadCanvas(thread.id);
+        const saved = nodeId
+          ? await api.loadNodeCanvas(thread.id, nodeId)
+          : await api.loadThreadCanvas(thread.id);
         if (!cancelled) {
           setInitialData(saved);
         }
@@ -31,7 +39,7 @@ const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
       }
     })();
     return () => { cancelled = true; };
-  }, [thread.id]);
+  }, [thread.id, nodeId]);
 
   // Debounced auto-save
   const handleChange = useCallback((elements: unknown[], appState: Record<string, unknown>) => {
@@ -46,28 +54,30 @@ const ThreadCanvas: React.FC<ThreadCanvasProps> = ({ thread }) => {
         scrollY: appState.scrollY,
       },
     };
-    pendingSaveRef.current = { threadId: thread.id, scene };
+    pendingSaveRef.current = { threadId: thread.id, nodeId, scene };
     saveTimeoutRef.current = setTimeout(() => {
       pendingSaveRef.current = null;
-      api.saveThreadCanvas(thread.id, scene).catch((e: unknown) =>
-        console.error('Failed to save canvas:', e)
-      );
+      const save = nodeId
+        ? api.saveNodeCanvas(thread.id, nodeId, scene)
+        : api.saveThreadCanvas(thread.id, scene);
+      save.catch((e: unknown) => console.error('Failed to save canvas:', e));
     }, 2000);
-  }, [thread.id, loading]);
+  }, [thread.id, nodeId, loading]);
 
   // Flush pending save on unmount (don't lose data)
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (pendingSaveRef.current) {
-        const { threadId, scene } = pendingSaveRef.current;
-        api.saveThreadCanvas(threadId, scene).catch((e: unknown) =>
-          console.error('Failed to flush canvas save:', e)
-        );
+        const { threadId, nodeId: nId, scene } = pendingSaveRef.current;
+        const save = nId
+          ? api.saveNodeCanvas(threadId, nId, scene)
+          : api.saveThreadCanvas(threadId, scene);
+        save.catch((e: unknown) => console.error('Failed to flush canvas save:', e));
         pendingSaveRef.current = null;
       }
     };
-  }, []);
+  }, [scopeKey]);
 
   if (loading) {
     return (
